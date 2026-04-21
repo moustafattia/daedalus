@@ -956,6 +956,25 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
             "reason": "implementation-in-progress",
         }]
     if (
+        workflow_state in {"claude_prepublish_findings", "rework_required"}
+        and not active_pr_number
+        and internal_review
+        and internal_review.get("status") == "completed"
+        and internal_review.get("verdict") in {"PASS_WITH_FINDINGS", "REWORK"}
+        and current_head_sha
+        and (
+            actor_row.get("runtime_status") != "healthy"
+            or actor_row.get("session_action_recommendation") not in {"continue-session", "poke-session"}
+        )
+    ):
+        return [{
+            "action_type": "dispatch_implementation_turn",
+            "lane_id": lane_row.get("lane_id"),
+            "issue_number": lane_row.get("issue_number"),
+            "target_head_sha": current_head_sha,
+            "reason": "local-review-findings-need-repair",
+        }]
+    if (
         active_pr_number
         and current_head_sha
         and active_pr_head_sha
