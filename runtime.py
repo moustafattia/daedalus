@@ -1010,6 +1010,26 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
         and external_review.get("verdict") in {"PASS_WITH_FINDINGS", "REWORK"}
         and current_head_sha
         and has_actionable_repair_brief
+        and (
+            actor_row.get("runtime_status") not in {None, "", "healthy"}
+            or actor_row.get("session_action_recommendation") not in {None, "", "continue-session", "poke-session"}
+        )
+    ):
+        return [{
+            "action_type": "dispatch_implementation_turn",
+            "lane_id": lane_row.get("lane_id"),
+            "issue_number": lane_row.get("issue_number"),
+            "target_head_sha": current_head_sha,
+            "reason": "external-review-findings-open",
+        }]
+    if (
+        active_pr_number
+        and workflow_state in {"findings_open", "rework_required", "under_review"}
+        and external_review
+        and external_review.get("status") == "completed"
+        and external_review.get("verdict") in {"PASS_WITH_FINDINGS", "REWORK"}
+        and current_head_sha
+        and has_actionable_repair_brief
         and not repair_handoff_already_sent
     ):
         return [{
