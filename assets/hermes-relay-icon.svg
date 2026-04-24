@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <rect width="1024" height="1024" rx="192" fill="#0B0F14"/>
+  <rect x="80" y="80" width="864" height="864" rx="160" fill="none" stroke="#161D26" stroke-width="8"/>
+
+  <defs>
+    <marker id="arrow" markerWidth="16" markerHeight="16" refX="11" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M 0 0 L 16 8 L 0 16 Z" fill="#22D3EE"/>
+    </marker>
+  </defs>
+
+  <g stroke="#22D3EE" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M 344 312 V 712"/>
+    <path d="M 680 312 V 712"/>
+    <path d="M 228 512 H 344" marker-end="url(#arrow)"/>
+    <path d="M 344 512 H 680" marker-end="url(#arrow)"/>
+    <path d="M 680 512 H 796" marker-end="url(#arrow)"/>
+  </g>
+
+  <g fill="#22D3EE">
+    <circle cx="228" cy="512" r="26"/>
+    <circle cx="796" cy="512" r="26"/>
+    <circle cx="344" cy="312" r="20"/>
+    <circle cx="344" cy="712" r="20"/>
+    <circle cx="680" cy="312" r="20"/>
+    <circle cx="680" cy="712" r="20"/>
+  </g>
+
+  <g opacity="0.16" stroke="#22D3EE" stroke-width="10" stroke-linecap="round">
+    <path d="M 282 396 L 344 450"/>
+    <path d="M 742 628 L 680 574"/>
+  </g>
+</svg>

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hermes Relay Architecture Diagram</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+    .container { max-width: 1400px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; max-width: 1000px; }
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 1300px; display: block; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 2rem; }
+    .card { background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .cyan { background: #22d3ee; }
+    .emerald { background: #34d399; }
+    .violet { background: #a78bfa; }
+    .amber { background: #fbbf24; }
+    .rose { background: #fb7185; }
+    .orange { background: #fb923c; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>Hermes Relay Architecture</h1>
+      </div>
+      <p class="subtitle">A durable orchestration runtime around a workflow policy brain: wrapper decides semantic workflow truth, Relay owns leases, actions, retries, failures, service supervision, and operator tooling.</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1380 860">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Region boundary -->
+        <rect x="120" y="40" width="1180" height="720" rx="12" fill="rgba(251, 191, 36, 0.04)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="136" y="58" fill="#fbbf24" font-size="10" font-weight="600">Workflow deployment boundary</text>
+
+        <!-- External surfaces -->
+        <rect x="30" y="120" width="90" height="56" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="75" y="143" fill="white" font-size="11" font-weight="600" text-anchor="middle">Operator</text>
+        <text x="75" y="159" fill="#94a3b8" font-size="8.5" text-anchor="middle">CLI / slash</text>
+
+        <rect x="30" y="275" width="90" height="56" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="75" y="298" fill="white" font-size="11" font-weight="600" text-anchor="middle">GitHub</text>
+        <text x="75" y="314" fill="#94a3b8" font-size="8.5" text-anchor="middle">issues / PRs</text>
+
+        <rect x="30" y="430" width="90" height="56" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="75" y="453" fill="white" font-size="11" font-weight="600" text-anchor="middle">Codex Cloud</text>
+        <text x="75" y="469" fill="#94a3b8" font-size="8.5" text-anchor="middle">external review</text>
+
+        <!-- Plugin surface -->
+        <rect x="170" y="105" width="210" height="90" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="275" y="132" fill="white" font-size="12" font-weight="600" text-anchor="middle">Hermes Relay Plugin Surface</text>
+        <text x="275" y="152" fill="#94a3b8" font-size="9" text-anchor="middle">__init__.py + tools.py + schemas.py</text>
+        <text x="275" y="168" fill="#94a3b8" font-size="9" text-anchor="middle">/relay, doctor, shadow-report, service control</text>
+
+        <!-- systemd -->
+        <rect x="440" y="105" width="180" height="90" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="530" y="132" fill="white" font-size="12" font-weight="600" text-anchor="middle">systemd User Service</text>
+        <text x="530" y="152" fill="#94a3b8" font-size="9" text-anchor="middle">yoyopod-relay-active.service</text>
+        <text x="530" y="168" fill="#94a3b8" font-size="9" text-anchor="middle">run-active every 30s loop</text>
+
+        <!-- Relay runtime -->
+        <rect x="680" y="85" width="270" height="130" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="815" y="112" fill="white" font-size="12" font-weight="600" text-anchor="middle">Relay Runtime</text>
+        <text x="815" y="132" fill="#94a3b8" font-size="9" text-anchor="middle">runtime.py</text>
+        <text x="815" y="150" fill="#94a3b8" font-size="9" text-anchor="middle">lease refresh + ingest + derive + queue + execute</text>
+        <text x="815" y="166" fill="#94a3b8" font-size="9" text-anchor="middle">shadow mode + active mode + failure tracking</text>
+        <text x="815" y="184" fill="#94a3b8" font-size="9" text-anchor="middle">request_active_actions_for_lane / execute_requested_action</text>
+
+        <!-- Runtime state boxes -->
+        <rect x="1010" y="90" width="240" height="75" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1130" y="116" fill="white" font-size="12" font-weight="600" text-anchor="middle">Relay SQLite State</text>
+        <text x="1130" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">lanes / actors / reviews / actions / failures / leases</text>
+
+        <rect x="1010" y="185" width="240" height="75" rx="8" fill="rgba(251, 146, 60, 0.25)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="1130" y="211" fill="white" font-size="12" font-weight="600" text-anchor="middle">Event / Audit History</text>
+        <text x="1130" y="231" fill="#94a3b8" font-size="9" text-anchor="middle">relay-events.jsonl + workflow audit logs</text>
+
+        <!-- Wrapper -->
+        <rect x="250" y="305" width="320" height="140" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="410" y="334" fill="white" font-size="12" font-weight="600" text-anchor="middle">Workflow Policy Brain</text>
+        <text x="410" y="354" fill="#94a3b8" font-size="9" text-anchor="middle">scripts/yoyopod_workflow.py</text>
+        <text x="410" y="373" fill="#94a3b8" font-size="9" text-anchor="middle">build_status / reconcile / tick</text>
+        <text x="410" y="390" fill="#94a3b8" font-size="9" text-anchor="middle">dispatch_implementation_turn / dispatch_claude_review</text>
+        <text x="410" y="407" fill="#94a3b8" font-size="9" text-anchor="middle">publish_ready_pr / merge_and_promote</text>
+        <text x="410" y="424" fill="#94a3b8" font-size="9" text-anchor="middle">semantic workflow truth + nextAction derivation</text>
+
+        <!-- Wrapper projections -->
+        <rect x="650" y="335" width="250" height="80" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="775" y="362" fill="white" font-size="12" font-weight="600" text-anchor="middle">Wrapper Projections</text>
+        <text x="775" y="382" fill="#94a3b8" font-size="9" text-anchor="middle">status.json / health.json / audit.jsonl</text>
+
+        <!-- Lane-local handoff -->
+        <rect x="960" y="320" width="290" height="110" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="1105" y="347" fill="white" font-size="12" font-weight="600" text-anchor="middle">Lane-local Handoff Artifacts</text>
+        <text x="1105" y="367" fill="#94a3b8" font-size="9" text-anchor="middle">/tmp/yoyopod-issue-N/.lane-state.json</text>
+        <text x="1105" y="383" fill="#94a3b8" font-size="9" text-anchor="middle">/tmp/yoyopod-issue-N/.lane-memo.md</text>
+        <text x="1105" y="401" fill="#94a3b8" font-size="9" text-anchor="middle">durable handoff, not canonical truth</text>
+
+        <!-- Actors row -->
+        <rect x="180" y="555" width="180" height="72" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="270" y="580" fill="white" font-size="11" font-weight="600" text-anchor="middle">Internal Coder</text>
+        <text x="270" y="597" fill="#94a3b8" font-size="8.5" text-anchor="middle">Codex persistent lane session</text>
+        <text x="270" y="613" fill="#94a3b8" font-size="8.5" text-anchor="middle">implement + repair</text>
+
+        <rect x="410" y="555" width="180" height="72" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="500" y="580" fill="white" font-size="11" font-weight="600" text-anchor="middle">Internal Reviewer</text>
+        <text x="500" y="597" fill="#94a3b8" font-size="8.5" text-anchor="middle">Claude local unpublished gate</text>
+        <text x="500" y="613" fill="#94a3b8" font-size="8.5" text-anchor="middle">pre-publish review</text>
+
+        <rect x="640" y="555" width="180" height="72" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="730" y="580" fill="white" font-size="11" font-weight="600" text-anchor="middle">External Reviewer</text>
+        <text x="730" y="597" fill="#94a3b8" font-size="8.5" text-anchor="middle">Codex Cloud PR gate</text>
+        <text x="730" y="613" fill="#94a3b8" font-size="8.5" text-anchor="middle">published PR findings</text>
+
+        <rect x="870" y="555" width="180" height="72" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="960" y="580" fill="white" font-size="11" font-weight="600" text-anchor="middle">Advisory Reviewer</text>
+        <text x="960" y="597" fill="#94a3b8" font-size="8.5" text-anchor="middle">Rock Claw / optional advice</text>
+        <text x="960" y="613" fill="#94a3b8" font-size="8.5" text-anchor="middle">not always primary gate</text>
+
+        <!-- Policy strip -->
+        <rect x="1090" y="540" width="170" height="102" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1175" y="567" fill="white" font-size="11" font-weight="600" text-anchor="middle">Policy Phases</text>
+        <text x="1175" y="586" fill="#94a3b8" font-size="8.5" text-anchor="middle">implement</text>
+        <text x="1175" y="600" fill="#94a3b8" font-size="8.5" text-anchor="middle">Claude gate</text>
+        <text x="1175" y="614" fill="#94a3b8" font-size="8.5" text-anchor="middle">publish</text>
+        <text x="1175" y="628" fill="#94a3b8" font-size="8.5" text-anchor="middle">Codex Cloud gate</text>
+
+        <!-- arrows -->
+        <line x1="120" y1="148" x2="168" y2="148" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="144" y="141" fill="#94a3b8" font-size="8">operate</text>
+
+        <line x1="380" y1="148" x2="438" y2="148" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="409" y="141" fill="#94a3b8" font-size="8">install/start</text>
+
+        <line x1="620" y1="148" x2="678" y2="148" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="649" y="141" fill="#94a3b8" font-size="8">supervise loop</text>
+
+        <line x1="950" y1="128" x2="1008" y2="128" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="979" y="121" fill="#94a3b8" font-size="8">persist state</text>
+
+        <line x1="950" y1="190" x2="1008" y2="222" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="980" y="205" fill="#94a3b8" font-size="8">emit events</text>
+
+        <line x1="120" y1="303" x2="248" y2="370" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="190" y="327" fill="#94a3b8" font-size="8">issue / PR truth</text>
+
+        <line x1="120" y1="458" x2="248" y2="408" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="183" y="446" fill="#94a3b8" font-size="8">review findings</text>
+
+        <line x1="570" y1="375" x2="648" y2="375" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="609" y="368" fill="#94a3b8" font-size="8">status projections</text>
+
+        <line x1="815" y1="216" x2="775" y2="333" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="790" y="277" fill="#94a3b8" font-size="8">ingest wrapper truth</text>
+
+        <line x1="900" y1="375" x2="958" y2="375" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="929" y="368" fill="#94a3b8" font-size="8">lane handoff</text>
+
+        <line x1="410" y1="445" x2="270" y2="553" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="322" y="509" fill="#94a3b8" font-size="8">dispatch implementation</text>
+
+        <line x1="410" y1="445" x2="500" y2="553" stroke="#fb7185" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="470" y="509" fill="#94a3b8" font-size="8">request internal review</text>
+
+        <line x1="410" y1="445" x2="730" y2="553" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="603" y="518" fill="#94a3b8" font-size="8">published PR gate</text>
+
+        <path d="M 500 553 L 500 486 Q 500 462 524 462 L 680 462 Q 704 462 704 485 L 704 553" fill="none" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="5,5"/>
+        <text x="602" y="455" fill="#fb7185" font-size="8">internal review handoff / findings / clear-to-publish</text>
+
+        <path d="M 730 553 L 730 502 Q 730 478 754 478 L 940 478 Q 964 478 964 501 L 964 553" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,5"/>
+        <text x="850" y="471" fill="#94a3b8" font-size="8">external review findings / clean PR</text>
+
+        <!-- Legend -->
+        <text x="1060" y="95" fill="white" font-size="10" font-weight="600">Legend</text>
+        <rect x="1060" y="107" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="1082" y="115" fill="#94a3b8" font-size="8">operator / plugin surface</text>
+        <rect x="1060" y="123" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="1082" y="131" fill="#94a3b8" font-size="8">runtime / workflow engine</text>
+        <rect x="1060" y="139" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="1082" y="147" fill="#94a3b8" font-size="8">canonical state / projections</text>
+        <rect x="1060" y="155" width="16" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="1082" y="163" fill="#94a3b8" font-size="8">service / policy / deployment</text>
+        <rect x="1060" y="171" width="16" height="10" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/>
+        <text x="1082" y="179" fill="#94a3b8" font-size="8">reviewer / gate</text>
+        <line x1="1060" y1="191" x2="1076" y2="191" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <text x="1082" y="194" fill="#94a3b8" font-size="8">control / data flow</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header"><div class="card-dot emerald"></div><h3>Design intent</h3></div>
+        <ul>
+          <li>• Separate workflow semantics from durable orchestration</li>
+          <li>• Keep wrapper as policy brain</li>
+          <li>• Let Relay own leases, queues, failures, and supervision</li>
+          <li>• Preserve explicit actor handoffs across long-lived lanes</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot violet"></div><h3>State model</h3></div>
+        <ul>
+          <li>• SQLite = canonical runtime truth now</li>
+          <li>• JSONL = append-only history forever</li>
+          <li>• lane memo/state = durable handoff artifacts</li>
+          <li>• GitHub remains external source of issue/PR truth</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot rose"></div><h3>Long-term vision</h3></div>
+        <ul>
+          <li>• 24/7 agentic SDLC lanes</li>
+          <li>• explicit coder / reviewer / orchestrator roles</li>
+          <li>• durable repair loops and retries</li>
+          <li>• humans passive by default, in the loop when needed</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">Hermes Relay • workflow brain + durable orchestrator • operator-visible, failure-aware, lane-oriented automation</p>
+  </div>
+</body>
+</html>
