@@ -3,7 +3,7 @@
 ## 1. 10-second mental model
 
 - **Workflow CLI** = the policy brain, exposed via
-  `~/.hermes/plugins/hermes-relay/adapters/yoyopod_core/__main__.py`
+  `~/.hermes/plugins/hermes-relay/workflows/__main__.py --workflow-root ~/.hermes/workflows/yoyopod`
   (historically: "the wrapper" at `scripts/yoyopod_workflow.py`, now retired)
 - **Relay runtime** = durable orchestrator around that brain
 - **systemd active service** = keeps Relay alive 24/7
@@ -26,10 +26,10 @@ If status looks weird, always ask:
 
 ### Workflow CLI (plugin-owned; replaces retired `scripts/yoyopod_workflow.py`)
 ```bash
-python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/adapters/yoyopod_core/__main__.py status --json
-python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/adapters/yoyopod_core/__main__.py tick --json
-python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/adapters/yoyopod_core/__main__.py dispatch-implementation-turn --json
-python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/adapters/yoyopod_core/__main__.py dispatch-claude-review --json
+python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/workflows/__main__.py --workflow-root ~/.hermes/workflows/yoyopod status --json
+python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/workflows/__main__.py --workflow-root ~/.hermes/workflows/yoyopod tick --json
+python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/workflows/__main__.py --workflow-root ~/.hermes/workflows/yoyopod dispatch-implementation-turn --json
+python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/workflows/__main__.py --workflow-root ~/.hermes/workflows/yoyopod dispatch-claude-review --json
 ```
 
 ### Relay runtime direct
@@ -87,7 +87,8 @@ Use this order when debugging:
 - `~/.hermes/workspaces/YoyoPod_Core`
 
 ### Workflow CLI (plugin-owned; replaces retired `scripts/yoyopod_workflow.py`)
-- `~/.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/adapters/yoyopod_core/__main__.py`
+- `~/.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/workflows/__main__.py`
+  (always pass `--workflow-root ~/.hermes/workflows/yoyopod`)
 
 ### Relay plugin
 - `~/.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/__init__.py`
@@ -266,7 +267,7 @@ That’s expected. Relay speaks execution language.
 
 ### What is happening right now?
 ```bash
-python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/adapters/yoyopod_core/__main__.py status --json
+python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/hermes-relay/workflows/__main__.py --workflow-root ~/.hermes/workflows/yoyopod status --json
 ```
 Check:
 - `health`
