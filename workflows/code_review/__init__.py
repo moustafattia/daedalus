@@ -18,21 +18,19 @@ NAME = "code-review"
 SUPPORTED_SCHEMA_VERSIONS = (1,)
 CONFIG_SCHEMA_PATH = Path(__file__).parent / "schema.yaml"
 
-# Re-export the two contract callables from their implementation modules.
-from workflows.code_review.workspace import (
-    load_workspace_from_config as _load_workspace_from_config,
-)
+from workflows.code_review.workspace import make_workspace as _make_workspace_inner
 from workflows.code_review.cli import main as cli_main
 
 
 def make_workspace(*, workflow_root: Path, config: dict):
     """Plugin-contract factory.
 
-    In this phase (Phase 2) it ignores ``config`` and reads the workspace's
-    live config file via ``load_workspace_from_config``. Phase 4 replaces
-    this with a factory that consumes ``config`` directly as a YAML dict.
+    The plugin contract uses ``workflow_root``; the internal workspace
+    factory uses the historical name ``workspace_root``. Translate at this
+    boundary, then pass the YAML config dict through for the factory to
+    detect-and-bridge to its legacy view if needed.
     """
-    return _load_workspace_from_config(workspace_root=workflow_root)
+    return _make_workspace_inner(workspace_root=workflow_root, config=config)
 
 
 __all__ = [
