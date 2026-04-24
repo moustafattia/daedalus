@@ -11,11 +11,11 @@ from contextlib import redirect_stderr
 from pathlib import Path
 from typing import Any
 
-from adapters.yoyopod_core.paths import (
+from workflows.code_review.paths import (
     resolve_default_workflow_root as resolve_yoyopod_core_workflow_root,
     yoyopod_cli_argv,
 )
-from adapters.yoyopod_core.status import build_status as build_yoyopod_core_status
+from workflows.code_review.status import build_status as build_yoyopod_core_status
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 DEFAULT_WORKFLOW_ROOT_ENV_VARS = ("YOYOPOD_RELAY_WORKFLOW_ROOT", "HERMES_RELAY_WORKFLOW_ROOT")

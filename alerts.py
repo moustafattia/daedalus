@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from adapters.yoyopod_core.paths import resolve_default_workflow_root as resolve_yoyopod_core_workflow_root
-from adapters.yoyopod_core.paths import runtime_paths as yoyopod_runtime_paths
+from workflows.code_review.paths import resolve_default_workflow_root as resolve_yoyopod_core_workflow_root
+from workflows.code_review.paths import runtime_paths as yoyopod_runtime_paths
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 DEFAULT_WORKFLOW_ROOT_ENV_VARS = ("YOYOPOD_RELAY_WORKFLOW_ROOT", "HERMES_RELAY_WORKFLOW_ROOT")
