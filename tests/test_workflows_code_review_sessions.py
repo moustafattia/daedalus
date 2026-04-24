@@ -309,3 +309,87 @@ def test_should_nudge_session_blocks_recent_same_head_but_allows_other_cases():
     assert blocked == {"shouldNudge": False, "reason": "recent-nudge-same-head"}
     assert allowed == {"shouldNudge": True, "reason": None}
     assert no_action == {"shouldNudge": False, "reason": "not-poke-session"}
+
+
+def test_ensure_session_via_runtime_routes_through_workspace_runtime_accessor():
+    """sessions.ensure_session_via_runtime(workspace=..., runtime_name=..., ...) must
+    resolve the runtime via ws.runtime() and delegate to its ensure_session."""
+    from pathlib import Path
+    from workflows.code_review.runtimes import SessionHandle
+    from workflows.code_review import sessions
+
+    captured = {}
+
+    class FakeRuntime:
+        def ensure_session(self, *, worktree, session_name, model, resume_session_id=None):
+            captured["called"] = (worktree, session_name, model, resume_session_id)
+            return SessionHandle(record_id="rec-1", session_id="sess-1", name=session_name)
+
+    class FakeWs:
+        def runtime(self, name):
+            captured["runtime_name"] = name
+            return FakeRuntime()
+
+    handle = sessions.ensure_session_via_runtime(
+        workspace=FakeWs(),
+        runtime_name="acpx-codex",
+        worktree=Path("/tmp/wt"),
+        session_name="lane-224",
+        model="gpt-5.3-codex-spark/high",
+    )
+    assert captured["runtime_name"] == "acpx-codex"
+    assert captured["called"] == (Path("/tmp/wt"), "lane-224", "gpt-5.3-codex-spark/high", None)
+    assert handle.record_id == "rec-1"
+
+
+def test_run_prompt_via_runtime_delegates_to_ws_runtime():
+    from pathlib import Path
+    from workflows.code_review import sessions
+
+    captured = {}
+
+    class FakeRuntime:
+        def run_prompt(self, *, worktree, session_name, prompt, model):
+            captured["called"] = (worktree, session_name, prompt, model)
+            return "stdout-output"
+
+    class FakeWs:
+        def runtime(self, name):
+            captured["runtime_name"] = name
+            return FakeRuntime()
+
+    out = sessions.run_prompt_via_runtime(
+        workspace=FakeWs(),
+        runtime_name="claude-cli",
+        worktree=Path("/tmp/wt"),
+        session_name="inter-review:abc",
+        prompt="review this",
+        model="claude-sonnet-4-6",
+    )
+    assert captured["runtime_name"] == "claude-cli"
+    assert out == "stdout-output"
+
+
+def test_close_session_via_runtime_delegates_to_ws_runtime():
+    from pathlib import Path
+    from workflows.code_review import sessions
+
+    captured = {}
+
+    class FakeRuntime:
+        def close_session(self, *, worktree, session_name):
+            captured["called"] = (worktree, session_name)
+
+    class FakeWs:
+        def runtime(self, name):
+            captured["runtime_name"] = name
+            return FakeRuntime()
+
+    sessions.close_session_via_runtime(
+        workspace=FakeWs(),
+        runtime_name="acpx-codex",
+        worktree=Path("/tmp/wt"),
+        session_name="lane-224",
+    )
+    assert captured["runtime_name"] == "acpx-codex"
+    assert captured["called"] == (Path("/tmp/wt"), "lane-224")

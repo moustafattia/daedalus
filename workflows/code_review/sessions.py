@@ -544,3 +544,54 @@ def decide_session_action(
     if implementation_status in {"implementing", "implementing_local", "revalidating", "findings_open", "rework_required", "self_checked", "awaiting_claude_prepublish", "claude_prepublish_findings", "ready_to_publish"} or has_open_pr:
         return {"action": "restart-session", "reason": health.get("reason") or "missing-session", "sessionName": health.get("sessionName")}
     return {"action": "no-action", "reason": "lane-not-active", "sessionName": health.get("sessionName")}
+
+
+def ensure_session_via_runtime(
+    *,
+    workspace,
+    runtime_name: str,
+    worktree,
+    session_name: str,
+    model: str,
+    resume_session_id: str | None = None,
+):
+    """Runtime-aware version of ensure_acpx_session.
+
+    Resolves the runtime via ``workspace.runtime(runtime_name)`` and calls
+    its ``ensure_session`` method. New callers should use this form; the
+    free ``ensure_acpx_session`` remains for callers that haven't been
+    rewired yet.
+    """
+    runtime = workspace.runtime(runtime_name)
+    return runtime.ensure_session(
+        worktree=worktree,
+        session_name=session_name,
+        model=model,
+        resume_session_id=resume_session_id,
+    )
+
+
+def run_prompt_via_runtime(
+    *,
+    workspace,
+    runtime_name: str,
+    worktree,
+    session_name: str,
+    prompt: str,
+    model: str,
+) -> str:
+    """Runtime-aware version of run_acpx_prompt / the inline claude invocation."""
+    return workspace.runtime(runtime_name).run_prompt(
+        worktree=worktree,
+        session_name=session_name,
+        prompt=prompt,
+        model=model,
+    )
+
+
+def close_session_via_runtime(*, workspace, runtime_name: str, worktree, session_name: str) -> None:
+    """Runtime-aware version of close_acpx_session."""
+    return workspace.runtime(runtime_name).close_session(
+        worktree=worktree,
+        session_name=session_name,
+    )
