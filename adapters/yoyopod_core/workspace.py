@@ -1,0 +1,1704 @@
+from __future__ import annotations
+
+import calendar
+import json
+import re
+import subprocess
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+
+"""YoYoPod Core workspace.
+
+The :class:`Workspace` type is the canonical holder of YoYoPod-project-scoped
+config and I/O primitives. The legacy wrapper script at
+``~/.hermes/workflows/yoyopod/scripts/yoyopod_workflow.py`` used to host all of
+this inline; after the retirement pass it now simply instantiates a
+``Workspace`` and exposes its attributes as module-level globals for
+back-compat.
+
+Two factories are provided:
+
+* :func:`make_workspace` — builds a :class:`types.SimpleNamespace`-style
+  workspace accessor. This is the primary API: adapter code (``cli``,
+  ``orchestrator``, etc.) looks up workspace attributes by name, so any
+  duck-typed accessor works.
+* :func:`load_workspace_from_config` — convenience wrapper that reads the
+  project ``config/yoyopod-workflow.json`` file and applies the same derived
+  constants the wrapper used to.
+"""
+
+
+DEFAULT_CONFIG_FILENAME = "config/yoyopod-workflow.json"
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _load_optional_json(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not path.exists():
+        return None
+    try:
+        return _load_json(path)
+    except Exception:
+        return None
+
+
+def _write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _iso_to_epoch(value: str | None) -> int | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S.%fZ"):
+        try:
+            return int(calendar.timegm(time.strptime(value, fmt)))
+        except Exception:
+            continue
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp())
+    except Exception:
+        return None
+
+
+def _ms_to_iso(value_ms: int | None) -> str | None:
+    if value_ms is None:
+        return None
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(value_ms / 1000))
+
+
+def _run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=str(cwd) if cwd else None,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _run_json(command: list[str], cwd: Path | None = None) -> Any:
+    completed = _run(command, cwd=cwd)
+    return json.loads(completed.stdout or "null")
+
+
+def _subprocess_failure_message(exc: subprocess.CalledProcessError) -> str:
+    command = exc.cmd if isinstance(exc.cmd, list) else [str(exc.cmd)]
+    header = f"Command failed with exit status {exc.returncode}: {' '.join(str(part) for part in command)}"
+    stderr_text = (exc.stderr or "").strip()
+    stdout_text = (exc.stdout or "").strip()
+    details = [text for text in [stderr_text, stdout_text] if text]
+    if not details:
+        return header
+    return header + "\n" + "\n".join(details)
+
+
+def _build_adapter_module_loaders(workspace_root: Path) -> dict[str, Any]:
+    """Return adapter-module loader closures cached per workspace.
+
+    The legacy wrapper used to host 9 near-identical ``_load_adapter_*_module``
+    functions plus a single parameterized ``_load_adapter_module(name)``.
+    Moving them here means every workspace accessor exposes the same surface
+    without the wrapper having to redeclare them.
+    """
+    import importlib.util as _importlib_util
+
+    plugin_root = workspace_root / ".hermes" / "plugins" / "hermes-relay"
+    cache: dict[str, Any] = {}
+
+    def _load_adapter_module(name: str):
+        cached = cache.get(name)
+        if cached is not None:
+            return cached
+        module_path = plugin_root / "adapters" / "yoyopod_core" / f"{name}.py"
+        if not module_path.exists():
+            raise FileNotFoundError(module_path)
+        spec = _importlib_util.spec_from_file_location(f"hermes_relay_yoyopod_core_{name}", module_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"unable to load adapter {name} module from {module_path}")
+        module = _importlib_util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cache[name] = module
+        return module
+
+    return {
+        "_load_adapter_module": _load_adapter_module,
+        "_load_adapter_status_module": lambda: _load_adapter_module("status"),
+        "_load_adapter_actions_module": lambda: _load_adapter_module("actions"),
+        "_load_adapter_sessions_module": lambda: _load_adapter_module("sessions"),
+        "_load_adapter_prompts_module": lambda: _load_adapter_module("prompts"),
+        "_load_adapter_github_module": lambda: _load_adapter_module("github"),
+        "_load_adapter_reviews_module": lambda: _load_adapter_module("reviews"),
+        "_load_adapter_paths_module": lambda: _load_adapter_module("paths"),
+        "_load_adapter_workflow_module": lambda: _load_adapter_module("workflow"),
+        "_load_adapter_health_module": lambda: _load_adapter_module("health"),
+    }
+
+
+def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNamespace:
+    """Build the workspace accessor used by adapter CLI / orchestrator code.
+
+    Returns a :class:`types.SimpleNamespace` bundling project-scoped config
+    constants and stdlib-backed I/O primitives. The wrapper script re-exports
+    every attribute at module level so historical ``from yoyopod_workflow
+    import …`` consumers still see the expected public surface.
+    """
+
+    workspace_root = Path(workspace_root).resolve()
+
+    # -- paths -----------------------------------------------------------
+    repo_path = Path(config["repoPath"])
+    cron_jobs_path = Path(config["cronJobsPath"])
+    hermes_cron_jobs_path = Path(config.get("hermesCronJobsPath") or (Path.home() / ".hermes/cron/jobs.json"))
+    ledger_path = Path(config["ledgerPath"])
+    health_path = Path(config["healthPath"])
+    audit_log_path = Path(config["auditLogPath"])
+    sessions_state_path = workspace_root / "state/sessions"
+
+    # -- config constants ------------------------------------------------
+    engine_owner = str(config.get("engineOwner", "openclaw"))
+    active_lane_label = str(config.get("activeLaneLabel", "active-lane"))
+    core_job_names = list(config.get("coreJobNames", []))
+    hermes_job_names = list(config.get("hermesJobNames", []))
+    issue_watcher_re = re.compile(str(config.get("issueWatcherNameRegex", r"issue-\d+-watch")))
+    issue_branch_re = re.compile(r"(?:^|/)issue-(\d+)(?:\b|[-_])")
+    issue_worktree_re = re.compile(r"issue-(\d+)(?:\b|[-_])")
+    severity_badge_re = re.compile(r"!\[P(\d+) Badge", re.IGNORECASE)
+
+    staleness = config.get("staleness", {}) or {}
+    miss_multiplier = float(staleness.get("coreJobMissMultiplier", 2.5))
+    lane_no_pr_minutes = int(staleness.get("activeLaneWithoutPrMinutes", 45))
+    review_head_missing_minutes = int(staleness.get("reviewHeadMissingMinutes", 20))
+
+    review_cache = config.get("reviewCache", {}) or {}
+    codex_cloud_cache_seconds = int(review_cache.get("codexCloudSeconds", 1800))
+    claude_review_request_cooldown_seconds = int(review_cache.get("claudeReviewRequestCooldownSeconds", 1200))
+
+    session_policy = config.get("sessionPolicy", {}) or {}
+    codex_model_default = str(session_policy.get("codexModel", "gpt-5.3-codex-spark/high"))
+    codex_model_high_effort = str(
+        session_policy.get("codexModelLargeEffort")
+        or session_policy.get("codexModelHighEffort")
+        or "gpt-5.3-codex"
+    )
+    codex_model_escalated = str(session_policy.get("codexModelEscalated") or "gpt-5.4")
+    codex_escalate_restart_count = int(session_policy.get("codexEscalateRestartCount", 2))
+    codex_escalate_local_review_count = int(session_policy.get("codexEscalateLocalReviewCount", 2))
+    codex_escalate_postpublish_finding_count = int(session_policy.get("codexEscalatePostpublishFindingCount", 3))
+    lane_failure_retry_budget = int(session_policy.get("laneFailureRetryBudget", 3))
+    lane_no_progress_tick_budget = int(session_policy.get("laneNoProgressTickBudget", 3))
+    lane_operator_attention_retry_threshold = int(session_policy.get("laneOperatorAttentionRetryThreshold", 5))
+    lane_operator_attention_no_progress_threshold = int(session_policy.get("laneOperatorAttentionNoProgressThreshold", 5))
+    lane_counter_increment_min_seconds = int(session_policy.get("laneCounterIncrementMinSeconds", 240))
+    codex_session_freshness_seconds = int(session_policy.get("codexSessionFreshnessSeconds", 900))
+    codex_session_poke_grace_seconds = int(session_policy.get("codexSessionPokeGraceSeconds", 1800))
+    codex_session_nudge_cooldown_seconds = int(session_policy.get("codexSessionNudgeCooldownSeconds", 600))
+
+    review_policy = config.get("reviewPolicy", {}) or {}
+    inter_review_agent_pass_with_findings_reviews = int(
+        review_policy.get("interReviewAgentPassWithFindingsReviews")
+        or review_policy.get("internalReviewerAgentPassWithFindingsReviews")
+        or review_policy.get("claudePassWithFindingsReviews", 1)
+    )
+    inter_review_agent_model = str(
+        review_policy.get("interReviewAgentModel")
+        or review_policy.get("internalReviewerAgentModel")
+        or review_policy.get("claudeModel", "claude-sonnet-4-6")
+    )
+    inter_review_agent_max_turns = int(
+        review_policy.get("interReviewAgentMaxTurns")
+        or review_policy.get("internalReviewerAgentMaxTurns")
+        or review_policy.get("claudeReviewMaxTurns", 12)
+    )
+    inter_review_agent_timeout_seconds = int(
+        review_policy.get("interReviewAgentTimeoutSeconds")
+        or review_policy.get("internalReviewerAgentTimeoutSeconds")
+        or review_policy.get("claudeReviewTimeoutSeconds", 1200)
+    )
+    inter_review_agent_freeze_coder_while_running = bool(
+        review_policy.get(
+            "freezeCoderWhileInterReviewAgentRunning",
+            review_policy.get(
+                "freezeCoderWhileInternalReviewAgentRunning",
+                review_policy.get("freezeCoderWhileClaudeReviewRunning", True),
+            ),
+        )
+    )
+
+    agent_labels = config.get("agentLabels", {}) or {}
+    internal_coder_agent_name = str(agent_labels.get("internalCoderAgent", "Internal_Coder_Agent"))
+    escalation_coder_agent_name = str(agent_labels.get("escalationCoderAgent", "Escalation_Coder_Agent"))
+    internal_reviewer_agent_name = str(agent_labels.get("internalReviewerAgent", "Internal_Reviewer_Agent"))
+    external_reviewer_agent_name = str(agent_labels.get("externalReviewerAgent", "External_Reviewer_Agent"))
+    advisory_reviewer_agent_name = str(agent_labels.get("advisoryReviewerAgent", "Advisory_Reviewer_Agent"))
+
+    def _jobs_store_path() -> Path:
+        return hermes_cron_jobs_path if engine_owner == "hermes" else cron_jobs_path
+
+    def load_jobs() -> dict[str, Any]:
+        return _load_json(_jobs_store_path())
+
+    def load_ledger() -> dict[str, Any]:
+        return _load_json(ledger_path)
+
+    def save_jobs(payload: dict[str, Any]) -> None:
+        _write_json(_jobs_store_path(), payload)
+
+    def save_ledger(payload: dict[str, Any]) -> None:
+        _write_json(ledger_path, payload)
+
+    def audit(action: str, summary: str, **extra: Any) -> None:
+        _append_jsonl(
+            audit_log_path,
+            {
+                "at": _now_iso(),
+                "action": action,
+                "summary": summary,
+                **extra,
+            },
+        )
+
+    # Pre-declared so closures below can resolve them once ``ns`` is built.
+    # Bindings happen after ``ns`` is created, below.
+    ns = SimpleNamespace(
+        # --- workspace globals ---
+        WORKSPACE=workspace_root,
+        CONFIG=config,
+        DEFAULT_CONFIG_PATH=workspace_root / DEFAULT_CONFIG_FILENAME,
+        SESSIONS_STATE_PATH=sessions_state_path,
+        REPO_PATH=repo_path,
+        CRON_JOBS_PATH=cron_jobs_path,
+        HERMES_CRON_JOBS_PATH=hermes_cron_jobs_path,
+        LEDGER_PATH=ledger_path,
+        HEALTH_PATH=health_path,
+        AUDIT_LOG_PATH=audit_log_path,
+        ACTIVE_LANE_LABEL=active_lane_label,
+        ENGINE_OWNER=engine_owner,
+        CORE_JOB_NAMES=core_job_names,
+        HERMES_JOB_NAMES=hermes_job_names,
+        ISSUE_WATCHER_RE=issue_watcher_re,
+        ISSUE_BRANCH_RE=issue_branch_re,
+        ISSUE_WORKTREE_RE=issue_worktree_re,
+        SEVERITY_BADGE_RE=severity_badge_re,
+        MISS_MULTIPLIER=miss_multiplier,
+        LANE_NO_PR_MINUTES=lane_no_pr_minutes,
+        REVIEW_HEAD_MISSING_MINUTES=review_head_missing_minutes,
+        CLAUDE_REVIEW_JOB_NAME="yoyopod-claude-review-runner",
+        WORKFLOW_CHECKER_JOB_NAME="yoyopod-workflow-checker",
+        WORKFLOW_WATCHDOG_JOB_NAME="yoyopod-workflow-watchdog",
+        CODEX_WATCHDOG_JOB_NAME="yoyopod-workflow-watchdog",
+        TELEGRAM_JOB_NAME="yoyopod-workflow-milestone-telegram",
+        CLAUDE_TRIGGER_STATES={"under_review", "findings_open", "revalidating"},
+        CODEX_CLOUD_CACHE_SECONDS=codex_cloud_cache_seconds,
+        CLAUDE_REVIEW_REQUEST_COOLDOWN_SECONDS=claude_review_request_cooldown_seconds,
+        CODEX_SESSION_POLICY=session_policy,
+        CODEX_MODEL_DEFAULT=codex_model_default,
+        CODEX_MODEL_HIGH_EFFORT=codex_model_high_effort,
+        CODEX_MODEL_ESCALATED=codex_model_escalated,
+        CODEX_ESCALATE_RESTART_COUNT=codex_escalate_restart_count,
+        CODEX_ESCALATE_LOCAL_REVIEW_COUNT=codex_escalate_local_review_count,
+        CODEX_ESCALATE_POSTPUBLISH_FINDING_COUNT=codex_escalate_postpublish_finding_count,
+        LANE_FAILURE_RETRY_BUDGET=lane_failure_retry_budget,
+        LANE_NO_PROGRESS_TICK_BUDGET=lane_no_progress_tick_budget,
+        LANE_OPERATOR_ATTENTION_RETRY_THRESHOLD=lane_operator_attention_retry_threshold,
+        LANE_OPERATOR_ATTENTION_NO_PROGRESS_THRESHOLD=lane_operator_attention_no_progress_threshold,
+        LANE_COUNTER_INCREMENT_MIN_SECONDS=lane_counter_increment_min_seconds,
+        CODEX_MODEL=codex_model_default,
+        CODEX_SESSION_FRESHNESS_SECONDS=codex_session_freshness_seconds,
+        CODEX_SESSION_POKE_GRACE_SECONDS=codex_session_poke_grace_seconds,
+        CODEX_SESSION_NUDGE_COOLDOWN_SECONDS=codex_session_nudge_cooldown_seconds,
+        REVIEW_POLICY=review_policy,
+        INTER_REVIEW_AGENT_PASS_WITH_FINDINGS_REVIEWS=inter_review_agent_pass_with_findings_reviews,
+        INTER_REVIEW_AGENT_MODEL=inter_review_agent_model,
+        INTER_REVIEW_AGENT_MAX_TURNS=inter_review_agent_max_turns,
+        INTER_REVIEW_AGENT_TIMEOUT_SECONDS=inter_review_agent_timeout_seconds,
+        INTER_REVIEW_AGENT_FREEZE_CODER_WHILE_RUNNING=inter_review_agent_freeze_coder_while_running,
+        # Back-compat aliases for older call-sites still using "CLAUDE" names.
+        CLAUDE_MODEL=inter_review_agent_model,
+        CLAUDE_REVIEW_MAX_TURNS=inter_review_agent_max_turns,
+        CLAUDE_REVIEW_TIMEOUT_SECONDS=inter_review_agent_timeout_seconds,
+        CLAUDE_REVIEW_FREEZE_CODER_WHILE_RUNNING=inter_review_agent_freeze_coder_while_running,
+        CLAUDE_PASS_WITH_FINDINGS_REVIEWS=inter_review_agent_pass_with_findings_reviews,
+        AGENT_LABELS=agent_labels,
+        INTERNAL_CODER_AGENT_NAME=internal_coder_agent_name,
+        ESCALATION_CODER_AGENT_NAME=escalation_coder_agent_name,
+        INTERNAL_REVIEWER_AGENT_NAME=internal_reviewer_agent_name,
+        EXTERNAL_REVIEWER_AGENT_NAME=external_reviewer_agent_name,
+        ADVISORY_REVIEWER_AGENT_NAME=advisory_reviewer_agent_name,
+        CODEX_BOT_LOGINS={"chatgpt-codex-connector", "chatgpt-codex-connector[bot]"},
+        CODEX_CLEAN_REACTIONS={"+1"},
+        CODEX_PENDING_REACTIONS={"eyes"},
+        # --- I/O and time primitives ---
+        _run=_run,
+        _run_json=_run_json,
+        _load_json=_load_json,
+        _write_json=_write_json,
+        _append_jsonl=_append_jsonl,
+        _load_optional_json=_load_optional_json,
+        _write_text=_write_text,
+        _now_ms=_now_ms,
+        _now_iso=_now_iso,
+        _iso_to_epoch=_iso_to_epoch,
+        _ms_to_iso=_ms_to_iso,
+        _subprocess_failure_message=_subprocess_failure_message,
+        # --- ledger / jobs / audit ---
+        _jobs_store_path=_jobs_store_path,
+        load_jobs=load_jobs,
+        load_ledger=load_ledger,
+        save_jobs=save_jobs,
+        save_ledger=save_ledger,
+        audit=audit,
+    )
+    # Adapter module loaders (cached per-workspace).
+    for loader_name, loader_fn in _build_adapter_module_loaders(workspace_root).items():
+        setattr(ns, loader_name, loader_fn)
+    _install_wrapper_adapter_shims(ns)
+    return ns
+
+
+def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
+    """Install the trivial wrapper-side adapter delegation shims onto ``ns``.
+
+    These are the helpers the retired wrapper used to expose at module level
+    (``_lane_state_path``, ``_pr_ready_for_review`` etc.). Binding them here
+    means the adapter CLI + orchestrator can call ``ws._name`` without the
+    wrapper needing to redeclare them.
+    """
+
+    def _lane_state_path(worktree):
+        return ns._load_adapter_paths_module().lane_state_path(worktree)
+
+    def _lane_memo_path(worktree):
+        return ns._load_adapter_paths_module().lane_memo_path(worktree)
+
+    def _issue_number_from_branch(branch):
+        return ns._load_adapter_sessions_module().issue_number_from_branch(branch)
+
+    def _issue_number_from_worktree(worktree):
+        return ns._load_adapter_sessions_module().issue_number_from_worktree(worktree)
+
+    def _expected_lane_worktree(issue_number):
+        return ns._load_adapter_sessions_module().expected_lane_worktree(issue_number)
+
+    def _expected_lane_branch(issue):
+        return ns._load_adapter_sessions_module().expected_lane_branch(issue)
+
+    def _lane_acpx_session_name(issue_number):
+        return ns._load_adapter_sessions_module().lane_acpx_session_name(issue_number)
+
+    def _issue_label_names(issue):
+        return ns._load_adapter_github_module().issue_label_names(issue)
+
+    def _inter_review_agent_target_head(review):
+        return ns._load_adapter_reviews_module().inter_review_agent_target_head(review)
+
+    def _inter_review_agent_is_running_on_head(review, head_sha):
+        return ns._load_adapter_reviews_module().inter_review_agent_is_running_on_head(
+            review,
+            head_sha,
+            target_head_fn=ns._inter_review_agent_target_head,
+        )
+
+    def _classify_inter_review_agent_failure_text(text):
+        return ns._load_adapter_reviews_module().classify_inter_review_agent_failure_text(text)
+
+    def _json_object_or_none(text):
+        return ns._load_adapter_reviews_module().json_object_or_none(text)
+
+    def _extract_json_object(text):
+        return ns._load_adapter_reviews_module().extract_json_object(text)
+
+    def _inter_review_agent_failure_message(exc):
+        return ns._load_adapter_reviews_module().inter_review_agent_failure_message(
+            exc, json_object_or_none_fn=ns._json_object_or_none,
+        )
+
+    def _inter_review_agent_failure_class(exc):
+        return ns._load_adapter_reviews_module().inter_review_agent_failure_class(
+            exc, classify_failure_text_fn=ns._classify_inter_review_agent_failure_text,
+        )
+
+    def _implementation_lane_matches(implementation, lane_number):
+        return ns._load_adapter_sessions_module().implementation_lane_matches(implementation, lane_number)
+
+    def _snapshot_lane_artifacts(worktree):
+        return ns._load_adapter_sessions_module().snapshot_lane_artifacts(worktree)
+
+    def _pr_ready_for_review(open_pr):
+        return ns._load_adapter_reviews_module().pr_ready_for_review(open_pr)
+
+    def _has_local_candidate(local_head_sha, commits_ahead):
+        return ns._load_adapter_reviews_module().has_local_candidate(local_head_sha, commits_ahead)
+
+    def _current_inter_review_agent_matches_local_head(review, local_head_sha):
+        return ns._load_adapter_reviews_module().current_inter_review_agent_matches_local_head(review, local_head_sha)
+
+    def _local_inter_review_agent_review_count(review, lane_state=None):
+        return ns._load_adapter_reviews_module().local_inter_review_agent_review_count(review, lane_state)
+
+    def _extract_severity(body):
+        return ns._load_adapter_reviews_module().extract_severity(body)
+
+    def _extract_summary(body):
+        return ns._load_adapter_reviews_module().extract_summary(body)
+
+    def _review_bucket(review):
+        return ns._load_adapter_reviews_module().review_bucket(review)
+
+    def _summarize_validation(ledger):
+        return ns._load_adapter_prompts_module().summarize_validation(ledger)
+
+    def _checks_acceptable(pr):
+        return ns._load_adapter_reviews_module().checks_acceptable(pr)
+
+    def _determine_review_loop_state(reviews, *, has_pr):
+        return ns._load_adapter_reviews_module().determine_review_loop_state(reviews, has_pr=has_pr)
+
+    from urllib.parse import quote as _quote
+
+    # -- workspace-aware shims (reference ns constants + primitives) ----
+
+    def _legacy_watchdog_present(*, managed_job_names, job_map):
+        return ns.WORKFLOW_WATCHDOG_JOB_NAME in managed_job_names or ns.WORKFLOW_WATCHDOG_JOB_NAME in job_map
+
+    def _legacy_watchdog_mode(*, managed_job_names, job_map):
+        if ns.ENGINE_OWNER != "hermes":
+            return "primary_dispatcher"
+        return (
+            "fallback_reconciler"
+            if ns._legacy_watchdog_present(managed_job_names=managed_job_names, job_map=job_map)
+            else "retired"
+        )
+
+    def _set_job_next_run_ms(job, next_run_ms):
+        if isinstance(job.get("state"), dict) or ns.ENGINE_OWNER != "hermes":
+            job.setdefault("state", {})["nextRunAtMs"] = next_run_ms
+        else:
+            job["next_run_at"] = ns._ms_to_iso(next_run_ms)
+
+    def _set_job_updated_ms(job, updated_ms):
+        if "updatedAtMs" in job or isinstance(job.get("state"), dict) or ns.ENGINE_OWNER != "hermes":
+            job["updatedAtMs"] = updated_ms
+        else:
+            job["updated_at"] = ns._ms_to_iso(updated_ms)
+
+    def _show_acpx_session(*, worktree, session_name):
+        return ns._load_adapter_sessions_module().show_acpx_session(
+            worktree=worktree, session_name=session_name, run_json=ns._run_json,
+        )
+
+    def _get_issue_details(issue_number):
+        return ns._load_adapter_github_module().get_issue_details(
+            issue_number, repo_path=ns.REPO_PATH, run_json=ns._run_json,
+        )
+
+    def _close_acpx_session(*, worktree, session_name):
+        return ns._load_adapter_sessions_module().close_acpx_session(
+            worktree=worktree, session_name=session_name, run=ns._run,
+        )
+
+    def _inter_review_agent_started_epoch(review):
+        return ns._load_adapter_reviews_module().inter_review_agent_started_epoch(
+            review, iso_to_epoch_fn=ns._iso_to_epoch,
+        )
+
+    def _git_branch(path):
+        return ns._load_adapter_status_module().git_branch(path, run=ns._run)
+
+    def _is_git_repo(path):
+        return ns._load_adapter_sessions_module().is_git_repo(path, run=ns._run)
+
+    def _restore_lane_artifacts(worktree, artifacts):
+        return ns._load_adapter_sessions_module().restore_lane_artifacts(
+            worktree, artifacts, write_text=ns._write_text,
+        )
+
+    def _git_commits_ahead(path):
+        return ns._load_adapter_status_module().git_commits_ahead(path, run=ns._run)
+
+    def _git_head_sha(path):
+        return ns._load_adapter_status_module().git_head_sha(path, run=ns._run)
+
+    def _inter_review_agent_pending_seed():
+        return ns._load_adapter_reviews_module().inter_review_agent_pending_seed(
+            model=ns.INTER_REVIEW_AGENT_MODEL,
+        )
+
+    def _session_record_files(session_name):
+        if not session_name:
+            return []
+        encoded = _quote(session_name, safe="")
+        return sorted(ns.SESSIONS_STATE_PATH.glob(f"{encoded}*json*"))
+
+    def _synthesize_repair_brief(reviews, head_sha):
+        return ns._load_adapter_reviews_module().synthesize_repair_brief(
+            reviews, head_sha=head_sha, now_iso=ns._now_iso(),
+        )
+
+    def _collect_broken_watchers(jobs_payload):
+        return ns._load_adapter_health_module().collect_broken_watchers(
+            jobs_payload, issue_watcher_re=ns.ISSUE_WATCHER_RE,
+        )
+
+    def build_status():
+        return ns._load_adapter_status_module().build_status(ns.WORKSPACE)
+
+    def _pick_next_lane_issue():
+        items = ns._run_json(
+            ["gh", "issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url,labels"],
+            cwd=ns.REPO_PATH,
+        )
+        return ns._load_adapter_github_module().pick_next_lane_issue(
+            items, active_lane_label=ns.ACTIVE_LANE_LABEL,
+        )
+
+    def _issue_add_label(issue_number, label):
+        return ns._load_adapter_github_module().issue_add_label(
+            issue_number, label, repo_path=ns.REPO_PATH, run=ns._run,
+        )
+
+    def _issue_remove_label(issue_number, label):
+        return ns._load_adapter_github_module().issue_remove_label(
+            issue_number, label, repo_path=ns.REPO_PATH, run=ns._run,
+        )
+
+    def _issue_comment(issue_number, body):
+        return ns._load_adapter_github_module().issue_comment(
+            issue_number, body, repo_path=ns.REPO_PATH, run=ns._run,
+        )
+
+    def _issue_close(issue_number, comment=None):
+        return ns._load_adapter_github_module().issue_close(
+            issue_number, comment, repo_path=ns.REPO_PATH, run=ns._run,
+        )
+
+    def publish_ready_pr():
+        return ns._load_adapter_actions_module().publish_ready_pr(ns.WORKSPACE)
+
+    def push_pr_update():
+        return ns._load_adapter_actions_module().push_pr_update(ns.WORKSPACE)
+
+    def merge_and_promote():
+        return ns._load_adapter_actions_module().merge_and_promote(ns.WORKSPACE)
+
+    def dispatch_inter_review_agent_review():
+        return ns._load_adapter_actions_module().dispatch_inter_review_agent_review(ns.WORKSPACE)
+
+    def dispatch_claude_review():
+        return ns._load_adapter_actions_module().dispatch_claude_review(ns.WORKSPACE)
+
+    def dispatch_repair_handoff():
+        return ns._load_adapter_actions_module().dispatch_repair_handoff(ns.WORKSPACE)
+
+    def tick():
+        return ns._load_adapter_actions_module().tick(ns.WORKSPACE)
+
+    def dispatch_implementation_turn():
+        return ns._load_adapter_actions_module().dispatch_implementation_turn(ns.WORKSPACE)
+
+    def restart_actor_session():
+        return ns.restart_actor_session_raw()
+
+    # -----------------------------------------------------------------
+    # Job-state helpers — pure reads over the cron jobs payload.
+    # -----------------------------------------------------------------
+
+    def _managed_job_names():
+        names = []
+        for name in [*ns.CORE_JOB_NAMES, *ns.HERMES_JOB_NAMES]:
+            if name and name not in names:
+                names.append(name)
+        return names
+
+    def _job_lookup(jobs_payload):
+        return {job["name"]: job for job in jobs_payload.get("jobs", [])}
+
+    def _job_state_mapping(job):
+        state = job.get("state")
+        return state if isinstance(state, dict) else {}
+
+    def _job_schedule_every_ms(job):
+        schedule = job.get("schedule", {}) or {}
+        if schedule.get("kind") == "every":
+            every_ms = schedule.get("everyMs")
+            return int(every_ms) if every_ms is not None else None
+        if schedule.get("kind") == "interval":
+            minutes = schedule.get("minutes")
+            if minutes is None:
+                return None
+            return int(minutes) * 60 * 1000
+        return None
+
+    def _job_next_run_ms(job):
+        state = ns._job_state_mapping(job)
+        next_run = state.get("nextRunAtMs")
+        if next_run is not None:
+            return int(next_run)
+        next_run_iso = job.get("next_run_at")
+        epoch = ns._iso_to_epoch(next_run_iso)
+        return None if epoch is None else int(epoch * 1000)
+
+    def _job_last_run_at_ms(job):
+        state = ns._job_state_mapping(job)
+        last_run = state.get("lastRunAtMs")
+        if last_run is not None:
+            return int(last_run)
+        last_run_iso = job.get("last_run_at")
+        epoch = ns._iso_to_epoch(last_run_iso)
+        return None if epoch is None else int(epoch * 1000)
+
+    def _job_last_status(job):
+        state = ns._job_state_mapping(job)
+        return state.get("lastStatus", job.get("last_status"))
+
+    def _job_last_run_status(job):
+        state = ns._job_state_mapping(job)
+        return state.get("lastRunStatus", job.get("last_status"))
+
+    def _job_last_duration_ms(job):
+        state = ns._job_state_mapping(job)
+        return state.get("lastDurationMs")
+
+    def _job_last_error(job):
+        state = ns._job_state_mapping(job)
+        return state.get("lastError", job.get("last_error"))
+
+    def _job_delivery(job):
+        delivery = job.get("delivery")
+        if isinstance(delivery, dict) and delivery:
+            return delivery
+        deliver = job.get("deliver")
+        if deliver in {None, "", "local"}:
+            return {"mode": deliver or "none"}
+        return {"mode": deliver}
+
+    def _summarize_job(job):
+        if job is None:
+            return None
+        schedule = job.get("schedule", {})
+        next_run = ns._job_next_run_ms(job)
+        stale = False
+        every_ms = ns._job_schedule_every_ms(job)
+        if job.get("enabled") and every_ms is not None and next_run is not None:
+            allowed = int(every_ms * ns.MISS_MULTIPLIER)
+            stale = ns._now_ms() > int(next_run) + allowed
+        return {
+            "name": job.get("name"),
+            "enabled": bool(job.get("enabled")),
+            "schedule": schedule,
+            "lastRunStatus": ns._job_last_run_status(job),
+            "lastStatus": ns._job_last_status(job),
+            "lastRunAtMs": ns._job_last_run_at_ms(job),
+            "lastDurationMs": ns._job_last_duration_ms(job),
+            "nextRunAtMs": next_run,
+            "lastError": ns._job_last_error(job),
+            "delivery": ns._job_delivery(job),
+            "stale": stale,
+        }
+
+    # -----------------------------------------------------------------
+    # Active lane / issue GitHub wrappers.
+    # -----------------------------------------------------------------
+
+    def _get_active_lane():
+        return ns._load_adapter_github_module().get_active_lane_from_repo(
+            ns.REPO_PATH,
+            run_json=ns._run_json,
+            active_lane_label=ns.ACTIVE_LANE_LABEL,
+        )
+
+    def _get_open_pr_for_issue(issue_number):
+        return ns._load_adapter_github_module().get_open_pr_for_issue(
+            issue_number,
+            repo_path=ns.REPO_PATH,
+            run_json=ns._run_json,
+            issue_number_from_branch_fn=ns._issue_number_from_branch,
+        )
+
+    # -----------------------------------------------------------------
+    # ACPX / codex-session helpers.
+    # -----------------------------------------------------------------
+
+    def _slugify_issue_title(title):
+        text = re.sub(r"^\[[^\]]+\]\s*", "", title or "").strip().lower()
+        text = re.sub(r"[^a-z0-9]+", "-", text)
+        text = re.sub(r"-+", "-", text).strip("-")
+        return text[:48] or "lane"
+
+    def _normalize_acpx_session_meta(payload):
+        if not payload:
+            return None
+        return {
+            "name": payload.get("name"),
+            "closed": bool(payload.get("closed")),
+            "cwd": payload.get("cwd"),
+            "last_used_at": payload.get("lastUsedAt") or payload.get("last_used_at"),
+            "session_id": payload.get("acpSessionId") or payload.get("acpxSessionId"),
+            "record_id": payload.get("acpxRecordId") or payload.get("acpx_record_id"),
+        }
+
+    def _acpx_session_stream_path(acpx_record_id):
+        if not acpx_record_id:
+            return None
+        return Path.home() / ".acpx" / "sessions" / f"{acpx_record_id}.stream.ndjson"
+
+    def _latest_acpx_prompt_error(acpx_record_id):
+        path = ns._acpx_session_stream_path(acpx_record_id)
+        if path is None or not path.exists():
+            return None
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            return None
+        for raw_line in reversed(lines):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except Exception:
+                continue
+            error = payload.get("error")
+            if isinstance(error, dict):
+                return error
+        return None
+
+    def _fallback_codex_model_for_prompt_error(*, acpx_record_id, codex_model, exc):
+        error = ns._latest_acpx_prompt_error(acpx_record_id)
+        error_data = error.get("data") if isinstance(error, dict) else None
+        codex_error_info = (error_data or {}).get("codex_error_info") if isinstance(error_data, dict) else None
+        if codex_error_info == "usage_limit_exceeded" and codex_model != ns.CODEX_MODEL_ESCALATED:
+            return ns.CODEX_MODEL_ESCALATED
+        combined_output = "\n".join(part for part in [exc.stdout or "", exc.stderr or ""] if part).lower()
+        if "usage limit" in combined_output and codex_model != ns.CODEX_MODEL_ESCALATED:
+            return ns.CODEX_MODEL_ESCALATED
+        return None
+
+    def _load_latest_session_meta(session_name):
+        files = ns._session_record_files(session_name)
+        if not files:
+            return None
+        latest = max(files, key=lambda p: p.stat().st_mtime)
+        try:
+            return json.loads(latest.read_text(encoding="utf-8", errors="ignore"))
+        except Exception:
+            return None
+
+    def _load_implementation_session_meta(implementation, worktree):
+        return ns._load_adapter_status_module().load_implementation_session_meta(
+            implementation,
+            worktree,
+            show_acpx_session_fn=ns._show_acpx_session,
+            load_latest_session_meta_fn=ns._load_latest_session_meta,
+        )
+
+    def _should_escalate_codex_model(*, lane_state=None, workflow_state=None, reviews=None):
+        return ns._load_adapter_sessions_module().should_escalate_codex_model(
+            lane_state=lane_state,
+            workflow_state=workflow_state,
+            reviews=reviews,
+            escalate_restart_count=ns.CODEX_ESCALATE_RESTART_COUNT,
+            escalate_local_review_count=ns.CODEX_ESCALATE_LOCAL_REVIEW_COUNT,
+            escalate_postpublish_finding_count=ns.CODEX_ESCALATE_POSTPUBLISH_FINDING_COUNT,
+        )
+
+    def _codex_model_for_issue(issue, *, lane_state=None, workflow_state=None, reviews=None):
+        return ns._load_adapter_sessions_module().codex_model_for_issue(
+            issue,
+            lane_state=lane_state,
+            workflow_state=workflow_state,
+            reviews=reviews,
+            default_model=ns.CODEX_MODEL_DEFAULT,
+            high_effort_model=ns.CODEX_MODEL_HIGH_EFFORT,
+            escalated_model=ns.CODEX_MODEL_ESCALATED,
+            escalate_restart_count=ns.CODEX_ESCALATE_RESTART_COUNT,
+            escalate_local_review_count=ns.CODEX_ESCALATE_LOCAL_REVIEW_COUNT,
+            escalate_postpublish_finding_count=ns.CODEX_ESCALATE_POSTPUBLISH_FINDING_COUNT,
+        )
+
+    def _coder_agent_name_for_model(model):
+        return ns._load_adapter_sessions_module().coder_agent_name_for_model(
+            model,
+            escalated_model=ns.CODEX_MODEL_ESCALATED,
+            internal_coder_agent_name=ns.INTERNAL_CODER_AGENT_NAME,
+            escalation_coder_agent_name=ns.ESCALATION_CODER_AGENT_NAME,
+        )
+
+    def _actor_labels_payload(current_coder_model):
+        return ns._load_adapter_sessions_module().actor_labels_payload(
+            current_coder_model=current_coder_model,
+            default_model=ns.CODEX_MODEL_DEFAULT,
+            escalated_model=ns.CODEX_MODEL_ESCALATED,
+            internal_coder_agent_name=ns.INTERNAL_CODER_AGENT_NAME,
+            escalation_coder_agent_name=ns.ESCALATION_CODER_AGENT_NAME,
+            internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
+            internal_reviewer_model=ns.INTER_REVIEW_AGENT_MODEL,
+            external_reviewer_agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
+            advisory_reviewer_agent_name=ns.ADVISORY_REVIEWER_AGENT_NAME,
+        )
+
+    def _ensure_acpx_session(*, worktree, session_name, codex_model, resume_session_id=None):
+        return ns._load_adapter_sessions_module().ensure_acpx_session(
+            worktree=worktree,
+            session_name=session_name,
+            codex_model=codex_model,
+            resume_session_id=resume_session_id,
+            run_json=ns._run_json,
+        )
+
+    def _run_acpx_prompt(*, worktree, session_name, prompt, codex_model):
+        return ns._load_adapter_sessions_module().run_acpx_prompt(
+            worktree=worktree,
+            session_name=session_name,
+            prompt=prompt,
+            codex_model=codex_model,
+            run=ns._run,
+        )
+
+    # -----------------------------------------------------------------
+    # Review lifecycle helpers.
+    # -----------------------------------------------------------------
+
+    def _new_inter_review_agent_run_id():
+        import uuid as _uuid
+        return f"inter-review-agent:{_uuid.uuid4()}"
+
+    def _extract_inter_review_agent_payload(raw_output):
+        return ns._load_adapter_reviews_module().extract_inter_review_agent_payload(
+            raw_output,
+            json_object_or_none_fn=ns._json_object_or_none,
+            extract_json_object_fn=ns._extract_json_object,
+        )
+
+    def _render_inter_review_agent_prompt(*, issue, worktree, lane_memo_path, lane_state_path, head_sha):
+        lines = [
+            'You are reviewing the unpublished local lane head for YoyoPod_Core as a strict pre-publish code review gate.',
+            f'Repository: {worktree}',
+            f'Target local head SHA: {head_sha}',
+            'Scope: local-prepublish only. Review the actual current local HEAD in this worktree.',
+            f'Issue: #{issue.get("number")} {issue.get("title")}',
+            f'Issue URL: {issue.get("url")}',
+            f'Lane memo: {lane_memo_path}' if lane_memo_path else 'Lane memo: none',
+            f'Lane state: {lane_state_path}' if lane_state_path else 'Lane state: none',
+            'Read the lane memo/state if present before reviewing.',
+            'Focus on correctness, regressions, test honesty, and whether the code is actually ready to publish.',
+            'Return JSON only, no markdown fences, with this exact schema:',
+            '{"verdict":"PASS_CLEAN"|"PASS_WITH_FINDINGS"|"REWORK","summary":"short paragraph","blockingFindings":["..."],"majorConcerns":["..."],"minorSuggestions":["..."],"requiredNextAction":"string or null"}',
+            'Rules:',
+            '- Use REWORK only for blocking issues that must be fixed before publish.',
+            '- Use PASS_WITH_FINDINGS for non-blocking but real concerns worth recording.',
+            '- Use PASS_CLEAN only if you genuinely found nothing worth recording.',
+            '- Be concise and tie findings to the actual current local diff/head.',
+        ]
+        return '\n'.join(lines)
+
+    def _run_inter_review_agent_review(*, issue, worktree, lane_memo_path, lane_state_path, head_sha):
+        adapter_reviews = ns._load_adapter_reviews_module()
+        try:
+            return adapter_reviews.run_inter_review_agent_review(
+                issue=issue,
+                worktree=worktree,
+                lane_memo_path=lane_memo_path,
+                lane_state_path=lane_state_path,
+                head_sha=head_sha,
+                run_fn=ns._run,
+                inter_review_agent_model=ns.INTER_REVIEW_AGENT_MODEL,
+                inter_review_agent_max_turns=ns.INTER_REVIEW_AGENT_MAX_TURNS,
+                error_cls=subprocess.CalledProcessError,
+            )
+        except adapter_reviews.InterReviewAgentError as exc:
+            raise ns.InterReviewAgentError(
+                str(exc),
+                failure_class=getattr(exc, "failure_class", "review_subprocess_failed"),
+            ) from exc
+
+    def _audit_inter_review_agent_transition(previous_review, current_review):
+        ns._load_adapter_reviews_module().audit_inter_review_agent_transition(
+            previous_review=previous_review,
+            current_review=current_review,
+            audit_fn=ns.audit,
+            internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
+            target_head_fn=ns._inter_review_agent_target_head,
+        )
+
+    # -----------------------------------------------------------------
+    # Prompts + handoff + next-action helpers.
+    # -----------------------------------------------------------------
+
+    def _render_implementation_dispatch_prompt(*, issue, issue_details, worktree, lane_memo_path, lane_state_path, open_pr, action, workflow_state):
+        return ns._load_adapter_prompts_module().render_implementation_dispatch_prompt(
+            issue=issue,
+            issue_details=issue_details,
+            worktree=worktree,
+            lane_memo_path=lane_memo_path,
+            lane_state_path=lane_state_path,
+            open_pr=open_pr,
+            action=action,
+            workflow_state=workflow_state,
+        )
+
+    def _normalize_implementation_for_active_lane(implementation, *, active_lane, open_pr):
+        impl = dict(implementation or {})
+        if not active_lane:
+            return impl
+        selected_codex_model = ns._codex_model_for_issue(
+            active_lane,
+            lane_state=impl.get("laneState"),
+            workflow_state=impl.get("status"),
+        )
+        return ns._load_adapter_status_module().normalize_implementation_for_active_lane(
+            impl,
+            active_lane=active_lane,
+            open_pr=open_pr,
+            selected_codex_model=selected_codex_model,
+        )
+
+    def _prepare_lane_worktree(*, worktree, branch, open_pr):
+        import shutil as _shutil
+        return ns._load_adapter_sessions_module().prepare_lane_worktree(
+            worktree=worktree,
+            branch=branch,
+            open_pr=open_pr,
+            repo_path=ns.REPO_PATH,
+            run=ns._run,
+            is_git_repo=ns._is_git_repo,
+            snapshot_lane_artifacts_fn=ns._snapshot_lane_artifacts,
+            restore_lane_artifacts_fn=ns._restore_lane_artifacts,
+            rmtree=_shutil.rmtree,
+        )
+
+    def _latest_lane_progress_epoch(implementation, lane_state):
+        impl = implementation or {}
+        state = lane_state or {}
+        state_impl = state.get("implementation") or {}
+        active_health = impl.get("activeSessionHealth") or {}
+        candidates = [
+            state_impl.get("lastMeaningfulProgressAt"),
+            state_impl.get("activeSessionLastUsedAt"),
+            active_health.get("lastUsedAt"),
+            impl.get("updatedAt"),
+        ]
+        epochs = [epoch for epoch in (ns._iso_to_epoch(value) for value in candidates if value) if epoch is not None]
+        return max(epochs) if epochs else None
+
+    def _single_pass_local_claude_gate_satisfied(review, local_head_sha, lane_state=None):
+        return ns._load_adapter_reviews_module().single_pass_local_claude_gate_satisfied(
+            review,
+            local_head_sha,
+            lane_state,
+            pass_with_findings_reviews=ns.CLAUDE_PASS_WITH_FINDINGS_REVIEWS,
+        )
+
+    def _fetch_codex_pr_body_signal(pr_number):
+        return ns._load_adapter_reviews_module().fetch_codex_pr_body_signal(
+            pr_number,
+            run_json_fn=ns._run_json,
+            cwd=ns.REPO_PATH,
+            codex_bot_logins=ns.CODEX_BOT_LOGINS,
+            clean_reactions=ns.CODEX_CLEAN_REACTIONS,
+            pending_reactions=ns.CODEX_PENDING_REACTIONS,
+            repo_slug="moustafattia/YoyoPod_Core",
+        )
+
+    def _fetch_codex_cloud_review(pr_number, current_head_sha, cached_review=None):
+        return ns._load_adapter_reviews_module().fetch_codex_cloud_review(
+            pr_number,
+            current_head_sha=current_head_sha,
+            cached_review=cached_review,
+            fetch_pr_body_signal_fn=ns._fetch_codex_pr_body_signal,
+            run_json_fn=ns._run_json,
+            cwd=ns.REPO_PATH,
+            repo_slug="moustafattia/YoyoPod_Core",
+            codex_bot_logins=ns.CODEX_BOT_LOGINS,
+            cache_seconds=ns.CODEX_CLOUD_CACHE_SECONDS,
+            iso_to_epoch_fn=ns._iso_to_epoch,
+            now_epoch_fn=time.time,
+            extract_severity_fn=ns._extract_severity,
+            extract_summary_fn=ns._extract_summary,
+            agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
+        )
+
+    def _codex_cloud_placeholder(*, required, status, summary):
+        return ns._load_adapter_reviews_module().codex_cloud_placeholder(
+            required=required,
+            status=status,
+            summary=summary,
+            agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
+            agent_role="external_reviewer_agent",
+        )
+
+    def _normalize_review(review, *, required=True, pending_summary, agent_name=None, agent_role=None):
+        return ns._load_adapter_reviews_module().normalize_review(
+            review,
+            required=required,
+            pending_summary=pending_summary,
+            agent_name=agent_name,
+            agent_role=agent_role,
+        )
+
+    def _inter_review_agent_superseded(review, *, superseded_by_head_sha, now_iso):
+        return ns._load_adapter_reviews_module().inter_review_agent_superseded(
+            review,
+            superseded_by_head_sha=superseded_by_head_sha,
+            now_iso=now_iso,
+            target_head_fn=ns._inter_review_agent_target_head,
+        )
+
+    def _inter_review_agent_timed_out(review, *, now_iso):
+        return ns._load_adapter_reviews_module().inter_review_agent_timed_out(
+            review,
+            now_iso=now_iso,
+            target_head_fn=ns._inter_review_agent_target_head,
+            started_epoch_fn=ns._inter_review_agent_started_epoch,
+            now_epoch_fn=lambda: int(time.time()),
+        )
+
+    def _normalize_local_inter_review_agent_seed(review, *, local_head_sha, now_iso):
+        return ns._load_adapter_reviews_module().normalize_local_inter_review_agent_seed(
+            review,
+            local_head_sha=local_head_sha,
+            now_iso=now_iso,
+            model=ns.INTER_REVIEW_AGENT_MODEL,
+            timeout_seconds=ns.INTER_REVIEW_AGENT_TIMEOUT_SECONDS,
+            target_head_fn=ns._inter_review_agent_target_head,
+            started_epoch_fn=ns._inter_review_agent_started_epoch,
+            now_epoch_fn=lambda: int(time.time()),
+            current_head_match_fn=ns._current_inter_review_agent_matches_local_head,
+        )
+
+    def _assess_codex_session_health(session_meta, worktree, now_epoch=None, freshness_seconds=None, poke_grace_seconds=None):
+        return ns._load_adapter_sessions_module().assess_codex_session_health(
+            session_meta,
+            worktree,
+            now_epoch=now_epoch,
+            freshness_seconds=freshness_seconds if freshness_seconds is not None else ns.CODEX_SESSION_FRESHNESS_SECONDS,
+            poke_grace_seconds=poke_grace_seconds if poke_grace_seconds is not None else ns.CODEX_SESSION_POKE_GRACE_SECONDS,
+        )
+
+    def decide_lane_session_action(*, active_session_health, implementation_status, has_open_pr):
+        return ns._load_adapter_sessions_module().decide_session_action(
+            active_session_health=active_session_health,
+            implementation_status=implementation_status,
+            has_open_pr=has_open_pr,
+        )
+
+    def render_lane_memo(*, issue, worktree, branch, open_pr, repair_brief, latest_progress, validation_summary, acp_strategy=None):
+        return ns._load_adapter_prompts_module().render_lane_memo(
+            issue=issue,
+            worktree=worktree,
+            branch=branch,
+            open_pr=open_pr,
+            repair_brief=repair_brief,
+            latest_progress=latest_progress,
+            validation_summary=validation_summary,
+            acp_strategy=acp_strategy,
+        )
+
+    def build_acp_session_strategy(*, implementation_session_key, session_action, lane_state, session_runtime=None, session_name=None, resume_session_id=None):
+        return ns._load_adapter_sessions_module().build_acp_session_strategy(
+            implementation_session_key=implementation_session_key,
+            session_action=session_action,
+            lane_state=lane_state,
+            session_runtime=session_runtime,
+            session_name=session_name,
+            resume_session_id=resume_session_id,
+        )
+
+    def build_session_nudge_payload(*, session_action, issue, open_pr, lane_memo_path, now_iso):
+        return ns._load_adapter_sessions_module().build_session_nudge_payload(
+            session_action=session_action,
+            issue=issue,
+            open_pr=open_pr,
+            lane_memo_path=lane_memo_path,
+            now_iso=now_iso,
+        )
+
+    def should_nudge_session(*, lane_state, session_action, current_head_sha, now_epoch=None, cooldown_seconds=None):
+        return ns._load_adapter_sessions_module().should_nudge_session(
+            lane_state=lane_state,
+            session_action=session_action,
+            current_head_sha=current_head_sha,
+            now_epoch=now_epoch,
+            cooldown_seconds=cooldown_seconds if cooldown_seconds is not None else ns.CODEX_SESSION_NUDGE_COOLDOWN_SECONDS,
+        )
+
+    def record_session_nudge(*, worktree, payload):
+        return ns._load_adapter_sessions_module().record_session_nudge(
+            worktree=worktree,
+            payload=payload,
+            lane_state_path_fn=ns._lane_state_path,
+            load_optional_json_fn=ns._load_optional_json,
+            write_json_fn=ns._write_json,
+        )
+
+    def should_dispatch_claude_repair_handoff(*, lane_state, session_action, claude_review, repair_brief, workflow_state, current_head_sha, has_open_pr):
+        return ns._load_adapter_reviews_module().should_dispatch_claude_repair_handoff(
+            lane_state=lane_state,
+            session_action=session_action,
+            claude_review=claude_review,
+            repair_brief=repair_brief,
+            workflow_state=workflow_state,
+            current_head_sha=current_head_sha,
+            has_open_pr=has_open_pr,
+        )
+
+    def should_dispatch_codex_cloud_repair_handoff(*, lane_state, session_action, codex_review, repair_brief, workflow_state, current_head_sha, has_open_pr):
+        return ns._load_adapter_reviews_module().should_dispatch_codex_cloud_repair_handoff(
+            lane_state=lane_state,
+            session_action=session_action,
+            codex_review=codex_review,
+            repair_brief=repair_brief,
+            workflow_state=workflow_state,
+            current_head_sha=current_head_sha,
+            has_open_pr=has_open_pr,
+        )
+
+    def build_codex_cloud_repair_handoff_payload(*, session_action, issue, codex_review, repair_brief, lane_memo_path, lane_state_path, now_iso):
+        return ns._load_adapter_reviews_module().build_codex_cloud_repair_handoff_payload(
+            session_action=session_action,
+            issue=issue,
+            codex_review=codex_review,
+            repair_brief=repair_brief,
+            lane_memo_path=lane_memo_path,
+            lane_state_path=lane_state_path,
+            now_iso=now_iso,
+        )
+
+    def record_codex_cloud_repair_handoff(*, worktree, payload):
+        return ns._load_adapter_reviews_module().record_codex_cloud_repair_handoff(
+            worktree=worktree,
+            payload=payload,
+            lane_state_path_fn=ns._lane_state_path,
+            load_optional_json_fn=ns._load_optional_json,
+            write_json_fn=ns._write_json,
+        )
+
+    def _render_codex_cloud_repair_handoff_prompt(*, issue, codex_review, repair_brief, lane_memo_path, lane_state_path, pr_url):
+        return ns._load_adapter_prompts_module().render_codex_cloud_repair_handoff_prompt(
+            issue=issue,
+            codex_review=codex_review,
+            repair_brief=repair_brief,
+            lane_memo_path=lane_memo_path,
+            lane_state_path=lane_state_path,
+            pr_url=pr_url,
+            external_reviewer_agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
+        )
+
+    def build_claude_repair_handoff_payload(*, session_action, issue, claude_review, repair_brief, lane_memo_path, lane_state_path, now_iso):
+        return ns._load_adapter_reviews_module().build_claude_repair_handoff_payload(
+            session_action=session_action,
+            issue=issue,
+            claude_review=claude_review,
+            repair_brief=repair_brief,
+            lane_memo_path=lane_memo_path,
+            lane_state_path=lane_state_path,
+            now_iso=now_iso,
+        )
+
+    def record_claude_repair_handoff(*, worktree, payload):
+        return ns._load_adapter_reviews_module().record_claude_repair_handoff(
+            worktree=worktree,
+            payload=payload,
+            lane_state_path_fn=ns._lane_state_path,
+            load_optional_json_fn=ns._load_optional_json,
+            write_json_fn=ns._write_json,
+        )
+
+    def _render_claude_repair_handoff_prompt(*, issue, claude_review, repair_brief, lane_memo_path, lane_state_path):
+        return ns._load_adapter_prompts_module().render_claude_repair_handoff_prompt(
+            issue=issue,
+            claude_review=claude_review,
+            repair_brief=repair_brief,
+            lane_memo_path=lane_memo_path,
+            lane_state_path=lane_state_path,
+            internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
+        )
+
+    def _classify_lane_failure(*, implementation, reviews, preflight):
+        return ns._load_adapter_reviews_module().classify_lane_failure(
+            implementation=implementation,
+            reviews=reviews,
+            preflight=preflight,
+        )
+
+    def _increment_no_progress_ticks(*, existing, latest_progress, now_iso=None):
+        latest_progress = latest_progress or {}
+        if latest_progress.get("kind") in {"approved", "merged"}:
+            return 0
+        prev_impl = existing.get("implementation") or {}
+        prev_budget = existing.get("budget") or {}
+        same_at = (prev_impl.get("lastMeaningfulProgressAt") or None) == (latest_progress.get("at") or None)
+        same_kind = (prev_impl.get("lastMeaningfulProgressKind") or None) == (latest_progress.get("kind") or None)
+        if same_at and same_kind and latest_progress.get("at"):
+            previous_evaluated_epoch = ns._iso_to_epoch(prev_budget.get("lastEvaluatedAt"))
+            now_epoch = ns._iso_to_epoch(now_iso) if now_iso else None
+            if (
+                previous_evaluated_epoch is not None
+                and now_epoch is not None
+                and (now_epoch - previous_evaluated_epoch) < ns.LANE_COUNTER_INCREMENT_MIN_SECONDS
+            ):
+                return int(prev_budget.get("noProgressTicks") or 0)
+            return int(prev_budget.get("noProgressTicks") or 0) + 1
+        return 0
+
+    def _lane_operator_attention_reasons(lane_state):
+        lane_state = lane_state or {}
+        failure_state = lane_state.get("failure") or {}
+        budget_state = lane_state.get("budget") or {}
+        reasons = []
+        if int(failure_state.get("retryCount") or 0) >= ns.LANE_OPERATOR_ATTENTION_RETRY_THRESHOLD:
+            reasons.append(f"operator-attention-required:failure-retry-count={int(failure_state.get('retryCount') or 0)}")
+        if int(budget_state.get("noProgressTicks") or 0) >= ns.LANE_OPERATOR_ATTENTION_NO_PROGRESS_THRESHOLD:
+            reasons.append(f"operator-attention-required:no-progress-ticks={int(budget_state.get('noProgressTicks') or 0)}")
+        return reasons
+
+    def _lane_operator_attention_needed(lane_state):
+        return bool(ns._lane_operator_attention_reasons(lane_state))
+
+    def _derive_latest_progress(*, implementation, ledger, open_pr, reviews, review_loop_state, merge_blocked, now_iso):
+        return ns._load_adapter_status_module().derive_latest_progress(
+            implementation=implementation,
+            ledger=ledger,
+            open_pr=open_pr,
+            reviews=reviews,
+            review_loop_state=review_loop_state,
+            merge_blocked=merge_blocked,
+            now_iso=now_iso,
+        )
+
+    def write_lane_state(*, worktree, issue, open_pr, implementation, reviews, repair_brief, now_iso, latest_progress, preflight=None):
+        return ns._load_adapter_status_module().write_lane_state(
+            worktree=worktree,
+            issue=issue,
+            open_pr=open_pr,
+            implementation=implementation,
+            reviews=reviews,
+            repair_brief=repair_brief,
+            now_iso=now_iso,
+            latest_progress=latest_progress,
+            preflight=preflight,
+            cooldown_seconds=ns.LANE_COUNTER_INCREMENT_MIN_SECONDS,
+        )
+
+    def write_lane_memo(*, worktree, issue, branch, open_pr, repair_brief, latest_progress, validation_summary, acp_strategy=None):
+        return ns._load_adapter_status_module().write_lane_memo(
+            worktree=worktree,
+            issue=issue,
+            branch=branch,
+            open_pr=open_pr,
+            repair_brief=repair_brief,
+            latest_progress=latest_progress,
+            validation_summary=validation_summary,
+            acp_strategy=acp_strategy,
+        )
+
+    def _mark_pr_ready_for_review(pr_number):
+        return ns._load_adapter_reviews_module().mark_pr_ready_for_review(
+            pr_number,
+            run_fn=ns._run,
+            cwd=ns.REPO_PATH,
+            repo_slug="moustafattia/YoyoPod_Core",
+        )
+
+    def _resolve_review_thread(thread_id):
+        return ns._load_adapter_reviews_module().resolve_review_thread(
+            thread_id,
+            run_json_fn=ns._run_json,
+            cwd=ns.REPO_PATH,
+        )
+
+    def _resolve_codex_superseded_threads(review, *, current_head_sha):
+        return ns._load_adapter_reviews_module().resolve_codex_superseded_threads(
+            review,
+            current_head_sha=current_head_sha,
+            resolve_review_thread_fn=ns._resolve_review_thread,
+        )
+
+    def _inter_review_agent_preflight(*, active_lane, open_pr, workflow_state, pr_ledger, inter_review_agent_review, inter_review_agent_job, local_head_sha, implementation_commits_ahead, single_pass_gate_satisfied=False):
+        return ns._load_adapter_reviews_module().inter_review_agent_preflight(
+            active_lane=active_lane,
+            open_pr=open_pr,
+            workflow_state=workflow_state,
+            pr_ledger=pr_ledger,
+            inter_review_agent_review=inter_review_agent_review,
+            inter_review_agent_job=inter_review_agent_job,
+            local_head_sha=local_head_sha,
+            implementation_commits_ahead=implementation_commits_ahead,
+            single_pass_gate_satisfied=single_pass_gate_satisfied,
+            pr_ready_for_review_fn=ns._pr_ready_for_review,
+            has_local_candidate_fn=ns._has_local_candidate,
+            checks_acceptable_fn=ns._checks_acceptable,
+            target_head_fn=ns._inter_review_agent_target_head,
+            started_epoch_fn=ns._inter_review_agent_started_epoch,
+            now_ms_fn=ns._now_ms,
+            now_epoch_fn=lambda: int(time.time()),
+            timeout_seconds=ns.INTER_REVIEW_AGENT_TIMEOUT_SECONDS,
+            request_cooldown_seconds=ns.CLAUDE_REVIEW_REQUEST_COOLDOWN_SECONDS,
+        )
+
+    def _derive_next_action(*, active_lane, open_pr, health, implementation, reviews, repair_brief, preflight, workflow_state, review_loop_state, merge_blocked):
+        impl = implementation or {}
+        lane_state = impl.get('laneState') or {}
+        status_like = {
+            'activeLane': active_lane,
+            'openPr': open_pr,
+            'health': health,
+            'implementation': impl,
+            'reviews': reviews or {},
+            'repairBrief': repair_brief,
+            'preflight': preflight or {},
+            'ledger': {'workflowState': workflow_state},
+            'derivedReviewLoopState': review_loop_state,
+            'derivedMergeBlocked': bool(merge_blocked),
+            'staleLaneReasons': ns._lane_operator_attention_reasons(lane_state),
+            'nextAction': {
+                'type': 'noop',
+                'reason': 'no-forward-action-needed',
+                'issueNumber': active_lane.get('number') if active_lane else None,
+                'headSha': impl.get('localHeadSha'),
+            },
+        }
+        return ns._load_adapter_workflow_module().derive_next_action(
+            status_like,
+            failure_retry_budget=ns.LANE_FAILURE_RETRY_BUDGET,
+            no_progress_tick_budget=ns.LANE_NO_PROGRESS_TICK_BUDGET,
+        )
+
+    # -----------------------------------------------------------------
+    # Orchestrator wrappers: build_status_raw + reconcile + doctor.
+    # -----------------------------------------------------------------
+
+    def build_status_raw():
+        return ns._load_adapter_module("orchestrator").build_status_raw(ns)
+
+    def reconcile(*, write_health: bool = True, fix_watchers: bool = False):
+        return ns._load_adapter_module("orchestrator").reconcile(
+            ns, write_health=write_health, fix_watchers=fix_watchers,
+        )
+
+    def doctor(*, fix_watchers: bool = True):
+        before = ns.build_status()
+        after = before
+        if before["health"] != "healthy" or fix_watchers:
+            after = ns.reconcile(fix_watchers=fix_watchers)
+        ns.audit(
+            "doctor",
+            f"Doctor checked workflow: {before['health']} -> {after['health']}",
+            before=before["health"],
+            after=after["health"],
+        )
+        return {
+            "before": before,
+            "after": after,
+            "fixed": before["health"] != after["health"] or bool(after.get("actionsTaken", {}).get("jobs")),
+        }
+
+    # -----------------------------------------------------------------
+    # Cron operator commands: pause / resume / wake.
+    # -----------------------------------------------------------------
+
+    def _wake_jobs(jobs_payload, names):
+        now_ms = ns._now_ms()
+        touched = []
+        wanted = set(names)
+        for job in jobs_payload.get("jobs", []):
+            if job.get("name") not in wanted:
+                continue
+            ns._set_job_next_run_ms(job, now_ms)
+            ns._set_job_updated_ms(job, now_ms)
+            touched.append(str(job.get("name")))
+        return touched
+
+    def set_core_jobs_enabled(enabled, *, wake_now: bool = False):
+        jobs_payload = ns.load_jobs()
+        now_ms = ns._now_ms()
+        touched = []
+        managed_job_names = ns._managed_job_names()
+        for job in jobs_payload.get("jobs", []):
+            if job.get("name") in managed_job_names:
+                job["enabled"] = enabled
+                ns._set_job_updated_ms(job, now_ms)
+                if wake_now:
+                    ns._set_job_next_run_ms(job, now_ms)
+                touched.append(job.get("name"))
+        ns.save_jobs(jobs_payload)
+        status = ns.build_status()
+        ns._write_json(ns.HEALTH_PATH, status)
+        ns.audit(
+            "resume" if enabled else "pause",
+            f"Set core jobs enabled={enabled}",
+            jobs=touched,
+            wakeNow=wake_now,
+            health=status["health"],
+        )
+        return status
+
+    def wake_named_jobs(names):
+        jobs_payload = ns.load_jobs()
+        touched = ns._wake_jobs(jobs_payload, names)
+        ns.save_jobs(jobs_payload)
+        status = ns.build_status()
+        ns._write_json(ns.HEALTH_PATH, status)
+        ns.audit(
+            "wake-jobs",
+            "Woke named jobs",
+            jobs=touched,
+            health=status["health"],
+        )
+        return {"jobs": touched, "health": status["health"]}
+
+    def wake_core_jobs():
+        return ns.set_core_jobs_enabled(True, wake_now=True)
+
+    # -----------------------------------------------------------------
+    # Action runners: adapter-owned, wrapper no longer needed.
+    # -----------------------------------------------------------------
+
+    def publish_ready_pr_raw():
+        return ns._load_adapter_actions_module().run_publish_ready_pr(
+            reconcile_fn=ns.reconcile,
+            run_fn=ns._run,
+            audit_fn=ns.audit,
+            mark_pr_ready_for_review_fn=ns._mark_pr_ready_for_review,
+            repo_slug="moustafattia/YoyoPod_Core",
+            repo_path=ns.REPO_PATH,
+        )
+
+    def push_pr_update_raw():
+        return ns._load_adapter_actions_module().run_push_pr_update(
+            reconcile_fn=ns.reconcile,
+            run_fn=ns._run,
+            audit_fn=ns.audit,
+        )
+
+    def merge_and_promote_raw():
+        return ns._load_adapter_actions_module().run_merge_and_promote(
+            reconcile_fn=ns.reconcile,
+            run_fn=ns._run,
+            audit_fn=ns.audit,
+            issue_remove_label_fn=ns._issue_remove_label,
+            issue_close_fn=ns._issue_close,
+            issue_add_label_fn=ns._issue_add_label,
+            issue_comment_fn=ns._issue_comment,
+            pick_next_lane_issue_fn=ns._pick_next_lane_issue,
+            now_iso_fn=ns._now_iso,
+            active_lane_label=ns.ACTIVE_LANE_LABEL,
+            repo_slug="moustafattia/YoyoPod_Core",
+            repo_path=ns.REPO_PATH,
+        )
+
+    def dispatch_inter_review_agent_review_raw():
+        return ns._load_adapter_actions_module().run_dispatch_inter_review_agent_review(
+            reconcile_fn=ns.reconcile,
+            load_ledger_fn=ns.load_ledger,
+            save_ledger_fn=ns.save_ledger,
+            audit_inter_review_agent_transition_fn=ns._audit_inter_review_agent_transition,
+            run_inter_review_agent_review_fn=lambda **kw: ns._run_inter_review_agent_review(**kw),
+            now_iso_fn=ns._now_iso,
+            new_inter_review_agent_run_id_fn=ns._new_inter_review_agent_run_id,
+            actor_labels_payload_fn=ns._actor_labels_payload,
+            inter_review_agent_model=ns.INTER_REVIEW_AGENT_MODEL,
+            internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
+        )
+
+    def dispatch_claude_review_raw():
+        return ns.dispatch_inter_review_agent_review_raw()
+
+    def _maybe_dispatch_repair_handoff(*, status, ledger, now_iso, codex_model, lane_state_override=None):
+        return ns._load_adapter_reviews_module().maybe_dispatch_repair_handoff(
+            status=status,
+            ledger=ledger,
+            now_iso=now_iso,
+            codex_model=codex_model,
+            run_acpx_prompt_fn=ns._run_acpx_prompt,
+            audit_fn=ns.audit,
+            lane_state_override=lane_state_override,
+            lane_state_path_fn=ns._lane_state_path,
+            load_optional_json_fn=ns._load_optional_json,
+            write_json_fn=ns._write_json,
+            internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
+            external_reviewer_agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
+        )
+
+    def dispatch_repair_handoff_raw():
+        status = ns.build_status()
+        ledger = ns.load_ledger()
+        impl = status.get("implementation") or {}
+        codex_model = impl.get("codexModel") or ns._codex_model_for_issue(
+            status.get("activeLane"),
+            lane_state=impl.get("laneState"),
+            workflow_state=(status.get("ledger") or {}).get("workflowState"),
+            reviews=status.get("reviews") or {},
+        )
+        result, changed = ns._maybe_dispatch_repair_handoff(
+            status=status,
+            ledger=ledger,
+            now_iso=status.get("updatedAt") or ns._now_iso(),
+            codex_model=codex_model,
+        )
+        if changed:
+            ns.save_ledger(ledger)
+        after = ns.build_status()
+        return {**result, "after": after}
+
+    def tick_raw():
+        return ns._load_adapter_actions_module().run_tick_raw(
+            reconcile_fn=ns.reconcile,
+            audit_fn=ns.audit,
+            dispatch_inter_review_agent_review_fn=ns.dispatch_inter_review_agent_review,
+            dispatch_implementation_turn_fn=ns.dispatch_implementation_turn,
+            publish_ready_pr_fn=ns.publish_ready_pr,
+            push_pr_update_fn=ns.push_pr_update,
+            merge_and_promote_fn=ns.merge_and_promote,
+        )
+
+    def _dispatch_lane_turn(*, status, forced_action=None, audit_action="dispatch-implementation-turn"):
+        return ns._load_adapter_actions_module().run_dispatch_lane_turn(
+            status=status,
+            forced_action=forced_action,
+            audit_action=audit_action,
+            now_iso_fn=ns._now_iso,
+            close_acpx_session_fn=ns._close_acpx_session,
+            ensure_acpx_session_fn=ns._ensure_acpx_session,
+            show_acpx_session_fn=ns._show_acpx_session,
+            run_acpx_prompt_fn=ns._run_acpx_prompt,
+            prepare_lane_worktree_fn=ns._prepare_lane_worktree,
+            codex_model_for_issue_fn=ns._codex_model_for_issue,
+            get_issue_details_fn=ns._get_issue_details,
+            fallback_codex_model_for_prompt_error_fn=ns._fallback_codex_model_for_prompt_error,
+            coder_agent_name_for_model_fn=ns._coder_agent_name_for_model,
+            actor_labels_payload_fn=ns._actor_labels_payload,
+            load_ledger_fn=ns.load_ledger,
+            save_ledger_fn=ns.save_ledger,
+            reconcile_fn=ns.reconcile,
+            audit_fn=ns.audit,
+            render_implementation_dispatch_prompt_fn=ns._render_implementation_dispatch_prompt,
+            error_cls=subprocess.CalledProcessError,
+        )
+
+    def dispatch_implementation_turn_raw():
+        status = ns.reconcile(fix_watchers=True)
+        return ns._dispatch_lane_turn(
+            status=status,
+            forced_action=None,
+            audit_action="dispatch-implementation-turn",
+        )
+
+    def restart_actor_session_raw():
+        status = ns.reconcile(fix_watchers=True)
+        return ns._dispatch_lane_turn(
+            status=status,
+            forced_action="restart-session",
+            audit_action="restart-actor-session",
+        )
+
+    # Rebind the user-facing action functions to call the raw implementations
+    # directly. This replaces the earlier shims above (which went through
+    # ``_load_adapter_actions_module().publish_ready_pr(ns.WORKSPACE)``), cutting
+    # the circular wrapper dependency.
+    def publish_ready_pr():
+        return ns.publish_ready_pr_raw()
+
+    def push_pr_update():
+        return ns.push_pr_update_raw()
+
+    def merge_and_promote():
+        return ns.merge_and_promote_raw()
+
+    def dispatch_inter_review_agent_review():
+        return ns.dispatch_inter_review_agent_review_raw()
+
+    def dispatch_claude_review():
+        return ns.dispatch_claude_review_raw()
+
+    def dispatch_repair_handoff():
+        return ns.dispatch_repair_handoff_raw()
+
+    def tick():
+        return ns.tick_raw()
+
+    def dispatch_implementation_turn():
+        return ns.dispatch_implementation_turn_raw()
+
+    def restart_actor_session():
+        return ns.restart_actor_session_raw()
+
+    def build_status():
+        from adapters.yoyopod_core.status import normalize_status as _normalize_status
+
+        return _normalize_status(ns.build_status_raw(), ns.WORKSPACE)
+
+    # Back-compat aliases ------------------------------------------------
+    # Reference local function variables directly — those are bound by `def`
+    # in the current scope; dereferencing via ``ns.`` would fail here because
+    # the ``setattr(ns, …)`` loop below hasn't run yet.
+    _new_review_run_id = _new_inter_review_agent_run_id
+    _claude_review_target_head = _inter_review_agent_target_head
+    _claude_review_started_epoch = _inter_review_agent_started_epoch
+    _claude_review_is_running_on_head = _inter_review_agent_is_running_on_head
+    _classify_claude_review_failure_text = _classify_inter_review_agent_failure_text
+    _extract_claude_review_payload = _extract_inter_review_agent_payload
+    _claude_review_failure_message = _inter_review_agent_failure_message
+    _claude_review_failure_class = _inter_review_agent_failure_class
+    _render_claude_review_prompt = _render_inter_review_agent_prompt
+    _run_claude_code_review = _run_inter_review_agent_review
+    _audit_claude_review_transition = _audit_inter_review_agent_transition
+
+    # Expose the InterReviewAgentError class so callers using
+    # ``workspace.InterReviewAgentError`` can catch it. We bind lazily — if the
+    # plugin payload isn't present (e.g. unit tests under a temp root), the
+    # attribute is simply absent and the adapter reviews helper resolves it at
+    # call time via ``ns._load_adapter_reviews_module()`` instead.
+    try:
+        ns.InterReviewAgentError = ns._load_adapter_reviews_module().InterReviewAgentError
+        ns.ClaudeReviewError = ns.InterReviewAgentError
+    except FileNotFoundError:
+        pass
+
+    for _shim_name, _shim_fn in list(locals().items()):
+        if _shim_name in {"_install_wrapper_adapter_shims", "ns", "_quote"}:
+            continue
+        if callable(_shim_fn):
+            setattr(ns, _shim_name, _shim_fn)
+
+
+def load_workspace_from_config(
+    *,
+    workspace_root: Path,
+    config_path: Path | None = None,
+) -> SimpleNamespace:
+    """Convenience factory: read ``config/yoyopod-workflow.json`` and build a workspace."""
+    path = config_path or (workspace_root / DEFAULT_CONFIG_FILENAME)
+    return make_workspace(workspace_root=Path(workspace_root), config=_load_json(path))

@@ -1,0 +1,488 @@
+import argparse
+import importlib.util
+import json
+import sqlite3
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_module(module_name: str, relative_path: str):
+    module_path = REPO_ROOT / relative_path
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture()
+def runtime_module():
+    return load_module("hermes_relay_runtime_test", "runtime.py")
+
+
+@pytest.fixture()
+def tools_module():
+    return load_module("hermes_relay_tools_test", "tools.py")
+
+
+@pytest.fixture()
+def alerts_module():
+    return load_module("hermes_relay_alerts_test", "alerts.py")
+
+
+def test_iso_to_epoch_uses_utc_timegm(runtime_module, monkeypatch):
+    monkeypatch.setattr(runtime_module.time, "mktime", lambda *_args, **_kwargs: 123456789)
+
+    assert runtime_module._iso_to_epoch("1970-01-01T00:00:00Z") == 0
+    assert runtime_module._iso_to_epoch("1970-01-01T00:00:01.000000Z") == 1
+
+
+def test_init_relay_db_migrates_execution_control_to_clean_schema(runtime_module, tmp_path):
+    db_path = tmp_path / "relay.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE ownership_controls (
+              control_id TEXT PRIMARY KEY,
+              desired_owner TEXT NOT NULL,
+              active_execution_enabled INTEGER NOT NULL DEFAULT 0,
+              require_watchdog_paused INTEGER NOT NULL DEFAULT 1,
+              updated_at TEXT NOT NULL,
+              metadata_json TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO ownership_controls (control_id, desired_owner, active_execution_enabled, require_watchdog_paused, updated_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?)",
+            ("primary", "relay", 1, 1, "2026-04-22T00:00:00Z", json.dumps({"source": "legacy"}, sort_keys=True)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    runtime_module.init_relay_db(db_path=db_path, project_key="yoyopod")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(execution_controls)").fetchall()]
+        lane_action_columns = [row[1] for row in conn.execute("PRAGMA table_info(lane_actions)").fetchall()]
+        runtime_row = conn.execute(
+            "SELECT schema_version FROM relay_runtime WHERE runtime_id=?",
+            ("relay",),
+        ).fetchone()
+        row = conn.execute(
+            "SELECT control_id, active_execution_enabled, updated_at, metadata_json FROM execution_controls WHERE control_id=?",
+            ("primary",),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert "execution_controls" in tables
+    assert "ownership_controls" not in tables
+    assert columns == ["control_id", "active_execution_enabled", "updated_at", "metadata_json"]
+    assert runtime_row[0] == 2
+    assert "recovery_attempt_count" in lane_action_columns
+    assert row[0] == "primary"
+    assert row[1] == 1
+    assert json.loads(row[3]) == {"source": "legacy"}
+
+
+def test_ingest_legacy_status_preserves_active_action_operator_attention(runtime_module, tmp_path):
+    workflow_root = tmp_path / "workflow"
+    paths = runtime_module._runtime_paths(workflow_root)
+    runtime_module.init_relay_db(db_path=paths["db_path"], project_key="yoyopod")
+
+    legacy_status = {
+        "activeLane": {"number": 221, "url": "https://example.com/issues/221", "title": "Issue 221", "labels": []},
+        "repo": "/tmp/repo",
+        "implementation": {
+            "worktree": "/tmp/yoyopod-issue-221",
+            "branch": "codex/issue-221-test",
+            "localHeadSha": "abc123",
+            "laneState": {
+                "implementation": {
+                    "lastMeaningfulProgressAt": "2026-04-22T00:00:00Z",
+                    "lastMeaningfulProgressKind": "implementing_local",
+                },
+                "pr": {"lastPublishedHeadSha": None},
+            },
+            "activeSessionHealth": {"healthy": True, "lastUsedAt": "2026-04-22T00:00:00Z"},
+            "sessionActionRecommendation": {"action": "continue-session"},
+        },
+        "reviews": {},
+        "ledger": {"workflowState": "implementing_local", "reviewState": "implementing_local", "repairBrief": None},
+        "derivedReviewLoopState": "awaiting_reviews",
+        "derivedMergeBlocked": False,
+        "derivedMergeBlockers": [],
+        "openPr": None,
+        "activeLaneError": None,
+        "staleLaneReasons": [],
+        "nextAction": {"type": "dispatch_codex_turn", "reason": "implementation-in-progress"},
+    }
+
+    runtime_module.ingest_legacy_status(workflow_root=workflow_root, legacy_status=legacy_status, now_iso="2026-04-22T00:01:00Z")
+
+    conn = runtime_module._connect(paths["db_path"])
+    try:
+        conn.execute(
+            "UPDATE lanes SET operator_attention_required=1, operator_attention_reason=?, updated_at=? WHERE lane_id=?",
+            ("active-action-failed:dispatch_implementation_turn", "2026-04-22T00:02:00Z", "lane:221"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    runtime_module.ingest_legacy_status(workflow_root=workflow_root, legacy_status=legacy_status, now_iso="2026-04-22T00:03:00Z")
+
+    conn = sqlite3.connect(paths["db_path"])
+    try:
+        required, reason = conn.execute(
+            "SELECT operator_attention_required, operator_attention_reason FROM lanes WHERE lane_id=?",
+            ("lane:221",),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert required == 1
+    assert reason == "active-action-failed:dispatch_implementation_turn"
+
+
+def test_request_active_actions_event_payload_uses_retry_count(runtime_module, tmp_path, monkeypatch):
+    workflow_root = tmp_path / "workflow"
+    paths = runtime_module._runtime_paths(workflow_root)
+    runtime_module.init_relay_db(db_path=paths["db_path"], project_key="yoyopod")
+
+    now_iso = "2026-04-22T00:00:00Z"
+    conn = runtime_module._connect(paths["db_path"])
+    try:
+        conn.execute(
+            """
+            INSERT INTO lanes (
+              lane_id, issue_number, issue_url, issue_title, repo_path, actor_backend,
+              lane_status, workflow_state, review_state, merge_state, active_actor_id,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "lane:221",
+                221,
+                "https://example.com/issues/221",
+                "Issue 221",
+                "/tmp/repo",
+                "acpx-codex",
+                "active",
+                "ready_to_publish",
+                "clean",
+                "ready",
+                None,
+                now_iso,
+                now_iso,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO lane_actions (
+              action_id, lane_id, action_type, action_reason, action_mode, requested_by,
+              target_head_sha, idempotency_key, status, requested_at, failed_at,
+              request_payload_json, retry_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "act:failed:1",
+                "lane:221",
+                "publish_pr",
+                "older failure",
+                "active",
+                "Workflow_Orchestrator",
+                "abc123",
+                "active:publish_pr:lane:221:abc123",
+                "failed",
+                "2026-04-21T23:00:00Z",
+                "2026-04-21T23:05:00Z",
+                json.dumps({"action_type": "publish_pr"}, sort_keys=True),
+                0,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "derive_shadow_actions_for_lane",
+        lambda **_kwargs: [{"action_type": "publish_pr", "reason": "ready", "target_head_sha": "abc123"}],
+    )
+
+    actions = runtime_module.request_active_actions_for_lane(
+        workflow_root=workflow_root,
+        lane_id="lane:221",
+        now_iso="2026-04-22T00:10:00Z",
+    )
+
+    assert actions[0]["retry_count"] == 1
+    assert actions[0]["recovery_attempt_count"] == 1
+
+    event_lines = paths["event_log_path"].read_text(encoding="utf-8").strip().splitlines()
+    active_action_requested = [json.loads(line) for line in event_lines if json.loads(line).get("event_type") == "active_action_requested"]
+    assert active_action_requested[-1]["payload"]["retry_count"] == 1
+    assert active_action_requested[-1]["payload"]["recovery_attempt_count"] == 1
+
+
+def test_reap_stuck_dispatched_actions_marks_dispatcher_lost_and_queues_recovery(runtime_module, tmp_path):
+    workflow_root = tmp_path / "workflow"
+    paths = runtime_module._runtime_paths(workflow_root)
+    runtime_module.init_relay_db(db_path=paths["db_path"], project_key="yoyopod")
+
+    now_iso = "2026-04-22T01:00:00Z"
+    conn = runtime_module._connect(paths["db_path"])
+    try:
+        conn.execute(
+            """
+            INSERT INTO lanes (
+              lane_id, issue_number, issue_url, issue_title, repo_path, actor_backend,
+              lane_status, workflow_state, review_state, merge_state, active_actor_id,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "lane:221",
+                221,
+                "https://example.com/issues/221",
+                "Issue 221",
+                "/tmp/repo",
+                "acpx-codex",
+                "active",
+                "ready_to_publish",
+                "clean",
+                "ready",
+                "actor:1",
+                now_iso,
+                now_iso,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO lane_actions (
+              action_id, lane_id, action_type, action_reason, action_mode, requested_by,
+              target_actor_role, target_actor_id, target_head_sha, idempotency_key, status,
+              requested_at, dispatched_at, request_payload_json, retry_count, recovery_attempt_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "act:dispatched:1",
+                "lane:221",
+                "dispatch_repair_handoff",
+                "stuck-dispatch",
+                "active",
+                "Workflow_Orchestrator",
+                "Internal_Coder_Agent",
+                "actor:1",
+                "abc123",
+                "active:dispatch_repair_handoff:lane:221:abc123",
+                "dispatched",
+                "2026-04-22T00:00:00Z",
+                "2026-04-22T00:00:00Z",
+                json.dumps({"action_type": "dispatch_repair_handoff"}, sort_keys=True),
+                0,
+                0,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    result = runtime_module.reap_stuck_dispatched_actions(
+        workflow_root=workflow_root,
+        lane_id="lane:221",
+        now_iso=now_iso,
+        timeout_seconds=1800,
+    )
+
+    assert result["checked"] == 1
+    assert result["reaped"] == 1
+    assert result["failures"][0]["failure_class"] == "dispatcher_lost"
+    assert result["recovery_actions"]
+    assert result["recovery_actions"][0]["recovery_attempt_count"] == 1
+
+    conn = sqlite3.connect(paths["db_path"])
+    try:
+        original = conn.execute(
+            "SELECT status, failed_at, result_code, result_summary FROM lane_actions WHERE action_id=?",
+            ("act:dispatched:1",),
+        ).fetchone()
+        recovery = conn.execute(
+            "SELECT action_id, status, retry_count, recovery_attempt_count, superseded_by_action_id FROM lane_actions WHERE superseded_by_action_id=?",
+            ("act:dispatched:1",),
+        ).fetchone()
+        failure_row = conn.execute(
+            "SELECT failure_class, analyst_recommended_action, analyst_status FROM failures WHERE failure_id=?",
+            ("failure:act:dispatched:1",),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert original[0] == "failed"
+    assert original[2] == "timeout"
+    assert failure_row[0] == "dispatcher_lost"
+    assert recovery[1] == "requested"
+    assert recovery[2] == 1
+    assert recovery[3] == 1
+
+
+
+def test_doctor_reports_stuck_dispatched_actions(tools_module, monkeypatch):
+    relay_stub = SimpleNamespace(
+        DISPATCHED_ACTION_TIMEOUT_SECONDS=1800,
+        query_stuck_dispatched_actions=lambda **_kwargs: [
+            {
+                "action_id": "act:dispatched:1",
+                "action_type": "dispatch_repair_handoff",
+                "dispatched_at": "2026-04-22T00:00:00Z",
+                "dispatched_age_seconds": 3600,
+                "retry_count": 0,
+                "recovery_attempt_count": 0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        tools_module,
+        "build_shadow_report",
+        lambda **_kwargs: {
+            "report_generated_at": "2026-04-22T01:00:00Z",
+            "runtime": {"latest_heartbeat_at": "2026-04-22T01:00:00Z", "runtime_status": "running", "active_orchestrator_instance_id": "relay"},
+            "heartbeat": {"stale_reasons": [], "owner_instance_id": "relay"},
+            "active_lane": {"lane_id": "lane:221", "issue_number": 221},
+            "relay": {"compatible": True, "derived_action_type": "dispatch_repair_handoff", "reason": "ok"},
+            "recent_failures": [],
+            "active_failure_summary": {},
+            "service": {"service_name": "hermes-relay", "installed": True, "enabled": True, "active": True},
+            "service_health": {"expected_service_mode": None, "healthy": True, "reasons": []},
+            "owner_summary": {"primary_owner": "relay", "gate_allowed": True},
+            "recent_shadow_actions": [],
+        },
+    )
+    monkeypatch.setattr(
+        tools_module,
+        "_load_relay_module",
+        lambda _workflow_root: SimpleNamespace(
+            _load_legacy_workflow_module=lambda _workflow_root: SimpleNamespace(
+                build_status=lambda: {
+                    "activeLane": {"number": 221},
+                    "activeLaneError": None,
+                }
+            ),
+            query_stuck_dispatched_actions=relay_stub.query_stuck_dispatched_actions,
+            DISPATCHED_ACTION_TIMEOUT_SECONDS=relay_stub.DISPATCHED_ACTION_TIMEOUT_SECONDS,
+        ),
+    )
+
+    report = tools_module.build_doctor_report(workflow_root=Path("/tmp/workflow"))
+    checks = {check["code"]: check for check in report["checks"]}
+
+    assert checks["stuck_dispatched_actions"]["status"] == "fail"
+    assert checks["stuck_dispatched_actions"]["details"]["count"] == 1
+
+
+
+def test_alerts_load_optional_json_rejects_non_dict(alerts_module, tmp_path):
+    state_path = tmp_path / "state.json"
+    state_path.write_text("[1, 2, 3]", encoding="utf-8")
+
+    assert alerts_module._load_optional_json(state_path) is None
+
+
+def test_alerts_only_page_on_failed_critical_checks(alerts_module):
+    snapshot = {
+        "doctor": {
+            "checks": [
+                {
+                    "code": "split_brain_risk",
+                    "summary": "split brain risk",
+                    "severity": "critical",
+                    "status": "warn",
+                    "details": {"reasons": ["something"]},
+                },
+                {
+                    "code": "runtime_down",
+                    "summary": "runtime down",
+                    "severity": "critical",
+                    "status": "fail",
+                    "details": {"reasons": ["runtime-not-running"]},
+                },
+            ]
+        },
+        "active_gate": {"allowed": True},
+    }
+
+    issues = alerts_module._critical_issues(snapshot)
+
+    assert len(issues) == 1
+    assert issues[0]["code"] == "runtime_down"
+
+
+def test_collect_snapshot_avoids_direct_wrapper_subprocess(alerts_module, monkeypatch, tmp_path):
+    responses = {
+        f"doctor --workflow-root {tmp_path} --json": json.dumps({"report_generated_at": "2026-04-22T00:00:00Z", "checks": []}),
+        f"active-gate-status --workflow-root {tmp_path} --json": json.dumps({"allowed": True, "reasons": []}),
+    }
+    monkeypatch.setattr(alerts_module, "_execute_plugin_command", lambda command: responses[command])
+
+    snapshot = alerts_module.collect_snapshot(workflow_root=tmp_path)
+
+    assert snapshot == {
+        "report_generated_at": "2026-04-22T00:00:00Z",
+        "doctor": {"report_generated_at": "2026-04-22T00:00:00Z", "checks": []},
+        "active_gate": {"allowed": True, "reasons": []},
+    }
+
+
+def test_set_active_execution_updates_gate_without_wrapper_side_effects(tools_module, monkeypatch, tmp_path):
+    call_order = []
+
+    relay_stub = SimpleNamespace(
+        RELAY_OWNER="relay",
+        _runtime_paths=lambda workflow_root: {"db_path": workflow_root / "state" / "relay" / "relay.db", "event_log_path": workflow_root / "memory" / "relay-events.jsonl"},
+        set_execution_control=lambda **kwargs: call_order.append(("set", kwargs["active_execution_enabled"])),
+        evaluate_active_execution_gate=lambda **kwargs: {"allowed": True, "reasons": [], "execution": {"active_execution_enabled": True}},
+    )
+
+    monkeypatch.setattr(tools_module, "_record_operator_command_event", lambda **_kwargs: None)
+    monkeypatch.setattr(tools_module, "_load_relay_module", lambda workflow_root: relay_stub)
+    monkeypatch.setattr(tools_module, "_run_wrapper_json_command", lambda **_kwargs: {"health": "healthy"})
+
+    result = tools_module.execute_namespace(
+        argparse.Namespace(
+            relay_command="set-active-execution",
+            workflow_root=str(tmp_path),
+            enabled="true",
+        )
+    )
+
+    assert call_order == [("set", True)]
+    assert result["requested_enabled"] is True
+
+
+def test_execute_raw_args_catches_unexpected_exception(tools_module, monkeypatch):
+    monkeypatch.setattr(tools_module, "execute_namespace", lambda _args: (_ for _ in ()).throw(ValueError("boom")))
+
+    result = tools_module.execute_raw_args("status")
+
+    assert result == "relay error: unexpected ValueError: boom"
+
+
+def test_install_supervised_service_requires_plugin_runtime(tools_module, tmp_path):
+    with pytest.raises(tools_module.RelayCommandError, match="relay plugin runtime not found"):
+        tools_module.install_supervised_service(
+            workflow_root=tmp_path,
+            project_key="yoyopod",
+            instance_id="relay-test",
+            interval_seconds=30,
+            service_mode="shadow",
+        )
