@@ -1,0 +1,15 @@
+# Code-Review workflow config schema (placeholder — full schema lands in Phase 4).
+# For now this only enforces the dispatcher handshake fields so load_workflow
+# + run_cli can validate. The real per-field schema arrives alongside the
+# JSON → YAML config migration.
+$schema: http://json-schema.org/draft-07/schema#
+title: code-review workflow config (placeholder)
+type: object
+required: [workflow, schema-version]
+properties:
+  workflow:
+    const: code-review
+  schema-version:
+    type: integer
+    enum: [1]
+additionalProperties: true
