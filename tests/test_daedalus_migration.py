@@ -141,3 +141,25 @@ def test_migrate_filesystem_state_preserves_old_dir_when_unknown_files_present(t
 
     assert old_dir.exists()
     assert (old_dir / "operator-notes.txt").read_text(encoding="utf-8") == "manual artifact"
+
+
+def test_cli_migrate_filesystem_invokes_migrator(tmp_path, monkeypatch):
+    """Smoke test: `daedalus migrate-filesystem --workflow-root <path>`
+    invokes migrate_filesystem_state and prints the result."""
+    import importlib.util
+    tools_path = Path(__file__).resolve().parents[1] / "tools.py"
+    spec = importlib.util.spec_from_file_location("daedalus_tools_for_migrate_test", tools_path)
+    tools = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tools)
+
+    # Seed an old-shape workflow
+    old_dir = tmp_path / "state" / "relay"
+    old_dir.mkdir(parents=True)
+    (old_dir / "relay.db").write_bytes(b"data")
+
+    result = tools.execute_raw_args(f"migrate-filesystem --workflow-root {tmp_path}")
+
+    # Should not be an error, and should report the migration
+    assert "daedalus error" not in result.lower()
+    assert "renamed" in result.lower() or "migrated" in result.lower()
+    assert (tmp_path / "state" / "daedalus" / "daedalus.db").exists()
