@@ -237,7 +237,11 @@ def _render_template_unit(*, mode: str) -> str:
         f"Environment=PATH={service_path}",
         "Environment=PYTHONUNBUFFERED=1",
         (
-            f"ExecStart=/usr/bin/env python3 %h/.hermes/plugins/daedalus/runtime.py "
+            # Use absolute /usr/bin/python3 (system Python 3.11) so we get the
+            # pyyaml/jsonschema deps the installer's _check_runtime_deps verified
+            # against. /usr/bin/env python3 with a non-empty PATH may resolve
+            # to homebrew python or a node-managed python that lacks pyyaml.
+            f"ExecStart=/usr/bin/python3 %h/.hermes/plugins/daedalus/runtime.py "
             f"{runtime_command} --workflow-root %h/.hermes/workflows/%i "
             f"--project-key %i --instance-id daedalus-{mode}-%i "
             f"--interval-seconds 30 --json"
