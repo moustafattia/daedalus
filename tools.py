@@ -890,7 +890,7 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
 
 
 def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    sub = parser.add_subparsers(dest="relay_command")
+    sub = parser.add_subparsers(dest="daedalus_command")
     sub.required = True
 
     init_cmd = sub.add_parser("init", help="Initialize Relay DB and filesystem paths.")
@@ -1093,7 +1093,7 @@ def _record_operator_command_event(*, workflow_root: Path, args: argparse.Namesp
     daedalus.append_daedalus_event(
         event_log_path=daedalus._runtime_paths(workflow_root)["event_log_path"],
         event={
-            "event_id": f"evt:operator_command_received:{args.relay_command}:{now_iso}",
+            "event_id": f"evt:operator_command_received:{args.daedalus_command}:{now_iso}",
             "event_type": "operator_command_received",
             "event_version": 1,
             "created_at": now_iso,
@@ -1104,9 +1104,9 @@ def _record_operator_command_event(*, workflow_root: Path, args: argparse.Namesp
             "head_sha": None,
             "causal_event_id": None,
             "causal_action_id": None,
-            "dedupe_key": f"operator_command_received:{args.relay_command}:{now_iso}",
+            "dedupe_key": f"operator_command_received:{args.daedalus_command}:{now_iso}",
             "payload": {
-                "command_name": args.relay_command,
+                "command_name": args.daedalus_command,
                 "command_source": getattr(args, "_command_source", None) or "cli",
                 "operator_identity": os.environ.get("USER"),
                 "arguments_json": arguments_json,
@@ -1117,33 +1117,33 @@ def _record_operator_command_event(*, workflow_root: Path, args: argparse.Namesp
 
 def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     workflow_root = Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
-    if workflow_root is not None and getattr(args, "relay_command", None):
+    if workflow_root is not None and getattr(args, "daedalus_command", None):
         _record_operator_command_event(workflow_root=workflow_root, args=args)
     daedalus = _load_daedalus_module(workflow_root) if workflow_root is not None else None
     paths = daedalus._runtime_paths(workflow_root) if daedalus is not None else None
 
-    if args.relay_command == "init":
+    if args.daedalus_command == "init":
         return daedalus.init_daedalus_db(workflow_root=workflow_root, project_key=args.project_key)
-    if args.relay_command == "start":
+    if args.daedalus_command == "start":
         return daedalus.bootstrap_runtime(
             workflow_root=workflow_root,
             project_key=args.project_key,
             instance_id=args.instance_id,
             mode=args.mode,
         )
-    if args.relay_command == "status":
+    if args.daedalus_command == "status":
         return daedalus.get_runtime_status(workflow_root=workflow_root)
-    if args.relay_command == "shadow-report":
+    if args.daedalus_command == "shadow-report":
         return build_shadow_report(
             workflow_root=workflow_root,
             recent_actions_limit=args.recent_actions_limit,
         )
-    if args.relay_command == "doctor":
+    if args.daedalus_command == "doctor":
         return build_doctor_report(
             workflow_root=workflow_root,
             recent_actions_limit=args.recent_actions_limit,
         )
-    if args.relay_command == "service-install":
+    if args.daedalus_command == "service-install":
         return install_supervised_service(
             workflow_root=workflow_root,
             project_key=args.project_key,
@@ -1152,36 +1152,36 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
             service_name=args.service_name,
             service_mode=args.service_mode,
         )
-    if args.relay_command == "service-uninstall":
+    if args.daedalus_command == "service-uninstall":
         return uninstall_supervised_service(service_name=args.service_name, service_mode=args.service_mode)
-    if args.relay_command == "service-start":
+    if args.daedalus_command == "service-start":
         return service_control("start", service_name=args.service_name, service_mode=args.service_mode)
-    if args.relay_command == "service-stop":
+    if args.daedalus_command == "service-stop":
         return service_control("stop", service_name=args.service_name, service_mode=args.service_mode)
-    if args.relay_command == "service-restart":
+    if args.daedalus_command == "service-restart":
         return service_control("restart", service_name=args.service_name, service_mode=args.service_mode)
-    if args.relay_command == "service-enable":
+    if args.daedalus_command == "service-enable":
         return service_control("enable", service_name=args.service_name, service_mode=args.service_mode)
-    if args.relay_command == "service-disable":
+    if args.daedalus_command == "service-disable":
         return service_control("disable", service_name=args.service_name, service_mode=args.service_mode)
-    if args.relay_command == "service-status":
+    if args.daedalus_command == "service-status":
         return service_status(service_name=args.service_name, service_mode=args.service_mode)
-    if args.relay_command == "service-logs":
+    if args.daedalus_command == "service-logs":
         return service_logs(service_name=args.service_name, service_mode=args.service_mode, lines=args.lines)
-    if args.relay_command == "ingest-live":
+    if args.daedalus_command == "ingest-live":
         return daedalus.ingest_live_legacy_status(workflow_root=workflow_root)
-    if args.relay_command == "heartbeat":
+    if args.daedalus_command == "heartbeat":
         return daedalus.refresh_runtime_lease(
             workflow_root=workflow_root,
             instance_id=args.instance_id,
             ttl_seconds=args.ttl_seconds,
         )
-    if args.relay_command == "iterate-shadow":
+    if args.daedalus_command == "iterate-shadow":
         return daedalus.run_shadow_iteration(
             workflow_root=workflow_root,
             instance_id=args.instance_id,
         )
-    if args.relay_command == "run-shadow":
+    if args.daedalus_command == "run-shadow":
         return daedalus.run_shadow_loop(
             workflow_root=workflow_root,
             project_key=args.project_key,
@@ -1189,13 +1189,13 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
             interval_seconds=args.interval_seconds,
             max_iterations=args.max_iterations,
         )
-    if args.relay_command == "active-gate-status":
+    if args.daedalus_command == "active-gate-status":
         legacy_status = _run_wrapper_json_command(workflow_root=workflow_root, command="status --json")
         return daedalus.evaluate_active_execution_gate(
             workflow_root=workflow_root,
             legacy_status=legacy_status,
         )
-    if args.relay_command == "set-active-execution":
+    if args.daedalus_command == "set-active-execution":
         daedalus.set_execution_control(
             workflow_root=workflow_root,
             active_execution_enabled=(args.enabled == "true"),
@@ -1206,12 +1206,12 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
             "requested_enabled": (args.enabled == "true"),
             "gate": daedalus.evaluate_active_execution_gate(workflow_root=workflow_root, legacy_status=legacy_status),
         }
-    if args.relay_command == "iterate-active":
+    if args.daedalus_command == "iterate-active":
         return daedalus.run_active_iteration(
             workflow_root=workflow_root,
             instance_id=args.instance_id,
         )
-    if args.relay_command == "run-active":
+    if args.daedalus_command == "run-active":
         return daedalus.run_active_loop(
             workflow_root=workflow_root,
             project_key=args.project_key,
@@ -1219,22 +1219,22 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
             interval_seconds=args.interval_seconds,
             max_iterations=args.max_iterations,
         )
-    if args.relay_command == "request-active-actions":
+    if args.daedalus_command == "request-active-actions":
         return daedalus.request_active_actions_for_lane(
             workflow_root=workflow_root,
             lane_id=args.lane_id,
         )
-    if args.relay_command == "execute-action":
+    if args.daedalus_command == "execute-action":
         return daedalus.execute_requested_action(
             workflow_root=workflow_root,
             action_id=args.action_id,
         )
-    if args.relay_command == "analyze-failure":
+    if args.daedalus_command == "analyze-failure":
         return daedalus.analyze_failure(
             workflow_root=workflow_root,
             failure_id=args.failure_id,
         )
-    raise DaedalusCommandError(f"unknown relay command: {args.relay_command}")
+    raise DaedalusCommandError(f"unknown daedalus command: {args.daedalus_command}")
 
 
 def render_result(command: str, result: dict[str, Any], *, json_output: bool) -> str:
@@ -1402,16 +1402,16 @@ def execute_raw_args(raw_args: str) -> str:
             args = parser.parse_args(argv)
         args._command_source = "plugin-command"
         result = execute_namespace(args)
-        return render_result(args.relay_command, result, json_output=getattr(args, "json", False))
+        return render_result(args.daedalus_command, result, json_output=getattr(args, "json", False))
     except DaedalusCommandError as exc:
-        return f"relay error: {exc}"
+        return f"daedalus error: {exc}"
     except SystemExit:
         detail = stderr_buffer.getvalue().strip()
-        return f"relay error: {detail or parser.format_usage().strip()}"
+        return f"daedalus error: {detail or parser.format_usage().strip()}"
     except Exception as exc:
-        return f"relay error: unexpected {type(exc).__name__}: {exc}"
+        return f"daedalus error: unexpected {type(exc).__name__}: {exc}"
 
 
 def run_cli_command(args: argparse.Namespace) -> None:
     args._command_source = "cli"
-    print(render_result(args.relay_command, execute_namespace(args), json_output=getattr(args, "json", False)))
+    print(render_result(args.daedalus_command, execute_namespace(args), json_output=getattr(args, "json", False)))

@@ -36,7 +36,7 @@ def _load_tools_module():
 def _execute_plugin_command(command: str) -> str:
     tools_module = _load_tools_module()
     result = tools_module.execute_raw_args(command)
-    if result.startswith("relay error:"):
+    if result.startswith("daedalus error:"):
         raise RuntimeError(result)
     return result
 

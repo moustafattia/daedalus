@@ -465,7 +465,7 @@ def test_set_active_execution_updates_gate_without_wrapper_side_effects(tools_mo
 
     result = tools_module.execute_namespace(
         argparse.Namespace(
-            relay_command="set-active-execution",
+            daedalus_command="set-active-execution",
             workflow_root=str(tmp_path),
             enabled="true",
         )
@@ -480,7 +480,7 @@ def test_execute_raw_args_catches_unexpected_exception(tools_module, monkeypatch
 
     result = tools_module.execute_raw_args("status")
 
-    assert result == "relay error: unexpected ValueError: boom"
+    assert result == "daedalus error: unexpected ValueError: boom"
 
 
 def test_install_supervised_service_requires_plugin_runtime(tools_module, tmp_path):
