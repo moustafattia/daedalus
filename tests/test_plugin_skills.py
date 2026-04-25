@@ -1,7 +1,7 @@
 """Structural tests for the plugin-owned ``skills/`` payload.
 
-Skills live under ``~/WS/hermes-relay/skills/<skill-name>/SKILL.md``.
-The installer copies this tree to ``~/.hermes/plugins/hermes-relay/skills/``
+Skills live under ``~/WS/daedalus/skills/<skill-name>/SKILL.md``.
+The installer copies this tree to ``~/.hermes/plugins/daedalus/skills/``
 so Hermes can discover the skills when ``HERMES_ENABLE_PROJECT_PLUGINS=true``
 is set.
 
@@ -11,7 +11,7 @@ These tests pin:
 - every ``SKILL.md`` starts with a YAML frontmatter block declaring at
   least ``name`` and ``description``
 - the frontmatter ``name`` matches the directory name
-- the set of skills includes the expected YoYoPod + Hermes Relay surface
+- the set of skills includes the expected YoYoPod + Daedalus surface
 """
 import re
 from pathlib import Path

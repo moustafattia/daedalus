@@ -368,7 +368,7 @@ def test_doctor_reports_stuck_dispatched_actions(tools_module, monkeypatch):
             "relay": {"compatible": True, "derived_action_type": "dispatch_repair_handoff", "reason": "ok"},
             "recent_failures": [],
             "active_failure_summary": {},
-            "service": {"service_name": "hermes-relay", "installed": True, "enabled": True, "active": True},
+            "service": {"service_name": "daedalus-active@yoyopod.service", "installed": True, "enabled": True, "active": True},
             "service_health": {"expected_service_mode": None, "healthy": True, "reasons": []},
             "owner_summary": {"primary_owner": "relay", "gate_allowed": True},
             "recent_shadow_actions": [],

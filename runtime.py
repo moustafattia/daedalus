@@ -462,7 +462,7 @@ def init_daedalus_db(*, workflow_root: Path, project_key: str) -> dict[str, Any]
                     project_key,
                     DAEDALUS_SCHEMA_VERSION,
                     "initialized",
-                    "Hermes Relay",
+                    "Daedalus",
                     "Workflow_Orchestrator",
                     "shadow",
                     "daedalus-shadow-v1",
@@ -3600,9 +3600,9 @@ def _load_legacy_workflow_module(workflow_root: Path):
     plugin_main = plugin_entrypoint_path(workflow_root)
     if not plugin_main.exists():
         raise RuntimeError(
-            f"hermes-relay plugin not installed under {workflow_root}; "
+            f"daedalus plugin not installed under {workflow_root}; "
             f"expected entrypoint at {plugin_main}. Run ./scripts/install.sh "
-            "from the hermes-relay repo to install it."
+            "from the daedalus repo to install it."
         )
     plugin_root = plugin_main.parents[2]
     if str(plugin_root) not in sys.path:
@@ -3617,7 +3617,7 @@ def ingest_live_legacy_status(*, workflow_root: Path, now_iso: str | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Hermes Relay side-by-side runtime bootstrap.")
+    parser = argparse.ArgumentParser(description="Daedalus side-by-side runtime bootstrap.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     init_cmd = sub.add_parser("init", help="Initialize Relay DB and filesystem paths.")

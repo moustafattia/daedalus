@@ -1,10 +1,10 @@
-"""YoYoPod Core adapter package for Hermes Relay.
+"""Code-review workflow package for Daedalus.
 
 This package will absorb project-specific workflow semantics from the legacy
 wrapper over multiple slices. The initial slice adds central path resolution
 and directory scaffolding without changing workflow policy yet.
 
-This package satisfies the hermes-relay workflow-plugin contract:
+This package satisfies the daedalus workflow-plugin contract:
 
 - NAME: the canonical hyphenated workflow name ("code-review")
 - SUPPORTED_SCHEMA_VERSIONS: tuple of config schema versions this module accepts

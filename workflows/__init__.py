@@ -1,4 +1,4 @@
-"""Workflow-plugin dispatcher for hermes-relay.
+"""Workflow-plugin dispatcher for daedalus.
 
 A workflow is a Python package at ``workflows/<name>/`` (hyphens in the
 canonical name map to underscores in the Python slug). Every workflow

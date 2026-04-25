@@ -88,7 +88,7 @@ It should own:
 - runtime-layout fallback rules: if `runtime/` exists under the workflow root, store mutable state under `runtime/{memory,state,logs}`; otherwise fall back to the legacy top-level `memory/` and `state/` layout
 
 Recommended default workflow-root resolution order learned from the migration slice:
-1. explicit env var (`YOYOPOD_RELAY_WORKFLOW_ROOT`, `HERMES_RELAY_WORKFLOW_ROOT`)
+1. explicit env var (`DAEDALUS_WORKFLOW_ROOT`)
 2. installed candidate if it already has a legacy wrapper or project-runtime layout
 3. legacy `~/.hermes/workflows/yoyopod` if it already exists
 4. repo-local `projects/yoyopod_core/` as the Model 1 target default

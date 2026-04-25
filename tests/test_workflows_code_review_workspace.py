@@ -133,7 +133,7 @@ def test_workspace_exposes_adapter_module_loaders(tmp_path):
 def test_workspace_adapter_loader_raises_when_plugin_missing(tmp_path):
     workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=_minimal_config(tmp_path))
-    # No plugin dir under tmp_path/.hermes/plugins/hermes-relay; loading any adapter module raises.
+    # No plugin dir under tmp_path/.hermes/plugins/daedalus; loading any adapter module raises.
     import pytest
 
     with pytest.raises(FileNotFoundError):
