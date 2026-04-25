@@ -49,6 +49,11 @@ SERVICE_PROFILES = {
     },
 }
 
+DAEDALUS_TEMPLATE_UNIT_FILENAMES = {
+    "active": "daedalus-active@.service",
+    "shadow": "daedalus-shadow@.service",
+}
+
 
 class DaedalusCommandError(Exception):
     pass
@@ -205,6 +210,47 @@ def _render_service_unit(
             f"ExecStart=/usr/bin/env python3 {plugin_runtime} {profile['runtime_command']} "
             f"--workflow-root {workflow_root} --project-key {project_key} "
             f"--instance-id {instance_id} --interval-seconds {interval_seconds} --json"
+        ),
+        "Restart=always",
+        "RestartSec=5",
+        "",
+        "[Install]",
+        "WantedBy=default.target",
+        "",
+    ])
+
+
+def _template_unit_filename(mode: str) -> str:
+    if mode not in DAEDALUS_TEMPLATE_UNIT_FILENAMES:
+        raise DaedalusCommandError(f"unknown service mode: {mode}")
+    return DAEDALUS_TEMPLATE_UNIT_FILENAMES[mode]
+
+
+def _instance_unit_name(mode: str, workspace: str) -> str:
+    template = _template_unit_filename(mode)
+    # daedalus-active@.service -> daedalus-active@<workspace>.service
+    return template.replace("@.service", f"@{workspace}.service")
+
+
+def _render_template_unit(*, mode: str) -> str:
+    if mode not in DAEDALUS_TEMPLATE_UNIT_FILENAMES:
+        raise DaedalusCommandError(f"unknown service mode: {mode}")
+    description = f"Daedalus {mode} orchestrator (workspace=%i)"
+    runtime_command = f"run-{mode}"
+    return "\n".join([
+        "[Unit]",
+        f"Description={description}",
+        "After=default.target",
+        "",
+        "[Service]",
+        "Type=simple",
+        "WorkingDirectory=%h/.hermes/workflows/%i",
+        "Environment=PYTHONUNBUFFERED=1",
+        (
+            f"ExecStart=/usr/bin/env python3 %h/.hermes/plugins/daedalus/runtime.py "
+            f"{runtime_command} --workflow-root %h/.hermes/workflows/%i "
+            f"--project-key %i --instance-id daedalus-{mode}-%i "
+            f"--interval-seconds 30 --json"
         ),
         "Restart=always",
         "RestartSec=5",
@@ -916,6 +962,59 @@ def cmd_migrate_filesystem(args, parser) -> str:
     return "\n".join(lines)
 
 
+def cmd_migrate_systemd(args, parser) -> str:
+    """Migrate relay-era systemd units to daedalus template units.
+
+    Operator-explicit. Removes old yoyopod-relay-{shadow,active}.service
+    unit files (tolerant of missing units), installs new daedalus
+    template units, runs daemon-reload.
+    """
+    import subprocess
+
+    workflow_root = args.workflow_root.expanduser().resolve()
+    workspace = workflow_root.name  # last path segment, e.g. "yoyopod"
+    systemd_dir = _systemd_user_dir()
+    systemd_dir.mkdir(parents=True, exist_ok=True)
+
+    actions: list[str] = []
+
+    # 1. Stop + disable old units (tolerant of missing units)
+    for old_name in ("yoyopod-relay-active.service", "yoyopod-relay-shadow.service"):
+        old_path = systemd_dir / old_name
+        if old_path.exists():
+            subprocess.run(
+                ["systemctl", "--user", "stop", old_name],
+                check=False, capture_output=True,
+            )
+            subprocess.run(
+                ["systemctl", "--user", "disable", old_name],
+                check=False, capture_output=True,
+            )
+            old_path.unlink()
+            actions.append(f"removed old unit {old_name}")
+
+    # 2. Install new template units (overwrite if exists)
+    for mode in ("active", "shadow"):
+        template_filename = _template_unit_filename(mode)
+        template_path = systemd_dir / template_filename
+        template_path.write_text(_render_template_unit(mode=mode), encoding="utf-8")
+        actions.append(f"installed template unit {template_filename}")
+
+    # 3. systemctl daemon-reload
+    subprocess.run(
+        ["systemctl", "--user", "daemon-reload"],
+        check=False, capture_output=True,
+    )
+    actions.append("daemon-reload")
+
+    lines = [f"migrate-systemd complete (workspace={workspace}):"]
+    lines.extend(f"  - {a}" for a in actions)
+    lines.append(
+        f"to start active mode: systemctl --user start {_instance_unit_name('active', workspace)}"
+    )
+    return "\n".join(lines)
+
+
 def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="daedalus_command")
     sub.required = True
@@ -1092,6 +1191,17 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         help="Workflow root to migrate (default: %(default)s)",
     )
     migrate_fs_cmd.set_defaults(handler=cmd_migrate_filesystem, func=run_cli_command)
+
+    migrate_systemd_cmd = sub.add_parser(
+        "migrate-systemd",
+        help="Migrate relay-era systemd units to daedalus template units.",
+    )
+    migrate_systemd_cmd.add_argument(
+        "--workflow-root",
+        type=Path,
+        default=DEFAULT_WORKFLOW_ROOT,
+    )
+    migrate_systemd_cmd.set_defaults(handler=cmd_migrate_systemd, func=run_cli_command)
 
     return parser
 
@@ -1481,6 +1591,8 @@ def execute_raw_args(raw_args: str) -> str:
         args._command_source = "plugin-command"
         if args.daedalus_command == "migrate-filesystem":
             return cmd_migrate_filesystem(args, parser)
+        if args.daedalus_command == "migrate-systemd":
+            return cmd_migrate_systemd(args, parser)
         result = execute_namespace(args)
         return render_result(args.daedalus_command, result, json_output=getattr(args, "json", False))
     except DaedalusCommandError as exc:
