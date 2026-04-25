@@ -1393,6 +1393,45 @@ def render_result(command: str, result: dict[str, Any], *, json_output: bool) ->
     return json.dumps(result, sort_keys=True)
 
 
+def execute_workflow_command(raw_args: str) -> str:
+    """Slash command handler for ``/workflow <name> <cmd> [args]``.
+
+    Bare invocation (no args): lists available workflows under ``workflows/``.
+    Single arg (workflow name): shows that workflow's ``--help``.
+    Full invocation: routes through ``workflows.run_cli`` with
+    ``require_workflow=<name>`` so the dispatcher pins the named module
+    regardless of what the workflow.yaml declares.
+    """
+    workflow_root = resolve_default_workflow_root()
+    parts = raw_args.strip().split() if raw_args else []
+
+    try:
+        from workflows import list_workflows, run_cli
+    except ImportError:
+        wfpath = PLUGIN_DIR / "workflows" / "__init__.py"
+        spec = importlib.util.spec_from_file_location("daedalus_workflows", wfpath)
+        if spec is None or spec.loader is None:
+            return "daedalus error: unable to load workflows dispatcher"
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        list_workflows = module.list_workflows
+        run_cli = module.run_cli
+
+    if not parts:
+        names = list_workflows()
+        return ("available workflows: " + ", ".join(names)) if names else "no workflows installed"
+
+    name, *cmd_args = parts
+
+    try:
+        if not cmd_args:
+            cmd_args = ["--help"]
+        rc = run_cli(workflow_root, cmd_args, require_workflow=name)
+        return f"workflow '{name}' exited with status {rc}" if rc != 0 else "ok"
+    except Exception as exc:
+        return f"daedalus error: {exc}"
+
+
 def execute_raw_args(raw_args: str) -> str:
     parser = build_parser()
     argv = shlex.split(raw_args) if raw_args.strip() else ["status"]

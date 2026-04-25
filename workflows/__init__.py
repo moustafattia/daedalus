@@ -99,3 +99,26 @@ def run_cli(
 
     workspace = module.make_workspace(workflow_root=workflow_root, config=cfg)
     return module.cli_main(workspace, argv)
+
+
+def list_workflows() -> list[str]:
+    """Return canonical names of installed workflows.
+
+    Scans the ``workflows/`` package directory for sub-packages that declare
+    the workflow-plugin contract (have a ``NAME`` attribute).
+    """
+    pkg_dir = Path(__file__).parent
+    names: list[str] = []
+    for entry in sorted(pkg_dir.iterdir()):
+        if not entry.is_dir() or entry.name.startswith("_"):
+            continue
+        init_file = entry / "__init__.py"
+        if not init_file.exists():
+            continue
+        try:
+            module = load_workflow(entry.name.replace("_", "-"))
+        except Exception:
+            continue
+        if hasattr(module, "NAME"):
+            names.append(module.NAME)
+    return names

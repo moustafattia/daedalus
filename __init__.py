@@ -6,7 +6,7 @@ PLUGIN_DIR = Path(__file__).resolve().parent
 
 try:
     from .schemas import setup_cli
-    from .tools import execute_raw_args
+    from .tools import execute_raw_args, execute_workflow_command
 except ImportError:
     def _load_local_module(module_name: str):
         module_path = PLUGIN_DIR / f"{module_name}.py"
@@ -18,7 +18,9 @@ except ImportError:
         return module
 
     setup_cli = _load_local_module("schemas").setup_cli
-    execute_raw_args = _load_local_module("tools").execute_raw_args
+    _tools_module = _load_local_module("tools")
+    execute_raw_args = _tools_module.execute_raw_args
+    execute_workflow_command = _tools_module.execute_workflow_command
 
 
 def register(ctx):
@@ -26,6 +28,11 @@ def register(ctx):
         "daedalus",
         execute_raw_args,
         description="Operate the Daedalus workflow engine from the current Hermes session.",
+    )
+    ctx.register_command(
+        "workflow",
+        execute_workflow_command,
+        description="Run a workflow's CLI (e.g. /workflow code-review status).",
     )
     ctx.register_cli_command(
         name="daedalus",
