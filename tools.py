@@ -59,11 +59,11 @@ class DaedalusArgumentParser(argparse.ArgumentParser):
         raise DaedalusCommandError(f"{message}\n\n{self.format_usage().strip()}")
 
 
-def _load_relay_module(workflow_root: Path):
+def _load_daedalus_module(workflow_root: Path):
     module_path = PLUGIN_DIR / "runtime.py"
-    spec = importlib.util.spec_from_file_location("yoyopod_relay_plugin_runtime", module_path)
+    spec = importlib.util.spec_from_file_location("daedalus_runtime", module_path)
     if spec is None or spec.loader is None:
-        raise DaedalusCommandError(f"unable to load Relay runtime from plugin package: {module_path}")
+        raise DaedalusCommandError(f"unable to load Daedalus runtime from plugin package: {module_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -390,7 +390,7 @@ def service_logs(*, service_name: str | None = None, service_mode: str = "shadow
 
 
 def build_shadow_report(*, workflow_root: Path, recent_actions_limit: int = 5) -> dict[str, Any]:
-    relay = _load_relay_module(workflow_root)
+    relay = _load_daedalus_module(workflow_root)
     runtime_status = relay.get_runtime_status(workflow_root=workflow_root)
     if runtime_status.get("runtime_status") == "missing":
         raise DaedalusCommandError("Relay runtime is not initialized; run `relay start` first")
@@ -626,7 +626,7 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
         workflow_root=workflow_root,
         recent_actions_limit=recent_actions_limit,
     )
-    relay = _load_relay_module(workflow_root)
+    relay = _load_daedalus_module(workflow_root)
     legacy_status = _build_project_status(workflow_root)
     runtime = shadow_report.get("runtime") or {}
     heartbeat = shadow_report.get("heartbeat") or {}
@@ -1080,7 +1080,7 @@ def _run_wrapper_json_command(*, workflow_root: Path, command: str) -> dict[str,
 
 
 def _record_operator_command_event(*, workflow_root: Path, args: argparse.Namespace) -> None:
-    relay = _load_relay_module(workflow_root)
+    relay = _load_daedalus_module(workflow_root)
     now_iso = relay._now_iso()
     arguments_json = {}
     for key, value in vars(args).items():
@@ -1119,7 +1119,7 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     workflow_root = Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
     if workflow_root is not None and getattr(args, "relay_command", None):
         _record_operator_command_event(workflow_root=workflow_root, args=args)
-    relay = _load_relay_module(workflow_root) if workflow_root is not None else None
+    relay = _load_daedalus_module(workflow_root) if workflow_root is not None else None
     paths = relay._runtime_paths(workflow_root) if relay is not None else None
 
     if args.relay_command == "init":

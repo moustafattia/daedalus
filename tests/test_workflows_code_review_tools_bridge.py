@@ -76,7 +76,7 @@ def test_build_shadow_report_uses_adapter_status_bridge(monkeypatch, tmp_path):
         query_stuck_dispatched_actions=lambda **_kwargs: [],
         DISPATCHED_ACTION_TIMEOUT_SECONDS=1800,
     )
-    monkeypatch.setattr(tools_module, "_load_relay_module", lambda _workflow_root: relay_stub)
+    monkeypatch.setattr(tools_module, "_load_daedalus_module", lambda _workflow_root: relay_stub)
 
     report = tools_module.build_shadow_report(workflow_root=workflow_root)
 

@@ -376,7 +376,7 @@ def test_doctor_reports_stuck_dispatched_actions(tools_module, monkeypatch):
     )
     monkeypatch.setattr(
         tools_module,
-        "_load_relay_module",
+        "_load_daedalus_module",
         lambda _workflow_root: SimpleNamespace(
             _load_legacy_workflow_module=lambda _workflow_root: SimpleNamespace(
                 build_status=lambda: {
@@ -460,7 +460,7 @@ def test_set_active_execution_updates_gate_without_wrapper_side_effects(tools_mo
     )
 
     monkeypatch.setattr(tools_module, "_record_operator_command_event", lambda **_kwargs: None)
-    monkeypatch.setattr(tools_module, "_load_relay_module", lambda workflow_root: relay_stub)
+    monkeypatch.setattr(tools_module, "_load_daedalus_module", lambda workflow_root: relay_stub)
     monkeypatch.setattr(tools_module, "_run_wrapper_json_command", lambda **_kwargs: {"health": "healthy"})
 
     result = tools_module.execute_namespace(
