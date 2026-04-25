@@ -1,5 +1,5 @@
 ---
-name: hermes-relay-retire-watchdog-and-migrate-control-schema
+name: daedalus-retire-watchdog-and-migrate-control-schema
 description: Remove legacy watchdog/cutover concepts from Hermes Relay, switch to relay-only active execution control, and migrate the live SQLite control table cleanly.
 ---
 

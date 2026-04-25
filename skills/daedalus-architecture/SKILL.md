@@ -1,5 +1,5 @@
 ---
-name: hermes-relay-architecture
+name: daedalus-architecture
 description: Design a long-running Hermes-native orchestrator that uses explicit state, event queues, and bounded on-demand LLM reasoning instead of cron heartbeat control loops.
 version: 1.0.0
 author: Hermes Agent

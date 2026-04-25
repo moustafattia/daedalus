@@ -21,11 +21,11 @@ skills/
 ├── yoyopod-closeout-notifier/                              # telegram closeout notifier
 ├── yoyopod-relay-alerts-monitoring/                        # outage alert cron job runner
 ├── yoyopod-relay-outage-alerts/                            # telegram outage alerts
-├── hermes-relay-architecture/                              # design principles
-├── hermes-relay-model1-project-layout/                     # Model-1 plugin layout
+├── daedalus-architecture/                              # design principles
+├── daedalus-model1-project-layout/                     # Model-1 plugin layout
 ├── hermes-plugin-cli-wiring/                               # generic Hermes plugin CLI wiring
-├── hermes-relay-hardening-slices/                          # reliability hardening follow-up
-└── hermes-relay-retire-watchdog-and-migrate-control-schema/ # retire legacy watchdog pattern
+├── daedalus-hardening-slices/                          # reliability hardening follow-up
+└── daedalus-retire-watchdog-and-migrate-control-schema/ # retire legacy watchdog pattern
 ```
 
 ## By role
@@ -41,14 +41,14 @@ skills/
 
 **Architecture / design reference** (read when changing the plugin shape):
 
-- ``hermes-relay-architecture`` — long-running orchestrator design (state, event queues, bounded reasoning) instead of cron heartbeat loops.
-- ``hermes-relay-model1-project-layout`` — single-plugin-plus-adapter layout pattern (this plugin's structure).
+- ``daedalus-architecture`` — long-running orchestrator design (state, event queues, bounded reasoning) instead of cron heartbeat loops.
+- ``daedalus-model1-project-layout`` — single-plugin-plus-adapter layout pattern (this plugin's structure).
 - ``hermes-plugin-cli-wiring`` — how to wire Hermes plugin CLI subcommands via argparse.
 
 **Development workflow** (read when landing code):
 
-- ``hermes-relay-hardening-slices`` — reliability-hardening follow-up workflow.
-- ``hermes-relay-retire-watchdog-and-migrate-control-schema`` — historical playbook for retiring the legacy watchdog and migrating the SQLite control-schema.
+- ``daedalus-hardening-slices`` — reliability-hardening follow-up workflow.
+- ``daedalus-retire-watchdog-and-migrate-control-schema`` — historical playbook for retiring the legacy watchdog and migrating the SQLite control-schema.
 
 ## Adding a new skill
 

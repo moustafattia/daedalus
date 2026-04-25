@@ -1,5 +1,5 @@
 ---
-name: hermes-relay-model1-project-layout
+name: daedalus-model1-project-layout
 description: Structure Hermes Relay as a single plugin with generic relay core plus project-specific adapter code under adapters/<project>, project-local runtime assets under projects/<project>, and a central path module for legacy-to-Model-1 migration.
 version: 1.0.0
 author: Hermes Agent

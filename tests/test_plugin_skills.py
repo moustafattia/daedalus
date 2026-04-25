@@ -28,11 +28,11 @@ EXPECTED_SKILLS = {
     "yoyopod-closeout-notifier",
     "yoyopod-relay-alerts-monitoring",
     "yoyopod-relay-outage-alerts",
-    "hermes-relay-architecture",
-    "hermes-relay-model1-project-layout",
+    "daedalus-architecture",
+    "daedalus-model1-project-layout",
     "hermes-plugin-cli-wiring",
-    "hermes-relay-hardening-slices",
-    "hermes-relay-retire-watchdog-and-migrate-control-schema",
+    "daedalus-hardening-slices",
+    "daedalus-retire-watchdog-and-migrate-control-schema",
 }
 
 

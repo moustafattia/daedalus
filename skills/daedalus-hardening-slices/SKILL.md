@@ -1,5 +1,5 @@
 ---
-name: hermes-relay-hardening-slices
+name: daedalus-hardening-slices
 description: Follow-up workflow for Hermes Relay reliability hardening.
 ---
 
