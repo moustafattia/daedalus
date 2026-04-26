@@ -1186,18 +1186,36 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     status_cmd = sub.add_parser("status", help="Show Daedalus runtime status.")
     status_cmd.add_argument("--workflow-root", default=str(DEFAULT_WORKFLOW_ROOT))
     status_cmd.add_argument("--json", action="store_true")
+    status_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
     status_cmd.set_defaults(func=run_cli_command)
 
     report_cmd = sub.add_parser("shadow-report", help="Summarize the live legacy lane, Daedalus shadow decision, compatibility, and recent shadow actions.")
     report_cmd.add_argument("--workflow-root", default=str(DEFAULT_WORKFLOW_ROOT))
     report_cmd.add_argument("--recent-actions-limit", type=int, default=5)
     report_cmd.add_argument("--json", action="store_true")
+    report_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
     report_cmd.set_defaults(func=run_cli_command)
 
     doctor_cmd = sub.add_parser("doctor", help="Diagnose Daedalus runtime freshness, lease ownership, shadow parity, and active-lane consistency.")
     doctor_cmd.add_argument("--workflow-root", default=str(DEFAULT_WORKFLOW_ROOT))
     doctor_cmd.add_argument("--recent-actions-limit", type=int, default=5)
     doctor_cmd.add_argument("--json", action="store_true")
+    doctor_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
     doctor_cmd.set_defaults(func=run_cli_command)
 
     service_install_cmd = sub.add_parser("service-install", help="Install the supervised Daedalus systemd user service.")
@@ -1257,6 +1275,12 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     service_status_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
     service_status_cmd.add_argument("--service-name")
     service_status_cmd.add_argument("--json", action="store_true")
+    service_status_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
     service_status_cmd.set_defaults(func=run_cli_command)
 
     service_logs_cmd = sub.add_parser("service-logs", help="Show recent logs for the supervised Daedalus systemd user service.")
@@ -1297,6 +1321,12 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     active_gate_status_cmd = sub.add_parser("active-gate-status", help="Show Daedalus active-execution gate state.")
     active_gate_status_cmd.add_argument("--workflow-root", default=str(DEFAULT_WORKFLOW_ROOT))
     active_gate_status_cmd.add_argument("--json", action="store_true")
+    active_gate_status_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
     active_gate_status_cmd.set_defaults(func=run_cli_command)
 
     set_active_execution_cmd = sub.add_parser("set-active-execution", help="Enable or disable Daedalus active execution.")
@@ -1446,6 +1476,19 @@ def _record_operator_command_event(*, workflow_root: Path, args: argparse.Namesp
             },
         },
     )
+
+
+def _resolve_format(format_arg: str | None, json_flag: bool | None) -> str:
+    """Resolve the effective output format from ``--format`` and ``--json``.
+
+    The legacy ``--json`` flag wins when set so existing scripts don't get
+    silently downgraded. Otherwise, ``--format`` is honored. Default is text.
+    """
+    if json_flag:
+        return "json"
+    if format_arg == "json":
+        return "json"
+    return "text"
 
 
 def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
@@ -1608,8 +1651,17 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     raise DaedalusCommandError(f"unknown daedalus command: {args.daedalus_command}")
 
 
-def render_result(command: str, result: dict[str, Any], *, json_output: bool) -> str:
-    if json_output:
+def render_result(
+    command: str,
+    result: dict[str, Any],
+    *,
+    json_output: bool | None = None,
+    output_format: str | None = None,
+) -> str:
+    # Resolve effective format. New callers pass output_format; legacy callers pass json_output.
+    if output_format is None:
+        output_format = "json" if json_output else "text"
+    if output_format == "json":
         return json.dumps(result, indent=2, sort_keys=True)
     if command == "init":
         return f"initialized db={result.get('db_path')} project={result.get('project_key')}"
@@ -1619,78 +1671,38 @@ def render_result(command: str, result: dict[str, Any], *, json_output: bool) ->
             f"mode={result.get('mode')}"
         )
     if command == "status":
-        return (
-            f"runtime={result.get('runtime_status')} mode={result.get('current_mode')} "
-            f"owner={result.get('active_orchestrator_instance_id')} lanes={result.get('lane_count')}"
-        )
+        try:
+            from formatters import format_status as _fmt_status
+        except ImportError:
+            spec = importlib.util.spec_from_file_location(
+                "daedalus_formatters_for_render", PLUGIN_DIR / "formatters.py"
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _fmt_status = mod.format_status
+        return _fmt_status(result)
     if command == "shadow-report":
-        runtime = result.get("runtime") or {}
-        heartbeat = result.get("heartbeat") or {}
-        service = result.get("service") or {}
-        owner_summary = result.get("owner_summary") or {}
-        lane = result.get("active_lane") or {}
-        legacy = result.get("legacy") or {}
-        relay = result.get("relay") or {}
-        recent_actions = result.get("recent_shadow_actions") or []
-        warnings = result.get("warnings") or []
-        lines = [
-            "shadow-report",
-            f"runtime: {runtime.get('runtime_status')} mode={runtime.get('current_mode')} owner={runtime.get('active_orchestrator_instance_id')}",
-            f"heartbeat: {runtime.get('latest_heartbeat_at')} age={heartbeat.get('heartbeat_age_seconds')}s expires={heartbeat.get('expires_at')}",
-        ]
-        if service:
-            lines.append(
-                f"service: {service.get('service_mode')} installed={service.get('installed')} enabled={service.get('enabled')} active={service.get('active')}"
+        try:
+            from formatters import format_shadow_report as _fmt
+        except ImportError:
+            spec = importlib.util.spec_from_file_location(
+                "daedalus_formatters_for_shadow", PLUGIN_DIR / "formatters.py"
             )
-        if owner_summary:
-            lines.append(
-                f"owner summary: primary={owner_summary.get('primary_owner')} relay_primary={owner_summary.get('relay_primary')} "
-                f"active_execution_enabled={owner_summary.get('active_execution_enabled')} gate_allowed={owner_summary.get('gate_allowed')}"
-            )
-        lines.extend([
-            f"live lane: issue={lane.get('issue_number')} lane={lane.get('lane_id')} state={lane.get('workflow_state')}/{lane.get('review_state')}/{lane.get('merge_state')}",
-            f"legacy next: {legacy.get('next_action_type')} reason={legacy.get('reason')}",
-            f"relay next: {relay.get('derived_action_type')} reason={relay.get('reason')}",
-            f"compatible: {relay.get('compatible')}",
-        ])
-        if warnings:
-            lines.append("warnings:")
-            for warning in warnings:
-                lines.append(f"- {warning}")
-        if recent_actions:
-            lines.append("recent shadow actions:")
-            for action in recent_actions:
-                lines.append(
-                    f"- {action.get('requested_at')} issue={action.get('issue_number')} lane={action.get('lane_id')} {action.get('action_type')} status={action.get('status')}"
-                )
-        recent_failures = result.get("recent_failures") or []
-        if recent_failures:
-            lines.append("recent failures:")
-            for failure in recent_failures:
-                lines.append(
-                    f"- {failure.get('detected_at')} issue={failure.get('issue_number')} lane={failure.get('lane_id')} "
-                    f"class={failure.get('failure_class')} recommended={failure.get('analyst_recommended_action')} "
-                    f"confidence={failure.get('analyst_confidence')} recovery={failure.get('recovery_state')} "
-                    f"urgency={failure.get('urgency')} age={failure.get('failure_age_seconds')}s"
-                )
-        return "\n".join(lines)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _fmt = mod.format_shadow_report
+        return _fmt(result)
     if command == "doctor":
-        lines = [
-            "daedalus-doctor",
-            f"overall: {result.get('overall_status')}",
-        ]
-        for check in result.get("checks") or []:
-            lines.append(
-                f"- {check.get('status').upper()} {check.get('code')}: {check.get('summary')}"
+        try:
+            from formatters import format_doctor as _fmt
+        except ImportError:
+            spec = importlib.util.spec_from_file_location(
+                "daedalus_formatters_for_doctor", PLUGIN_DIR / "formatters.py"
             )
-            if check.get("code") == "active_execution_failures":
-                for failure in ((check.get("details") or {}).get("failures") or []):
-                    lines.append(
-                        f"  failure={failure.get('failure_id')} class={failure.get('failure_class')} "
-                        f"recommended={failure.get('recommended_action')} confidence={failure.get('confidence')} "
-                        f"recovery={failure.get('recovery_state')} urgency={failure.get('urgency')} age={failure.get('failure_age_seconds')}s"
-                    )
-        return "\n".join(lines)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _fmt = mod.format_doctor
+        return _fmt(result)
     if command == "service-install":
         return f"service installed mode={result.get('service_mode')} unit={result.get('unit_path')} ok={result.get('installed')}"
     if command == "service-uninstall":
@@ -1698,11 +1710,16 @@ def render_result(command: str, result: dict[str, Any], *, json_output: bool) ->
     if command in {"service-start", "service-stop", "service-restart", "service-enable", "service-disable"}:
         return f"{result.get('action')} mode={result.get('service_mode')} {result.get('service_name')} ok={result.get('ok')} stdout={result.get('stdout')} stderr={result.get('stderr')}".strip()
     if command == "service-status":
-        props = result.get("properties") or {}
-        return (
-            f"service={result.get('service_name')} mode={result.get('service_mode')} installed={result.get('installed')} enabled={result.get('enabled')} "
-            f"active={result.get('active')} pid={props.get('ExecMainPID')} file={props.get('FragmentPath') or result.get('unit_path')}"
-        )
+        try:
+            from formatters import format_service_status as _fmt
+        except ImportError:
+            spec = importlib.util.spec_from_file_location(
+                "daedalus_formatters_for_service_status", PLUGIN_DIR / "formatters.py"
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _fmt = mod.format_service_status
+        return _fmt(result)
     if command == "service-logs":
         output = result.get("stdout") or result.get("stderr") or ""
         return output if output else f"no logs for {result.get('service_name')}"
@@ -1724,11 +1741,16 @@ def render_result(command: str, result: dict[str, Any], *, json_output: bool) ->
             f"lane={comparison.get('lane_id')} compatible={comparison.get('compatible')}"
         )
     if command == "active-gate-status":
-        execution = result.get("execution") or {}
-        return (
-            f"allowed={result.get('allowed')} active_execution_enabled={execution.get('active_execution_enabled')} "
-            f"reasons={','.join(result.get('reasons') or [])}"
-        )
+        try:
+            from formatters import format_active_gate_status as _fmt
+        except ImportError:
+            spec = importlib.util.spec_from_file_location(
+                "daedalus_formatters_for_active_gate", PLUGIN_DIR / "formatters.py"
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _fmt = mod.format_active_gate_status
+        return _fmt(result)
     if command == "set-active-execution":
         gate = result.get("gate") or {}
         execution = gate.get("execution") or {}
@@ -1826,7 +1848,8 @@ def execute_raw_args(raw_args: str) -> str:
         if args.daedalus_command == "get-observability":
             return cmd_get_observability(args, parser)
         result = execute_namespace(args)
-        return render_result(args.daedalus_command, result, json_output=getattr(args, "json", False))
+        fmt = _resolve_format(getattr(args, "format", None), getattr(args, "json", False))
+        return render_result(args.daedalus_command, result, output_format=fmt)
     except DaedalusCommandError as exc:
         return f"daedalus error: {exc}"
     except SystemExit:
@@ -1838,6 +1861,8 @@ def execute_raw_args(raw_args: str) -> str:
 
 def run_cli_command(args: argparse.Namespace) -> None:
     args._command_source = "cli"
+    fmt = _resolve_format(getattr(args, "format", None), getattr(args, "json", False))
+    print(render_result(args.daedalus_command, execute_namespace(args), output_format=fmt))
     # Some subcommands have handlers that return strings directly, not dicts.
     # ``execute_namespace`` only knows about the legacy dict-returning commands,
     # so without this branch the new (string-returning) commands would fall

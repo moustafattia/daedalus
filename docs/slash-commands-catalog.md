@@ -18,6 +18,109 @@ grouped by purpose, with a one-line description.
 | `/daedalus shadow-report` | Shadow-mode action proposal vs legacy comparison |
 | `/daedalus active-gate-status` | Active-execution gate state and blockers |
 
+### Inspection output format
+
+All inspection commands default to a structured human-readable panel.
+Pass `--format json` (or the legacy `--json` alias) for machine-readable JSON.
+ANSI color is auto-detected via `sys.stdout.isatty()` and respects the
+`NO_COLOR` environment variable.
+
+#### Example: `/daedalus status`
+
+```
+Daedalus runtime — yoyopod
+  state    running (active mode)
+  owner    daedalus-active-yoyopod
+  schema   v3
+  paths
+    db          ~/.hermes/workflows/yoyopod/runtime/state/daedalus/daedalus.db
+    events      ~/.hermes/workflows/yoyopod/runtime/memory/daedalus-events.jsonl
+  heartbeat
+    last        22:43:01 UTC (17s ago)
+  lanes
+    total       14
+```
+
+#### Example: `/daedalus active-gate-status`
+
+```
+Active execution gate
+  ✓ ownership posture  primary_owner = daedalus
+  ✓ active execution   enabled
+  ✓ runtime mode       running in active
+  ✓ legacy watchdog    retired (engine_owner = hermes)
+
+→ gate is open: actions can dispatch
+```
+
+When blocked:
+
+```
+Active execution gate
+  ✓ ownership posture  primary_owner = daedalus
+  ✗ active execution   DISABLED  set via /daedalus set-active-execution --enabled true
+  ✓ runtime mode       running in active
+  ✓ legacy watchdog    retired (engine_owner = hermes)
+
+→ gate is BLOCKED: no actions will dispatch
+```
+
+#### Example: `/daedalus doctor`
+
+```
+Daedalus doctor
+  ✓ overall  PASS
+  checks
+    ✓ missing_lease       Runtime lease present
+    ✓ shadow_compatible   Shadow decision matches legacy
+    ✓ active_execution_failures  No active execution failures
+```
+
+#### Example: `/daedalus shadow-report`
+
+```
+Daedalus shadow-report
+  runtime
+    state           running (active mode)
+    owner           daedalus-active-yoyopod
+    heartbeat       22:43:01 UTC (17s ago)
+    lease expires   22:44:00 UTC (in 42s)
+  ownership
+    primary owner       daedalus
+    relay primary       yes
+    ✓ active execution  yes
+    ✓ gate allowed      yes
+  service
+    mode        active
+    installed   yes
+    enabled     yes
+    active      yes
+  active lane
+    issue     #329
+    lane id   lane-329
+    state     under_review / pass / pending
+  next action
+    legacy        publish_pr   head-clean
+    relay         publish_pr   head-clean
+    ✓ compatible  yes
+```
+
+#### Example: `/daedalus service-status`
+
+```
+Daedalus service
+  service  daedalus-active@yoyopod.service
+  mode     active
+  install state
+    ✓ installed   yes
+    ✓ enabled     yes
+    ✓ active      yes
+  runtime
+    pid   12345
+  paths
+    unit  ~/.config/systemd/user/daedalus-active@.service
+```
+
 ### Operational control
 
 | Command | What it does |
