@@ -1660,11 +1660,16 @@ def render_result(
             f"lane={comparison.get('lane_id')} compatible={comparison.get('compatible')}"
         )
     if command == "active-gate-status":
-        execution = result.get("execution") or {}
-        return (
-            f"allowed={result.get('allowed')} active_execution_enabled={execution.get('active_execution_enabled')} "
-            f"reasons={','.join(result.get('reasons') or [])}"
-        )
+        try:
+            from formatters import format_active_gate_status as _fmt
+        except ImportError:
+            spec = importlib.util.spec_from_file_location(
+                "daedalus_formatters_for_active_gate", PLUGIN_DIR / "formatters.py"
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _fmt = mod.format_active_gate_status
+        return _fmt(result)
     if command == "set-active-execution":
         gate = result.get("gate") or {}
         execution = gate.get("execution") or {}

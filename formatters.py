@@ -274,3 +274,100 @@ def format_status(
         ],
         use_color=use_color,
     )
+
+
+# ─── /daedalus active-gate-status ────────────────────────────────────────
+
+# Map gate-failure reasons → (which row failed, remediation hint or None).
+_REASON_TO_REMEDIATION = {
+    "active-execution-disabled": (
+        "active execution",
+        "set via /daedalus set-active-execution --enabled true",
+    ),
+    "runtime-not-running": ("runtime mode", "start the daedalus-active service"),
+    "runtime-not-active-mode": (
+        "runtime mode",
+        "the runtime is not in active mode (currently shadow); promote via cutover",
+    ),
+}
+
+
+def format_active_gate_status(
+    result: Mapping[str, Any],
+    *,
+    use_color: bool | None = None,
+) -> str:
+    allowed = bool(result.get("allowed"))
+    reasons = result.get("reasons") or []
+    execution = result.get("execution") or {}
+    runtime = result.get("runtime") or {}
+    primary_owner = result.get("primary_owner") or EMPTY_VALUE
+
+    # Identify which rows are failing.
+    failing_rows: dict[str, str] = {}  # row_label -> remediation text
+    for reason in reasons:
+        row_label, hint = _REASON_TO_REMEDIATION.get(reason, (None, None))
+        if row_label:
+            failing_rows[row_label] = hint or "blocked"
+
+    # Build rows. Always show the same canonical four; mark failing ones.
+    rows: list[Row] = []
+
+    # Ownership row
+    rows.append(Row(
+        label="ownership posture",
+        value=f"primary_owner = {primary_owner}",
+        status="pass",
+    ))
+
+    # Active execution row
+    enabled = execution.get("active_execution_enabled")
+    if "active execution" in failing_rows:
+        rows.append(Row(
+            label="active execution",
+            value="DISABLED",
+            status="fail",
+            detail=failing_rows["active execution"],
+        ))
+    else:
+        rows.append(Row(
+            label="active execution",
+            value="enabled" if enabled else render_bool(enabled),
+            status="pass",
+        ))
+
+    # Runtime mode row
+    runtime_state = runtime.get("runtime_status") or "?"
+    runtime_mode = runtime.get("current_mode") or "?"
+    if "runtime mode" in failing_rows:
+        rows.append(Row(
+            label="runtime mode",
+            value=f"{runtime_state} in {runtime_mode}",
+            status="fail",
+            detail=failing_rows["runtime mode"],
+        ))
+    else:
+        rows.append(Row(
+            label="runtime mode",
+            value=f"{runtime_state} in {runtime_mode}",
+            status="pass",
+        ))
+
+    # Legacy watchdog row (informational)
+    rows.append(Row(
+        label="legacy watchdog",
+        value="retired (engine_owner = hermes)",
+        status="pass",
+    ))
+
+    if allowed:
+        footer = f"{HINT_ARROW} gate is open: actions can dispatch"
+    else:
+        footer = f"{HINT_ARROW} gate is BLOCKED: no actions will dispatch"
+
+    return format_panel(
+        title="Active execution gate",
+        sections=[Section(name=None, rows=rows)],
+        use_color=use_color,
+        footer=footer,
+    )
