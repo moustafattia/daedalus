@@ -203,6 +203,7 @@ properties:
 definitions:
   acpx-codex-runtime:
     type: object
+    additionalProperties: false
     required: [kind, session-idle-freshness-seconds, session-idle-grace-seconds, session-nudge-cooldown-seconds]
     properties:
       kind: {const: acpx-codex}
@@ -216,6 +217,7 @@ definitions:
 
   claude-cli-runtime:
     type: object
+    additionalProperties: false
     required: [kind, max-turns-per-invocation, timeout-seconds]
     properties:
       kind: {const: claude-cli}
@@ -228,6 +230,7 @@ definitions:
 
   hermes-agent-runtime:
     type: object
+    additionalProperties: false
     required: [kind]
     properties:
       kind: {const: hermes-agent}
@@ -238,6 +241,7 @@ definitions:
 
   coder-tier:
     type: object
+    additionalProperties: false
     required: [name, model, runtime]
     properties:
       name: {type: string}

@@ -246,3 +246,45 @@ def test_dispatch_agent_falls_back_to_bundled(tmp_path):
     p = resolve_prompt_template_path(workspace=ws, role="coder", agent_cfg={})
     assert p.name == "coder.md"
     assert "workflows/code_review/prompts" in str(p)
+
+
+def test_dispatch_agent_legacy_fallback_calls_run_prompt(tmp_path):
+    """When neither agent nor runtime has command:, dispatcher calls runtime.run_prompt."""
+    from workflows.code_review.dispatch import dispatch_agent
+
+    runtimes_cfg = {
+        "codex-acpx": {
+            "kind": "acpx-codex",
+            "session-idle-freshness-seconds": 900,
+            "session-idle-grace-seconds": 1800,
+            "session-nudge-cooldown-seconds": 600,
+            # no command: here
+        },
+    }
+    agents = {"coder": {"default": {"name": "c", "model": "m", "runtime": "codex-acpx"}}}
+
+    fake_run = MagicMock(return_value=MagicMock(stdout="should-not-be-called"))
+    ws = _make_workspace(tmp_path, agents, runtimes_cfg, fake_run)
+
+    # Stub run_prompt on the resolved runtime
+    rt = ws.runtime("codex-acpx")
+    rt.run_prompt = MagicMock(return_value="legacy-output")
+
+    out = dispatch_agent(
+        workspace=ws, role="coder", tier="default",
+        rendered_prompt="hi", session_name="s", worktree=tmp_path,
+    )
+    assert out == "legacy-output"
+    rt.run_prompt.assert_called_once()
+    fake_run.assert_not_called()
+
+
+def test_dispatch_agent_raises_when_no_bundled_prompt_exists(tmp_path):
+    """When command: is set but no prompt template is found anywhere, raise DispatchConfigError."""
+    from workflows.code_review.dispatch import resolve_prompt_template_path, DispatchConfigError
+
+    ws = MagicMock()
+    ws.path = tmp_path  # no <tmp_path>/config/prompts/madeup-role.md
+    ws.config = {"agents": {}}
+    with pytest.raises(DispatchConfigError, match="no prompt template found"):
+        resolve_prompt_template_path(workspace=ws, role="madeup-role", agent_cfg={})
