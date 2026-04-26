@@ -14,6 +14,7 @@ PAYLOAD_ITEMS = [
     "runtime.py",
     "schemas.py",
     "tools.py",
+    "watch_sources.py",
     "workflows",
     "projects",
     "skills",
