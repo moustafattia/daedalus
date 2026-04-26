@@ -105,7 +105,7 @@ def test_pick_next_lane_issue_from_repo_fetches_open_issues_then_selects_best_ca
     result = github_module.pick_next_lane_issue_from_repo(Path("/tmp/repo"), run_json=fake_run_json)
 
     assert result["number"] == 225
-    assert seen["command"] == ["gh", "issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url,labels"]
+    assert seen["command"] == ["gh", "issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url,labels,createdAt"]
     assert seen["cwd"] == Path("/tmp/repo")
 
 
