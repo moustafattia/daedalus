@@ -72,16 +72,8 @@ def build_reviewer(reviewer_cfg: dict, *, ws_context: ReviewerContext) -> Review
       - Else use reviewer_cfg.get('kind') (default 'github-comments').
     """
     # Trigger registration side-effects via lazy import.
-    # Tolerate missing modules during incremental Phase B rollout (Tasks 2 & 3
-    # create these); registry stays empty until they exist.
-    try:
-        from workflows.code_review.reviewers import github_comments  # noqa: F401
-    except ImportError:
-        pass
-    try:
-        from workflows.code_review.reviewers import disabled as _disabled  # noqa: F401
-    except ImportError:
-        pass
+    from workflows.code_review.reviewers import github_comments  # noqa: F401
+    from workflows.code_review.reviewers import disabled as _disabled  # noqa: F401
 
     if reviewer_cfg.get("enabled") is False:
         kind = "disabled"

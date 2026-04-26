@@ -133,3 +133,48 @@ def test_github_comments_reviewer_placeholder():
     assert p["status"] == "pending"
     assert p["summary"] == "waiting"
     assert p["agentRole"] == "external_reviewer_agent"
+
+
+def test_disabled_reviewer_registered():
+    from workflows.code_review.reviewers import _REVIEWER_KINDS, disabled  # noqa: F401
+
+    assert "disabled" in _REVIEWER_KINDS
+
+
+def test_disabled_reviewer_returns_skipped_placeholder():
+    from workflows.code_review.reviewers import build_reviewer
+
+    cfg = {"enabled": False, "name": "X"}
+    rv = build_reviewer(cfg, ws_context=_ws_context())
+    out = rv.fetch_review(pr_number=42, current_head_sha="abc", cached_review=None)
+    assert out["status"] == "skipped"
+    assert out["required"] is False
+
+
+def test_disabled_reviewer_does_not_call_run_json():
+    from workflows.code_review.reviewers import build_reviewer
+
+    ctx = _ws_context()
+    cfg = {"enabled": False, "name": "X"}
+    rv = build_reviewer(cfg, ws_context=ctx)
+    rv.fetch_review(pr_number=42, current_head_sha="abc", cached_review=None)
+    rv.fetch_pr_body_signal(42)
+    ctx.run_json.assert_not_called()
+
+
+def test_build_reviewer_defaults_to_disabled_when_enabled_false():
+    """enabled: false wins over an explicit kind."""
+    from workflows.code_review.reviewers import build_reviewer
+    from workflows.code_review.reviewers.disabled import DisabledReviewer
+
+    rv = build_reviewer({"enabled": False, "kind": "github-comments"}, ws_context=_ws_context())
+    assert isinstance(rv, DisabledReviewer)
+
+
+def test_build_reviewer_defaults_to_github_comments_when_enabled():
+    """No explicit kind + enabled: true -> github-comments."""
+    from workflows.code_review.reviewers import build_reviewer
+    from workflows.code_review.reviewers.github_comments import GithubCommentsReviewer
+
+    rv = build_reviewer({"enabled": True, "name": "X"}, ws_context=_ws_context())
+    assert isinstance(rv, GithubCommentsReviewer)
