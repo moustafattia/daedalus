@@ -137,7 +137,7 @@ def render_implementation_dispatch_prompt(
             issue_body.strip() or "No issue body provided.",
         ])
 
-    return _load_template("coder-dispatch").format(
+    return _load_template("coder").format(
         issue_number=issue.get("number"),
         issue_title=issue.get("title"),
         issue_url=issue.get("url"),
@@ -227,7 +227,7 @@ def render_inter_review_agent_prompt(
     lane_state_path: Path | None,
     head_sha: str,
 ) -> str:
-    return _load_template("internal-review-strict").format(
+    return _load_template("internal-reviewer").format(
         worktree=worktree,
         head_sha=head_sha,
         issue_number=issue.get("number"),

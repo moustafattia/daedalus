@@ -129,7 +129,7 @@ def test_prompt_templates_bundle_exists_with_three_files():
     assert bundle.is_dir(), f"prompts bundle missing at {bundle}"
     names = sorted(p.name for p in bundle.glob("*.md"))
     assert names == [
-        "coder-dispatch.md",
-        "internal-review-strict.md",
+        "coder.md",
+        "internal-reviewer.md",
         "repair-handoff.md",
     ]
