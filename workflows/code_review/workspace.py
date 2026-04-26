@@ -288,6 +288,119 @@ def _build_adapter_module_loaders(workspace_root: Path) -> dict[str, Any]:
     }
 
 
+def _make_audit_fn(
+    *,
+    audit_log_path,
+    publisher=None,
+):
+    """Build an ``audit(action, summary, **extra)`` closure that:
+
+      1. Always appends a JSONL row to ``audit_log_path``.
+      2. If ``publisher`` is provided, calls ``publisher(action=..., summary=..., extra=...)``
+         after the write. Publisher exceptions are swallowed — observability
+         must never break workflow execution.
+    """
+    def audit(action, summary, **extra):
+        _append_jsonl(
+            audit_log_path,
+            {
+                "at": _now_iso(),
+                "action": action,
+                "summary": summary,
+                **extra,
+            },
+        )
+        if publisher is not None:
+            try:
+                publisher(action=action, summary=summary, extra=dict(extra))
+            except Exception:
+                # Best-effort observability hook; never raise into the caller.
+                pass
+
+    return audit
+
+
+def _make_comment_publisher(
+    *,
+    workflow_root,
+    repo_slug,
+    workflow_yaml,
+    get_active_issue_number,
+    get_workflow_state,
+    get_is_operator_attention,
+    run_fn=None,
+):
+    """Build the ``publisher`` callable consumed by ``_make_audit_fn``.
+
+    Returns ``None`` when github-comments is disabled — the caller
+    (``build_workspace``) wires that None into ``_make_audit_fn`` so
+    nothing happens at the audit hook.
+    """
+    # Lazy import to avoid hard-coupling workspace.py to comments_publisher
+    # before the rest of the workspace bootstrap is happy.
+    try:
+        from . import observability as _obs
+        from . import comments_publisher as _pub
+    except ImportError:
+        _here = Path(__file__).resolve().parent
+        import importlib.util as _ilu
+
+        def _load(name):
+            spec = _ilu.spec_from_file_location(
+                f"daedalus_workflow_code_review_{name}", _here / f"{name}.py"
+            )
+            mod = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+        _obs = _load("observability")
+        _pub = _load("comments_publisher")
+
+    workflow_root = Path(workflow_root)
+    override_dir = workflow_root / "runtime" / "state" / "daedalus"
+    state_dir = workflow_root / "runtime" / "state" / "lane-comments"
+
+    # Always return a publisher callable so a later
+    # ``/daedalus set-observability --github-comments on`` override can take
+    # effect at the next audit event without a service restart. The publisher
+    # below re-resolves the effective config on every call and short-circuits
+    # when the result is disabled — that is the gate, not this bootstrap-time
+    # lookup. (Earlier versions short-circuited here when initially-disabled,
+    # which permanently severed the audit hook from the publisher and made
+    # runtime overrides ineffective until a process restart.)
+
+    def publisher(*, action, summary, extra):
+        # Re-resolve the config every call so a /daedalus set-observability
+        # toggle takes effect immediately, without restarting the service.
+        eff = _obs.resolve_effective_config(
+            workflow_yaml=workflow_yaml or {},
+            override_dir=override_dir,
+            workflow_name="code-review",
+        )
+        if not eff["github-comments"].get("enabled"):
+            return
+        issue_number = get_active_issue_number()
+        if issue_number is None:
+            return
+        audit_event = {
+            "at": _now_iso(),
+            "action": action,
+            "summary": summary,
+            **(extra or {}),
+        }
+        _pub.publish_event(
+            repo_slug=repo_slug,
+            issue_number=issue_number,
+            workflow_state=get_workflow_state(),
+            is_operator_attention=get_is_operator_attention(),
+            audit_event=audit_event,
+            effective_config=eff,
+            state_dir=state_dir,
+            **({"run_fn": run_fn} if run_fn is not None else {}),
+        )
+
+    return publisher
+
+
 def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNamespace:
     """Build the workspace accessor used by adapter CLI / orchestrator code.
 
@@ -409,16 +522,31 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     def save_ledger(payload: dict[str, Any]) -> None:
         _write_json(ledger_path, payload)
 
-    def audit(action: str, summary: str, **extra: Any) -> None:
-        _append_jsonl(
-            audit_log_path,
-            {
-                "at": _now_iso(),
-                "action": action,
-                "summary": summary,
-                **extra,
-            },
-        )
+    # Wire the comment publisher (returns None when observability is disabled —
+    # the audit hook then becomes a pure log-write with no GitHub I/O).
+    _ns_holder: dict[str, Any] = {}
+
+    def _ns_load_ledger() -> dict[str, Any]:
+        ns_obj = _ns_holder.get("ns")
+        if ns_obj is None or not hasattr(ns_obj, "load_ledger"):
+            return {}
+        try:
+            return ns_obj.load_ledger() or {}
+        except Exception:
+            return {}
+
+    _repo_slug = ((yaml_cfg or {}).get("repository") or {}).get("github-slug") or ""
+    _publisher = _make_comment_publisher(
+        workflow_root=workspace_root,
+        repo_slug=_repo_slug,
+        workflow_yaml=yaml_cfg or {},
+        get_active_issue_number=lambda: (_ns_load_ledger().get("activeLane") or {}).get("number"),
+        get_workflow_state=lambda: _ns_load_ledger().get("workflowState") or "unknown",
+        get_is_operator_attention=lambda: (
+            _ns_load_ledger().get("workflowState") == "operator_attention_required"
+        ),
+    )
+    audit = _make_audit_fn(audit_log_path=audit_log_path, publisher=_publisher)
 
     # Pre-declared so closures below can resolve them once ``ns`` is built.
     # Bindings happen after ``ns`` is created, below.
@@ -511,6 +639,8 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         save_ledger=save_ledger,
         audit=audit,
     )
+    # Bind ns into the publisher's holder so its lambdas can read load_ledger().
+    _ns_holder["ns"] = ns
     # Adapter module loaders (cached per-workspace).
     for loader_name, loader_fn in _build_adapter_module_loaders(workspace_root).items():
         setattr(ns, loader_name, loader_fn)

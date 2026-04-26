@@ -61,6 +61,15 @@ grouped by purpose, with a one-line description.
 | `/daedalus migrate-filesystem` | Rename relay-era state files to daedalus paths |
 | `/daedalus migrate-systemd` | Replace relay-era unit files with daedalus templates |
 
+### Observability
+
+| Command | What it does |
+|---|---|
+| `/daedalus watch` | Live operator TUI (lanes + alerts + recent events) |
+| `/daedalus watch --once` | Render one frame and exit (works in pipes) |
+| `/daedalus set-observability --workflow <name> --github-comments on\|off\|unset` | Set/clear runtime override for a workflow's GitHub-comment publishing |
+| `/daedalus get-observability --workflow <name>` | Show effective observability config + which layer (default/yaml/override) won |
+
 ## `/workflow` — per-workflow operations
 
 | Command | What it does |
@@ -88,10 +97,11 @@ grouped by purpose, with a one-line description.
 
 ## Most useful day-to-day, in order
 
-1. `/workflow code-review status` — current lane + next action
-2. `/daedalus doctor` — overall health
-3. `/workflow code-review show-active-lane` — what GitHub thinks
-4. `/daedalus service-logs` — last 50 journal entries from the active service
+1. `/daedalus watch` — live overview of every active lane in one frame
+2. `/workflow code-review status` — current lane + next action
+3. `/daedalus doctor` — overall health
+4. `/workflow code-review show-active-lane` — what GitHub thinks
+5. `/daedalus service-logs` — last 50 journal entries from the active service
 5. `/workflow code-review tick` — manually fire a tick when impatient
 
 ## Notes

@@ -17,6 +17,39 @@ retired wrapper script as a thin workspace-config binding.
 """
 
 
+def emit_operator_attention_transition(
+    *,
+    previous_state,
+    new_state,
+    reasons,
+    audit_fn,
+):
+    """Emit a semantic audit event when a lane crosses the operator-attention
+    boundary. No-op when the state did not change.
+
+    The comment publisher (Task 1.7) listens for ``operator-attention-transition``
+    and ``operator-attention-recovered`` to render the sticky ⚠️ header (and to
+    clear it on recovery).
+    """
+    OAS = "operator_attention_required"
+    if previous_state == new_state:
+        return
+    if new_state == OAS:
+        reason = "; ".join(reasons) if reasons else "operator-attention-required"
+        audit_fn(
+            "operator-attention-transition",
+            "Lane entered operator-attention state",
+            reason=reason,
+            previousState=previous_state,
+        )
+    elif previous_state == OAS:
+        audit_fn(
+            "operator-attention-recovered",
+            "Lane recovered from operator-attention state",
+            newState=new_state,
+        )
+
+
 def build_status_raw(workspace: Any) -> dict[str, Any]:
     """Build the raw read-model payload for the workflow.
 
@@ -303,6 +336,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
     ws = workspace
     status = ws.build_status()
     ledger = ws.load_ledger()
+    previous_workflow_state = ledger.get("workflowState") or "unknown"
     previous_claude_review = ((ledger.get("reviews") or {}).get("claudeCode") or {}).copy()
     jobs_payload = ws.load_jobs()
     changed = {"ledger": False, "jobs": False}
@@ -403,6 +437,13 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
             repair_brief=repair_brief,
             operator_attention_needed=operator_attention_needed,
             pass_with_findings_reviews=ws.CLAUDE_PASS_WITH_FINDINGS_REVIEWS,
+        )
+        new_workflow_state = ledger.get("workflowState") or "unknown"
+        emit_operator_attention_transition(
+            previous_state=previous_workflow_state,
+            new_state=new_workflow_state,
+            reasons=ws._lane_operator_attention_reasons(impl.get("laneState")),
+            audit_fn=ws.audit,
         )
         changed["ledger"] = True
     elif status.get("activeLaneError"):

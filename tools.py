@@ -989,6 +989,21 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
     }
 
 
+def _lazy_cmd_watch(args, parser):
+    """Lazy import so importing tools.py doesn't pull rich into every CLI invocation."""
+    try:
+        from watch import cmd_watch
+    except ImportError:
+        path = PLUGIN_DIR / "watch.py"
+        spec = importlib.util.spec_from_file_location("daedalus_watch_for_cli", path)
+        if spec is None or spec.loader is None:
+            raise DaedalusCommandError(f"unable to load watch module from {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cmd_watch = module.cmd_watch
+    return cmd_watch(args, parser)
+
+
 def cmd_migrate_filesystem(args, parser) -> str:
     """Run the filesystem migrator for the given workflow root.
 
@@ -1066,6 +1081,87 @@ def cmd_migrate_systemd(args, parser) -> str:
     lines.append(
         f"to start active mode: systemctl --user start {_instance_unit_name('active', workspace)}"
     )
+    return "\n".join(lines)
+
+
+def cmd_set_observability(args, parser) -> str:
+    """``/daedalus set-observability --workflow X --github-comments on|off|unset``."""
+    try:
+        from observability_overrides import set_override, unset_override
+    except ImportError:
+        path = PLUGIN_DIR / "observability_overrides.py"
+        spec = importlib.util.spec_from_file_location("daedalus_observability_overrides_for_cli", path)
+        if spec is None or spec.loader is None:
+            raise DaedalusCommandError(f"unable to load observability_overrides from {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        set_override = module.set_override
+        unset_override = module.unset_override
+
+    workflow_root = Path(args.workflow_root).expanduser().resolve()
+    state_dir = workflow_root / "runtime" / "state" / "daedalus"
+    workflow_name = args.workflow
+    setting = (args.github_comments or "").strip().lower()
+
+    if setting == "on":
+        set_override(state_dir, workflow_name=workflow_name, github_comments_enabled=True)
+        return f"observability override set: {workflow_name}.github-comments = on"
+    if setting == "off":
+        set_override(state_dir, workflow_name=workflow_name, github_comments_enabled=False)
+        return f"observability override set: {workflow_name}.github-comments = off"
+    if setting == "unset":
+        unset_override(state_dir, workflow_name=workflow_name)
+        return f"observability override removed for {workflow_name}"
+    raise DaedalusCommandError(
+        f"--github-comments must be one of: on, off, unset (got {args.github_comments!r})"
+    )
+
+
+def cmd_get_observability(args, parser) -> str:
+    """``/daedalus get-observability --workflow X``: show effective config + source."""
+    try:
+        from workflows.code_review.observability import resolve_effective_config
+    except ImportError:
+        path = PLUGIN_DIR / "workflows" / "code_review" / "observability.py"
+        spec = importlib.util.spec_from_file_location("daedalus_observability_for_cli", path)
+        if spec is None or spec.loader is None:
+            raise DaedalusCommandError(f"unable to load observability resolver from {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        resolve_effective_config = module.resolve_effective_config
+
+    workflow_root = Path(args.workflow_root).expanduser().resolve()
+    workflow_name = args.workflow
+    config_yaml_path = workflow_root / "config" / "workflow.yaml"
+    workflow_yaml = {}
+    if config_yaml_path.exists():
+        try:
+            import yaml as _yaml
+            workflow_yaml = _yaml.safe_load(config_yaml_path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:
+            return f"error reading workflow.yaml: {exc}"
+
+    eff = resolve_effective_config(
+        workflow_yaml=workflow_yaml,
+        override_dir=workflow_root / "runtime" / "state" / "daedalus",
+        workflow_name=workflow_name,
+    )
+    gh = eff["github-comments"]
+    source = eff["source"]["github-comments"]
+    include_events = gh.get("include-events")
+    if not include_events:
+        # Empty list = explicit firehose ("everything"); flag the risk visibly
+        # so an operator who sees this output understands every audit action
+        # will become a comment update.
+        include_events_display = "[] (FIREHOSE — every audit action)"
+    else:
+        include_events_display = ", ".join(include_events)
+    lines = [
+        f"workflow: {workflow_name}",
+        f"github-comments.enabled: {gh.get('enabled')} (source: {source})",
+        f"github-comments.mode: {gh.get('mode')}",
+        f"github-comments.include-events: {include_events_display}",
+    ]
     return "\n".join(lines)
 
 
@@ -1264,6 +1360,32 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         default=DEFAULT_WORKFLOW_ROOT,
     )
     migrate_systemd_cmd.set_defaults(handler=cmd_migrate_systemd, func=run_cli_command)
+
+    watch_cmd = sub.add_parser(
+        "watch",
+        help="Live operator TUI: lanes, alerts, recent events.",
+    )
+    watch_cmd.add_argument("--workflow-root", type=Path, default=DEFAULT_WORKFLOW_ROOT)
+    watch_cmd.add_argument("--once", action="store_true", help="Render one frame and exit (default when stdout is not a TTY).")
+    watch_cmd.add_argument("--interval", type=float, default=2.0, help="Poll interval in live mode.")
+    watch_cmd.set_defaults(handler=_lazy_cmd_watch, func=run_cli_command)
+
+    set_obs_cmd = sub.add_parser(
+        "set-observability",
+        help="Override observability config for a workflow (writes runtime override file).",
+    )
+    set_obs_cmd.add_argument("--workflow-root", type=Path, default=DEFAULT_WORKFLOW_ROOT)
+    set_obs_cmd.add_argument("--workflow", required=True, help="Workflow name (e.g. code-review)")
+    set_obs_cmd.add_argument("--github-comments", choices=["on", "off", "unset"], required=True)
+    set_obs_cmd.set_defaults(handler=cmd_set_observability, func=run_cli_command)
+
+    get_obs_cmd = sub.add_parser(
+        "get-observability",
+        help="Show effective observability config + which layer (default/yaml/override) won.",
+    )
+    get_obs_cmd.add_argument("--workflow-root", type=Path, default=DEFAULT_WORKFLOW_ROOT)
+    get_obs_cmd.add_argument("--workflow", required=True)
+    get_obs_cmd.set_defaults(handler=cmd_get_observability, func=run_cli_command)
 
     return parser
 
@@ -1693,6 +1815,16 @@ def execute_raw_args(raw_args: str) -> str:
             return cmd_migrate_filesystem(args, parser)
         if args.daedalus_command == "migrate-systemd":
             return cmd_migrate_systemd(args, parser)
+        # New commands return strings directly (not dicts), so they bypass
+        # execute_namespace which only knows about the legacy dict-returning
+        # branches. Without these explicit routes the new subcommands fall
+        # through to "unknown daedalus command".
+        if args.daedalus_command == "watch":
+            return _lazy_cmd_watch(args, parser)
+        if args.daedalus_command == "set-observability":
+            return cmd_set_observability(args, parser)
+        if args.daedalus_command == "get-observability":
+            return cmd_get_observability(args, parser)
         result = execute_namespace(args)
         return render_result(args.daedalus_command, result, json_output=getattr(args, "json", False))
     except DaedalusCommandError as exc:
@@ -1706,6 +1838,23 @@ def execute_raw_args(raw_args: str) -> str:
 
 def run_cli_command(args: argparse.Namespace) -> None:
     args._command_source = "cli"
+    # Some subcommands have handlers that return strings directly, not dicts.
+    # ``execute_namespace`` only knows about the legacy dict-returning commands,
+    # so without this branch the new (string-returning) commands would fall
+    # through to ``unknown daedalus command``. This mirrors the special-cases
+    # in ``execute_raw_args`` for the slash-command path.
+    string_returning = {
+        "migrate-filesystem",
+        "migrate-systemd",
+        "watch",
+        "set-observability",
+        "get-observability",
+    }
+    if getattr(args, "daedalus_command", None) in string_returning:
+        handler = getattr(args, "handler", None)
+        if handler is not None:
+            print(handler(args, parser=None))
+            return
     print(render_result(args.daedalus_command, execute_namespace(args), json_output=getattr(args, "json", False)))
 
 

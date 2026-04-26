@@ -155,6 +155,20 @@ properties:
         type: array
         items: {type: string}
 
+  observability:
+    type: object
+    properties:
+      github-comments:
+        type: object
+        required: [enabled]
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
+          mode: {type: string, enum: [edit-in-place]}
+          include-events:
+            type: array
+            items: {type: string}
+
 definitions:
   acpx-codex-runtime:
     type: object
