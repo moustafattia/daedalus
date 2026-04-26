@@ -68,6 +68,8 @@ def pick_next_lane_issue(
     """
     import random
 
+    back_compat = lane_selection_cfg is None
+
     if lane_selection_cfg is None:
         try:
             from .lane_selection import parse_config as _parse
@@ -116,6 +118,12 @@ def pick_next_lane_issue(
 
     def _sort_key(c):
         issue = c["issue"]
+        if back_compat:
+            # Pre-issue-#2 behavior: title_pri then issue_number, no time
+            # component. Adding `createdAt` to the gh JSON output must not
+            # shift no-config ordering for repos where createdAt and issue
+            # numbering diverge (e.g. transferred/imported issues).
+            return (c["title_pri"], int(issue.get("number") or 0))
         created = issue.get("createdAt") or ""
         if tiebreak == "newest":
             time_key = -_iso_to_unix(created)
@@ -131,9 +139,20 @@ def pick_next_lane_issue(
 
     if tiebreak == "random":
         # Identify the top primary-bucket, then pick uniformly from it.
+        # When label priority is configured, also match the tertiary
+        # title_pri so random doesn't override title-priority ordering
+        # within a label bucket.
         candidates.sort(key=_sort_key)
         primary_top = _sort_key(candidates[0])[0]
-        top_bucket = [c for c in candidates if _sort_key(c)[0] == primary_top]
+        if has_label_priority:
+            title_top = _sort_key(candidates[0])[2]  # title_pri at index 2
+            top_bucket = [
+                c for c in candidates
+                if _sort_key(c)[0] == primary_top
+                and _sort_key(c)[2] == title_top
+            ]
+        else:
+            top_bucket = [c for c in candidates if _sort_key(c)[0] == primary_top]
         rng = rng or random.Random()
         return rng.choice(top_bucket)["issue"]
 

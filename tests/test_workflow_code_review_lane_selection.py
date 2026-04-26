@@ -272,3 +272,57 @@ def test_pick_next_lane_issue_back_compat_positional_call():
     # Old-style call — no lane_selection_cfg passed
     chosen = gh.pick_next_lane_issue(items, active_lane_label="active-lane")
     assert chosen["number"] == 20
+
+
+# ─── regression: P5.1 back-compat ignores createdAt ────────────────────────
+
+def test_back_compat_no_cfg_ignores_createdAt_uses_issue_number():
+    """When `lane_selection_cfg` is None (no lane-selection block at all),
+    the picker must rank by (title_pri, issue_number) — NOT by createdAt.
+
+    Adding `createdAt` to the gh JSON output must not shift no-config
+    ordering for repos where createdAt and issue numbering diverge
+    (transferred / imported issues).
+    """
+    gh = _gh()
+    # Issue 10 was created LATER than issue 20 (transferred / imported).
+    # Both have the same title priority.
+    items = [
+        _issue(10, title="[P1] later created", created_at="2026-04-26T12:00:00Z"),
+        _issue(20, title="[P1] earlier created", created_at="2026-04-25T12:00:00Z"),
+    ]
+    # Pre-issue-#2 behavior: lower issue_number wins (10), regardless of createdAt.
+    chosen = gh.pick_next_lane_issue(items)  # lane_selection_cfg defaults to None
+    assert chosen["number"] == 10
+
+
+# ─── regression: P5.2 random tiebreak respects tertiary title_pri ──────────
+
+def test_random_tiebreak_respects_title_priority_within_label_bucket():
+    """When label-priority is configured AND tiebreak=random, the random pool
+    is narrowed to (label_bucket, title_pri) tied set. So `[P1]` strictly beats
+    `[P3]` within the same label bucket, even under random tiebreak.
+    """
+    gh, ls = _gh(), _ls()
+    import random as _random
+
+    cfg = ls.parse_config(
+        workflow_yaml={
+            "lane-selection": {
+                "priority": ["severity:critical"],
+                "tiebreak": "random",
+            }
+        },
+        active_lane_label="active-lane",
+    )
+    items = [
+        _issue(10, labels=["severity:critical"], title="[P3] lower title pri"),
+        _issue(20, labels=["severity:critical"], title="[P1] higher title pri"),
+    ]
+    # Run many times with different seeds — only #20 should ever come out.
+    seen = set()
+    for seed in range(200):
+        rng = _random.Random(seed)
+        chosen = gh.pick_next_lane_issue(items, lane_selection_cfg=cfg, rng=rng)
+        seen.add(chosen["number"])
+    assert seen == {20}, f"random tiebreak should never select [P3] over [P1]; saw: {seen}"
