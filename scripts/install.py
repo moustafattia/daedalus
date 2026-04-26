@@ -10,6 +10,7 @@ PAYLOAD_ITEMS = [
     "__init__.py",
     "alerts.py",
     "migration.py",
+    "observability_overrides.py",
     "plugin.yaml",
     "runtime.py",
     "schemas.py",
