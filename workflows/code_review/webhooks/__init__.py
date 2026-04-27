@@ -63,21 +63,10 @@ def build_webhooks(
     """Instantiate one Webhook per subscription. Empty/None config -> []."""
     if not webhooks_cfg:
         return []
-    # Lazy import for side-effect registration. Wrapped in try/except so this
-    # module stands alone before Tasks 2-4 land. Once http_json/slack_incoming/
-    # disabled exist, remove the wrappers.
-    try:
-        from workflows.code_review.webhooks import http_json  # noqa: F401
-    except ImportError:
-        pass
-    try:
-        from workflows.code_review.webhooks import slack_incoming  # noqa: F401
-    except ImportError:
-        pass
-    try:
-        from workflows.code_review.webhooks import disabled as _disabled  # noqa: F401
-    except ImportError:
-        pass
+    # Lazy import for side-effect registration.
+    from workflows.code_review.webhooks import http_json  # noqa: F401
+    from workflows.code_review.webhooks import slack_incoming  # noqa: F401
+    from workflows.code_review.webhooks import disabled as _disabled  # noqa: F401
 
     import time as _time
     ctx = WebhookContext(run_fn=run_fn, now_iso=lambda: _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()))

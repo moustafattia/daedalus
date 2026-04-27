@@ -195,3 +195,77 @@ def test_slack_incoming_payload_shape():
     # Block layout: section + context
     assert any(b.get("type") == "section" for b in payload["blocks"])
     assert any(b.get("type") == "context" for b in payload["blocks"])
+
+
+def test_disabled_webhook_registered():
+    from workflows.code_review.webhooks import _WEBHOOK_KINDS
+    from workflows.code_review.webhooks import disabled  # noqa: F401
+    assert "disabled" in _WEBHOOK_KINDS
+
+
+def test_disabled_webhook_does_not_call_urlopen():
+    from workflows.code_review.webhooks import build_webhooks
+
+    cfg = [{"name": "wh", "kind": "disabled"}]
+    webhooks = build_webhooks(cfg, run_fn=None)
+
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        webhooks[0].deliver({"action": "X", "summary": "Y"})
+        mock_urlopen.assert_not_called()
+
+
+def test_disabled_via_enabled_false():
+    """enabled: false overrides any kind."""
+    from workflows.code_review.webhooks import build_webhooks
+    from workflows.code_review.webhooks.disabled import DisabledWebhook
+
+    cfg = [{"name": "wh", "kind": "http-json", "url": "https://x", "enabled": False}]
+    webhooks = build_webhooks(cfg, run_fn=None)
+    assert isinstance(webhooks[0], DisabledWebhook)
+
+
+def test_event_filter_glob_matches_exact():
+    from workflows.code_review.webhooks import event_matches
+    assert event_matches({"action": "run_claude_review"}, ["run_claude_review"]) is True
+    assert event_matches({"action": "merge_and_promote"}, ["run_claude_review"]) is False
+
+
+def test_event_filter_glob_matches_prefix():
+    from workflows.code_review.webhooks import event_matches
+    assert event_matches({"action": "run_claude_review"}, ["run_*"]) is True
+    assert event_matches({"action": "run_internal_review"}, ["run_*"]) is True
+    assert event_matches({"action": "merge_and_promote"}, ["run_*"]) is False
+
+
+def test_event_filter_glob_suffix():
+    from workflows.code_review.webhooks import event_matches
+    assert event_matches({"action": "internal_review"}, ["*_review"]) is True
+    assert event_matches({"action": "external_review"}, ["*_review"]) is True
+    assert event_matches({"action": "merge_and_promote"}, ["*_review"]) is False
+
+
+def test_event_filter_omitted_defaults_to_all():
+    from workflows.code_review.webhooks import event_matches
+    assert event_matches({"action": "any"}, None) is True
+    assert event_matches({"action": "any"}, []) is True
+
+
+def test_event_filter_multiple_globs_or():
+    from workflows.code_review.webhooks import event_matches
+    globs = ["merge_*", "operator_*"]
+    assert event_matches({"action": "merge_and_promote"}, globs) is True
+    assert event_matches({"action": "operator_attention_required"}, globs) is True
+    assert event_matches({"action": "run_claude_review"}, globs) is False
+
+
+def test_filtered_subscriber_does_not_deliver_unmatched_events():
+    """When wrapping a webhook into a subscriber, non-matching events are skipped."""
+    from workflows.code_review.webhooks import build_webhooks
+
+    cfg = [{
+        "name": "only-merges", "kind": "http-json",
+        "url": "https://x", "events": ["merge_*"],
+    }]
+    wh = build_webhooks(cfg, run_fn=None)[0]
+    assert wh.matches({"action": "merge_and_promote"}) is True
+    assert wh.matches({"action": "run_claude_review"}) is False
