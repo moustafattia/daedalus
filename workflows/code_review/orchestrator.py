@@ -78,19 +78,19 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
 
     existing_reviews = ledger.get("reviews") or {}
     if publish_ready:
-        codex_cloud = ws._fetch_codex_cloud_review(
+        codex_cloud = ws._fetch_external_review(
             open_pr.get("number") if open_pr else None,
             open_pr.get("headRefOid") if open_pr else None,
             get_review(existing_reviews, "externalReview"),
         )
     elif open_pr and open_pr.get("isDraft"):
-        codex_cloud = ws._codex_cloud_placeholder(
+        codex_cloud = ws._external_review_placeholder(
             required=False,
             status="not_started",
             summary="Draft PR is not ready for Codex Cloud review yet.",
         )
     else:
-        codex_cloud = ws._codex_cloud_placeholder(
+        codex_cloud = ws._external_review_placeholder(
             required=False,
             status="not_started",
             summary="Codex Cloud review starts only after the PR is published ready-for-review.",

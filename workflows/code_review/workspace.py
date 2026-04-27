@@ -1442,17 +1442,17 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             pass_with_findings_reviews=ns.CLAUDE_PASS_WITH_FINDINGS_REVIEWS,
         )
 
-    def _fetch_codex_pr_body_signal(pr_number):
+    def _fetch_external_review_pr_body_signal(pr_number):
         return ns.reviewer.fetch_pr_body_signal(pr_number)
 
-    def _fetch_codex_cloud_review(pr_number, current_head_sha, cached_review=None):
+    def _fetch_external_review(pr_number, current_head_sha, cached_review=None):
         return ns.reviewer.fetch_review(
             pr_number=pr_number,
             current_head_sha=current_head_sha,
             cached_review=cached_review,
         )
 
-    def _codex_cloud_placeholder(*, required, status, summary):
+    def _external_review_placeholder(*, required, status, summary):
         return ns.reviewer.placeholder(required=required, status=status, summary=summary)
 
     def _normalize_review(review, *, required=True, pending_summary, agent_name=None, agent_role=None):
