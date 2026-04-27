@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from workflows.code_review.migrations import get_review
+from workflows.code_review.migrations import get_lane_state_review_field, get_review
 
 
 """YoYoPod Core review-policy helpers.
@@ -281,8 +281,8 @@ def current_inter_review_agent_matches_local_head(review: dict[str, Any] | None,
 def local_inter_review_agent_review_count(review: dict[str, Any] | None, lane_state: dict[str, Any] | None = None) -> int:
     state = lane_state or {}
     state_review = state.get("review") or {}
-    count = int(state_review.get("localClaudeReviewCount") or 0)
-    last_head = state_review.get("lastClaudeReviewedHeadSha")
+    count = int(get_lane_state_review_field(state_review, "localInternalReviewCount") or 0)
+    last_head = get_lane_state_review_field(state_review, "lastInternalReviewedHeadSha")
     review = review or {}
     if review.get("reviewScope") == "local-prepublish" and review.get("status") == "completed":
         reviewed_head = review.get("reviewedHeadSha")

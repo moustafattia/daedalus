@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from workflows.code_review.health import compute_health, compute_stale_lane_reasons
-from workflows.code_review.migrations import get_ledger_field, get_review
+from workflows.code_review.migrations import get_lane_state_review_field, get_ledger_field, get_review
 from workflows.code_review.paths import (
     lane_memo_path,
     lane_state_path,
@@ -923,9 +923,9 @@ def write_lane_state(
         },
         "review": {
             "repairBriefHeadSha": (repair_brief or {}).get("forHeadSha"),
-            "lastClaudeReviewedHeadSha": ((get_review(reviews, "internalReview")).get("reviewedHeadSha")) or ((existing.get("review") or {}).get("lastClaudeReviewedHeadSha")),
+            "lastInternalReviewedHeadSha": ((get_review(reviews, "internalReview")).get("reviewedHeadSha")) or get_lane_state_review_field(existing.get("review"), "lastInternalReviewedHeadSha"),
             "lastInternalVerdict": ((get_review(reviews, "internalReview")).get("verdict")) or ((existing.get("review") or {}).get("lastInternalVerdict")),
-            "localClaudeReviewCount": local_inter_review_agent_review_count((get_review(reviews, "internalReview") or None), existing),
+            "localInternalReviewCount": local_inter_review_agent_review_count((get_review(reviews, "internalReview") or None), existing),
             "currentClaudeRunId": ((get_review(reviews, "internalReview")).get("runId")),
             "currentClaudeTargetHeadSha": inter_review_agent_target_head((get_review(reviews, "internalReview") or None)),
             "currentClaudeStatus": ((get_review(reviews, "internalReview")).get("status")),
