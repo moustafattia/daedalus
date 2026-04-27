@@ -184,3 +184,58 @@ agents:
 **Deprecated:** the top-level `codex-bot:` block (`logins`/`clean-reactions`/`pending-reactions`) is still honored as a fallback for one release. Move those keys inside `agents.external-reviewer:` to silence the deprecation path.
 
 **Prompt overrides:** the repair-handoff prompt now lives at `workflows/code_review/prompts/external-reviewer-repair-handoff.md`. Drop a file at `<workspace>/config/prompts/external-reviewer-repair-handoff.md` to override it (Phase A resolution chain).
+
+## Webhooks (Phase C — outbound event subscribers)
+
+Declare N webhook subscriptions under top-level `webhooks:`. Each subscription receives audit events that match its `events:` filter.
+
+```yaml
+webhooks:
+  - name: notify-slack
+    kind: slack-incoming
+    url: https://hooks.slack.com/services/T.../B.../...
+    events: ["merge_and_promote", "operator_attention_required"]
+
+  - name: ci-mirror
+    kind: http-json
+    url: https://ci.example.com/hooks/code-review
+    headers:
+      Authorization: Bearer xyz
+    events: ["run_*", "merge_*"]
+    timeout-seconds: 5
+    retry-count: 2
+
+  - name: temporarily-off
+    kind: http-json
+    url: https://example.com/hook
+    enabled: false   # short-circuit without removing the entry
+```
+
+**Kinds:**
+- `http-json` — POST raw audit-event JSON to `url` with optional `headers:`.
+- `slack-incoming` — POST Slack-formatted blocks to a Slack Incoming Webhook URL.
+- `disabled` — explicit no-op (equivalent to `enabled: false`).
+
+**Event filter (`events:`):** list of fnmatch globs against the audit event's `action` field. Examples:
+- `["*"]` or omitted ⇒ all events
+- `["run_*"]` ⇒ everything starting with `run_`
+- `["merge_and_promote"]` ⇒ exact match
+- `["*_review"]` ⇒ suffix match
+- Multiple globs are OR'd
+
+**Delivery semantics:** fire-and-forget, inline retry (default `retry-count: 1` ⇒ initial + 1 retry). Per-subscriber exceptions are swallowed — webhooks cannot break workflow execution. No persistent queue: if the engine crashes mid-delivery the event lives in `audit-log` JSONL but is not redelivered.
+
+**Security:** webhook URLs MUST use `http://` or `https://`. Other schemes (file, gopher, ftp) are rejected at workspace setup. Audit events contain issue numbers, head SHAs, and branch names; choose webhook destinations carefully. `timeout-seconds` is capped at 30; `retry-count` at 5 — webhook delivery runs inline in the audit hook.
+
+**Audit-event payload (what `http-json` POSTs):**
+```json
+{
+  "at": "2026-04-26T12:34:56Z",
+  "action": "merge_and_promote",
+  "summary": "Merged PR #42",
+  "issueNumber": 42,
+  "headSha": "abc123"
+}
+```
+
+(Extra fields beyond `at`/`action`/`summary` come from the action's audit context — they vary by action.)

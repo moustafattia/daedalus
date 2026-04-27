@@ -215,6 +215,28 @@ properties:
             type: array
             items: {type: string}
 
+  webhooks:
+    type: array
+    items:
+      type: object
+      required: [name, kind]
+      additionalProperties: false
+      properties:
+        name: {type: string}
+        kind:
+          type: string
+          enum: [http-json, slack-incoming, disabled]
+        enabled: {type: boolean}
+        url: {type: string}
+        events:
+          type: array
+          items: {type: string}
+        headers:
+          type: object
+          additionalProperties: {type: string}
+        timeout-seconds: {type: integer, minimum: 1, maximum: 30}
+        retry-count: {type: integer, minimum: 0, maximum: 5}
+
 definitions:
   acpx-codex-runtime:
     type: object

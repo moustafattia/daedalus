@@ -567,7 +567,40 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
             _ns_load_ledger().get("workflowState") == "operator_attention_required"
         ),
     )
-    audit = _make_audit_fn(audit_log_path=audit_log_path, publisher=_publisher)
+    from workflows.code_review.webhooks import build_webhooks, compose_audit_subscribers
+
+    _webhooks = build_webhooks((yaml_cfg or {}).get("webhooks") or [], run_fn=_run)
+
+    def _adapt_legacy_publisher(legacy_pub):
+        """The legacy comments publisher takes (action=, summary=, extra=).
+        Compose-style subscribers receive a single audit_event dict. Adapt."""
+        if legacy_pub is None:
+            return None
+        def _sub(audit_event):
+            legacy_pub(
+                action=audit_event.get("action") or "",
+                summary=audit_event.get("summary") or "",
+                extra={k: v for k, v in audit_event.items() if k not in ("action", "summary", "at")},
+            )
+        return _sub
+
+    def _adapt_webhook(wh):
+        """Wrap a Webhook into a (audit_event)->None subscriber that respects matches()."""
+        def _sub(audit_event):
+            if not wh.matches(audit_event):
+                return
+            wh.deliver(audit_event)
+        return _sub
+
+    _subscribers = []
+    _legacy = _adapt_legacy_publisher(_publisher)
+    if _legacy is not None:
+        _subscribers.append(_legacy)
+    for _wh in _webhooks:
+        _subscribers.append(_adapt_webhook(_wh))
+
+    _fanout_publisher = compose_audit_subscribers(_subscribers) if _subscribers else None
+    audit = _make_audit_fn(audit_log_path=audit_log_path, publisher=_fanout_publisher)
 
     # Pre-declared so closures below can resolve them once ``ns`` is built.
     # Bindings happen after ``ns`` is created, below.
