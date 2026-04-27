@@ -290,3 +290,13 @@ The Phase D-2 / D-3 one-release back-compat aliases have been removed:
 - Per-thread `"source": "codexCloud"` review-thread label is now `"externalReview"`. Threads are rebuilt from GitHub data each tick, so old labels self-heal.
 
 Migration helpers (`migrate_review_keys`, `migrate_top_level_keys`, `migrate_persisted_ledger`) remain — they run idempotently on bootstrap and protect against stale state from backups.
+
+## Lane-state migration (Phase D-5)
+
+Two nested lane-state fields renamed for provider neutrality:
+- `ledger.implementation.laneState.review.lastClaudeReviewedHeadSha` → `lastInternalReviewedHeadSha`
+- `ledger.implementation.laneState.review.localClaudeReviewCount` → `localInternalReviewCount`
+
+**Migration is automatic** on workspace bootstrap (extends D-1/D-3 mechanism).
+**Read-both / write-new** for one release via `get_lane_state_review_field` helper.
+**Status output keys also renamed** — external tooling reading `lastClaudeReviewedHeadSha` / `localClaudeReviewCount` from `yoyopod-workflow-status.json` should switch to the new names.
