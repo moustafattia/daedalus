@@ -21,7 +21,7 @@ def test_repair_handoff_includes_required_fields():
 
     out = render_external_reviewer_repair_handoff_prompt(
         issue={"number": 42, "title": "Bug X"},
-        codex_review={"reviewedHeadSha": "abc123", "summary": "Found issue."},
+        external_review={"reviewedHeadSha": "abc123", "summary": "Found issue."},
         repair_brief={"mustFix": [{"summary": "Fix A"}], "shouldFix": []},
         lane_memo_path=Path("/tmp/memo.md"),
         lane_state_path=Path("/tmp/state.json"),

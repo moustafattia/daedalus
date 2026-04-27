@@ -58,7 +58,7 @@ def test_render_claude_repair_handoff_prompt_includes_review_summary_and_fix_lis
 
     result = prompts_module.render_claude_repair_handoff_prompt(
         issue={"number": 224, "title": "Issue 224"},
-        claude_review={"reviewedHeadSha": "abc123", "summary": "Claude found some stuff."},
+        internal_review={"reviewedHeadSha": "abc123", "summary": "Claude found some stuff."},
         repair_brief={"mustFix": [{"summary": "Fix A"}], "shouldFix": [{"summary": "Fix B"}]},
         lane_memo_path=Path('/tmp/yoyopod-issue-224/.lane-memo.md'),
         lane_state_path=Path('/tmp/yoyopod-issue-224/.lane-state.json'),
@@ -78,7 +78,7 @@ def test_render_external_reviewer_repair_handoff_prompt_includes_pr_url_and_guar
 
     result = prompts_module.render_external_reviewer_repair_handoff_prompt(
         issue={"number": 224, "title": "Issue 224"},
-        codex_review={"reviewedHeadSha": "def456", "summary": "Codex Cloud found follow-up work."},
+        external_review={"reviewedHeadSha": "def456", "summary": "Codex Cloud found follow-up work."},
         repair_brief={"mustFix": [], "shouldFix": [{"summary": "Tighten edge case"}]},
         lane_memo_path=None,
         lane_state_path=None,

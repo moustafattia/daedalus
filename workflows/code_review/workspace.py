@@ -1551,33 +1551,33 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             write_json_fn=ns._write_json,
         )
 
-    def should_dispatch_claude_repair_handoff(*, lane_state, session_action, claude_review, repair_brief, workflow_state, current_head_sha, has_open_pr):
+    def should_dispatch_claude_repair_handoff(*, lane_state, session_action, internal_review, repair_brief, workflow_state, current_head_sha, has_open_pr):
         return ns._load_adapter_reviews_module().should_dispatch_claude_repair_handoff(
             lane_state=lane_state,
             session_action=session_action,
-            claude_review=claude_review,
+            internal_review=internal_review,
             repair_brief=repair_brief,
             workflow_state=workflow_state,
             current_head_sha=current_head_sha,
             has_open_pr=has_open_pr,
         )
 
-    def should_dispatch_external_review_repair_handoff(*, lane_state, session_action, codex_review, repair_brief, workflow_state, current_head_sha, has_open_pr):
+    def should_dispatch_external_review_repair_handoff(*, lane_state, session_action, external_review, repair_brief, workflow_state, current_head_sha, has_open_pr):
         return ns._load_adapter_reviews_module().should_dispatch_external_review_repair_handoff(
             lane_state=lane_state,
             session_action=session_action,
-            codex_review=codex_review,
+            external_review=external_review,
             repair_brief=repair_brief,
             workflow_state=workflow_state,
             current_head_sha=current_head_sha,
             has_open_pr=has_open_pr,
         )
 
-    def build_external_review_repair_handoff_payload(*, session_action, issue, codex_review, repair_brief, lane_memo_path, lane_state_path, now_iso):
+    def build_external_review_repair_handoff_payload(*, session_action, issue, external_review, repair_brief, lane_memo_path, lane_state_path, now_iso):
         return ns._load_adapter_reviews_module().build_external_review_repair_handoff_payload(
             session_action=session_action,
             issue=issue,
-            codex_review=codex_review,
+            external_review=external_review,
             repair_brief=repair_brief,
             lane_memo_path=lane_memo_path,
             lane_state_path=lane_state_path,
@@ -1593,10 +1593,10 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             write_json_fn=ns._write_json,
         )
 
-    def _render_external_review_repair_handoff_prompt(*, issue, codex_review, repair_brief, lane_memo_path, lane_state_path, pr_url):
+    def _render_external_review_repair_handoff_prompt(*, issue, external_review, repair_brief, lane_memo_path, lane_state_path, pr_url):
         return ns._load_adapter_prompts_module().render_external_reviewer_repair_handoff_prompt(
             issue=issue,
-            codex_review=codex_review,
+            external_review=external_review,
             repair_brief=repair_brief,
             lane_memo_path=lane_memo_path,
             lane_state_path=lane_state_path,
@@ -1604,11 +1604,11 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             external_reviewer_agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
         )
 
-    def build_claude_repair_handoff_payload(*, session_action, issue, claude_review, repair_brief, lane_memo_path, lane_state_path, now_iso):
+    def build_claude_repair_handoff_payload(*, session_action, issue, internal_review, repair_brief, lane_memo_path, lane_state_path, now_iso):
         return ns._load_adapter_reviews_module().build_claude_repair_handoff_payload(
             session_action=session_action,
             issue=issue,
-            claude_review=claude_review,
+            internal_review=internal_review,
             repair_brief=repair_brief,
             lane_memo_path=lane_memo_path,
             lane_state_path=lane_state_path,
@@ -1624,10 +1624,10 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             write_json_fn=ns._write_json,
         )
 
-    def _render_claude_repair_handoff_prompt(*, issue, claude_review, repair_brief, lane_memo_path, lane_state_path):
+    def _render_claude_repair_handoff_prompt(*, issue, internal_review, repair_brief, lane_memo_path, lane_state_path):
         return ns._load_adapter_prompts_module().render_claude_repair_handoff_prompt(
             issue=issue,
-            claude_review=claude_review,
+            internal_review=internal_review,
             repair_brief=repair_brief,
             lane_memo_path=lane_memo_path,
             lane_state_path=lane_state_path,

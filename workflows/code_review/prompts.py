@@ -153,14 +153,14 @@ def render_implementation_dispatch_prompt(
 def render_external_reviewer_repair_handoff_prompt(
     *,
     issue: dict[str, Any] | None,
-    codex_review: dict[str, Any] | None,
+    external_review: dict[str, Any] | None,
     repair_brief: dict[str, Any] | None,
     lane_memo_path: Path | None,
     lane_state_path: Path | None,
     pr_url: str | None,
     external_reviewer_agent_name: str,
 ) -> str:
-    review = codex_review or {}
+    review = external_review or {}
     must_fix = [item.get("summary", "") for item in (repair_brief or {}).get("mustFix", []) if item.get("summary")][:8]
     should_fix = [item.get("summary", "") for item in (repair_brief or {}).get("shouldFix", []) if item.get("summary")][:8]
     must_fix_lines = "\n".join([f"- {item}" for item in must_fix] or ["- none recorded"])
@@ -182,13 +182,13 @@ def render_external_reviewer_repair_handoff_prompt(
 def render_claude_repair_handoff_prompt(
     *,
     issue: dict[str, Any] | None,
-    claude_review: dict[str, Any] | None,
+    internal_review: dict[str, Any] | None,
     repair_brief: dict[str, Any] | None,
     lane_memo_path: Path | None,
     lane_state_path: Path | None,
     internal_reviewer_agent_name: str,
 ) -> str:
-    review = claude_review or {}
+    review = internal_review or {}
     must_fix = [item.get("summary", "") for item in (repair_brief or {}).get("mustFix", []) if item.get("summary")][:8]
     should_fix = [item.get("summary", "") for item in (repair_brief or {}).get("shouldFix", []) if item.get("summary")][:8]
     must_fix_lines = "\n".join([f"- {item}" for item in must_fix] or ["- none recorded"])

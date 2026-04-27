@@ -21,7 +21,7 @@ def test_should_dispatch_claude_repair_handoff_when_local_review_is_actionable_a
     result = reviews_module.should_dispatch_claude_repair_handoff(
         lane_state={},
         session_action={"action": "continue-session", "sessionName": "lane-224"},
-        claude_review={
+        internal_review={
             "reviewScope": "local-prepublish",
             "status": "completed",
             "verdict": "REWORK",
@@ -43,7 +43,7 @@ def test_should_dispatch_claude_repair_handoff_rejects_duplicate_handoff_for_sam
     result = reviews_module.should_dispatch_claude_repair_handoff(
         lane_state={"sessionControl": {"lastClaudeRepairHandoff": {"sessionName": "lane-224", "headSha": "head123", "reviewedAt": "2026-04-22T01:00:00Z"}}},
         session_action={"action": "continue-session", "sessionName": "lane-224"},
-        claude_review={
+        internal_review={
             "reviewScope": "local-prepublish",
             "status": "completed",
             "verdict": "REWORK",
@@ -65,7 +65,7 @@ def test_should_dispatch_codex_cloud_repair_handoff_when_postpublish_review_is_a
     result = reviews_module.should_dispatch_external_review_repair_handoff(
         lane_state={},
         session_action={"action": "poke-session", "sessionName": "lane-224"},
-        codex_review={
+        external_review={
             "reviewScope": "postpublish-pr",
             "status": "completed",
             "verdict": "PASS_WITH_FINDINGS",
@@ -453,7 +453,7 @@ def test_repair_handoff_payload_builders_shape_claude_and_codex_payloads():
     claude_payload = reviews_module.build_claude_repair_handoff_payload(
         session_action={"sessionName": "lane-224"},
         issue={"number": 224, "title": "Issue 224"},
-        claude_review={"reviewedHeadSha": "abc123", "updatedAt": "2026-04-23T00:10:00Z", "reviewScope": "local-prepublish", "verdict": "REWORK"},
+        internal_review={"reviewedHeadSha": "abc123", "updatedAt": "2026-04-23T00:10:00Z", "reviewScope": "local-prepublish", "verdict": "REWORK"},
         repair_brief={"mustFix": [{"summary": "a"}], "shouldFix": [{"summary": "b"}, {"summary": "c"}]},
         lane_memo_path="/tmp/memo.md",
         lane_state_path="/tmp/state.json",
@@ -462,7 +462,7 @@ def test_repair_handoff_payload_builders_shape_claude_and_codex_payloads():
     codex_payload = reviews_module.build_external_review_repair_handoff_payload(
         session_action={"sessionName": "lane-224"},
         issue={"number": 224, "title": "Issue 224"},
-        codex_review={"reviewedHeadSha": "def456", "updatedAt": "2026-04-23T00:11:00Z", "reviewScope": "postpublish-pr", "verdict": "PASS_WITH_FINDINGS"},
+        external_review={"reviewedHeadSha": "def456", "updatedAt": "2026-04-23T00:11:00Z", "reviewScope": "postpublish-pr", "verdict": "PASS_WITH_FINDINGS"},
         repair_brief={"mustFix": [], "shouldFix": [{"summary": "x"}]},
         lane_memo_path="/tmp/memo.md",
         lane_state_path="/tmp/state.json",

@@ -516,14 +516,14 @@ def derive_latest_progress(
         "kind": (impl.get("status") or ledger.get("workflowState") or "unknown"),
         "at": impl.get("updatedAt") or now_iso,
     }
-    codex_review = get_review(reviews, "externalReview")
-    codex_updated_at = codex_review.get("updatedAt")
+    external_review = get_review(reviews, "externalReview")
+    codex_updated_at = external_review.get("updatedAt")
     if (
         open_pr
         and review_loop_state == "clean"
         and not merge_blocked
-        and codex_review.get("status") == "completed"
-        and codex_review.get("verdict") == "PASS_CLEAN"
+        and external_review.get("status") == "completed"
+        and external_review.get("verdict") == "PASS_CLEAN"
         and codex_updated_at
     ):
         return {"kind": "approved", "at": codex_updated_at}
@@ -606,7 +606,7 @@ def apply_active_lane_ledger_transition(
     open_pr: dict[str, Any] | None,
     implementation: dict[str, Any],
     reviews: dict[str, Any],
-    previous_claude_review: dict[str, Any] | None,
+    previous_internal_review: dict[str, Any] | None,
     publish_ready: bool,
     review_loop_state: str | None,
     merge_blocked: bool,
@@ -641,11 +641,11 @@ def apply_active_lane_ledger_transition(
         "merged": False,
         "isDraft": (open_pr or {}).get("isDraft"),
     }
-    claude_review = get_review(reviews, "internalReview")
+    internal_review = get_review(reviews, "internalReview")
     local_head_sha = implementation.get("localHeadSha")
     prepublish_gate_ready = (
-        claude_review.get("verdict") == "PASS_CLEAN"
-        and current_inter_review_agent_matches_local_head(claude_review, local_head_sha)
+        internal_review.get("verdict") == "PASS_CLEAN"
+        and current_inter_review_agent_matches_local_head(internal_review, local_head_sha)
     )
     ledger["prePublishGate"] = {
         "status": "ready" if prepublish_gate_ready else "pending",
@@ -668,9 +668,9 @@ def apply_active_lane_ledger_transition(
         )
     else:
         local_candidate = has_local_candidate(local_head_sha, implementation.get("commitsAhead"))
-        claude_current = current_inter_review_agent_matches_local_head(claude_review, local_head_sha)
+        claude_current = current_inter_review_agent_matches_local_head(internal_review, local_head_sha)
         single_pass_gate = single_pass_local_claude_gate_satisfied(
-            previous_claude_review or claude_review,
+            previous_internal_review or internal_review,
             local_head_sha,
             implementation.get("laneState"),
             pass_with_findings_reviews=pass_with_findings_reviews,
@@ -679,7 +679,7 @@ def apply_active_lane_ledger_transition(
             local_candidate=local_candidate,
             single_pass_gate_satisfied=single_pass_gate,
             claude_current=claude_current,
-            claude_verdict=claude_review.get("verdict"),
+            claude_verdict=internal_review.get("verdict"),
         )
         ledger["reviewState"] = ledger["workflowState"]
         approval["status"] = "not-approved"

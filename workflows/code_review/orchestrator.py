@@ -147,8 +147,8 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
     ledger_idle = ledger.get("workflowIdle")
 
     local_candidate_exists = ws._has_local_candidate(local_head_sha, worktree_commits_ahead)
-    existing_claude_review = get_review(existing_reviews, "internalReview")
-    single_pass_claude_gate_satisfied = ws._single_pass_local_claude_gate_satisfied(existing_claude_review, local_head_sha, lane_state)
+    existing_internal_review = get_review(existing_reviews, "internalReview")
+    single_pass_claude_gate_satisfied = ws._single_pass_local_claude_gate_satisfied(existing_internal_review, local_head_sha, lane_state)
     effective_workflow_state = ledger_state
     effective_review_state = ledger.get("reviewState")
     if not publish_ready and local_candidate_exists and single_pass_claude_gate_satisfied:
@@ -339,7 +339,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
     status = ws.build_status()
     ledger = ws.load_ledger()
     previous_workflow_state = ledger.get("workflowState") or "unknown"
-    previous_claude_review = get_review(ledger.get("reviews"), "internalReview").copy()
+    previous_internal_review = get_review(ledger.get("reviews"), "internalReview").copy()
     jobs_payload = ws.load_jobs()
     changed = {"ledger": False, "jobs": False}
 
@@ -405,7 +405,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
         actor_labels=ws._actor_labels_payload(codex_model),
         reviews=reviews,
     )
-    ws._audit_inter_review_agent_transition(previous_claude_review, get_review(reviews, "internalReview"))
+    ws._audit_inter_review_agent_transition(previous_internal_review, get_review(reviews, "internalReview"))
     adapter_status.apply_ledger_implementation_merge(
         ledger,
         active_lane=active_lane,
@@ -430,7 +430,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
             open_pr=open_pr,
             implementation=impl,
             reviews=reviews,
-            previous_claude_review=previous_claude_review,
+            previous_internal_review=previous_internal_review,
             publish_ready=publish_ready,
             review_loop_state=review_loop_state,
             merge_blocked=merge_blocked,

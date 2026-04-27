@@ -128,8 +128,8 @@ def should_escalate_codex_model(
     restart_state = lane_state.get("restart") or {}
     restart_count = int(restart_state.get("count") or 0)
     local_review_count = int(get_lane_state_review_field(review_state, "localInternalReviewCount") or 0)
-    codex_review = get_review(reviews, "externalReview")
-    codex_open_findings = int(codex_review.get("openFindingCount") or 0)
+    external_review = get_review(reviews, "externalReview")
+    codex_open_findings = int(external_review.get("openFindingCount") or 0)
     if restart_count >= escalate_restart_count:
         return True
     if local_review_count >= escalate_local_review_count:
