@@ -305,7 +305,7 @@ def single_pass_local_claude_gate_satisfied(
     state_review = state.get("review") or {}
     review_count = local_inter_review_agent_review_count(review, state)
     latest_reviewed_head = state_review.get("lastClaudeReviewedHeadSha")
-    latest_verdict = state_review.get("lastInternalVerdict") or state_review.get("lastClaudeVerdict")
+    latest_verdict = state_review.get("lastInternalVerdict")
     if review.get("reviewScope") == "local-prepublish" and review.get("status") == "completed":
         latest_reviewed_head = review.get("reviewedHeadSha") or latest_reviewed_head
         latest_verdict = review.get("verdict") or latest_verdict
@@ -519,7 +519,7 @@ def build_external_review_thread(
         "line": node.get("line"),
         "severity": severity,
         "status": status,
-        "source": "codexCloud",
+        "source": "externalReview",
         "summary": summary,
         "url": comment.get("url"),
         "createdAt": comment.get("createdAt"),
@@ -1388,7 +1388,6 @@ def maybe_dispatch_repair_handoff(
             write_json_fn=write_json_fn,
         )
         ledger["internalReviewRepairHandoff"] = repair_payload
-        ledger.pop("claudeRepairHandoff", None)
         audit_fn(
             "claude-repair-handoff-dispatched",
             "Sent Claude pre-publish repair brief back into the active Codex session",
@@ -1450,7 +1449,6 @@ def maybe_dispatch_repair_handoff(
             write_json_fn=write_json_fn,
         )
         ledger["externalReviewRepairHandoff"] = repair_payload
-        ledger.pop("codexCloudRepairHandoff", None)
         audit_fn(
             "codex-cloud-repair-handoff-dispatched",
             "Sent Codex Cloud repair brief back into the active Codex session",
@@ -1715,14 +1713,3 @@ def run_inter_review_agent_review(
         'minorSuggestions': list(payload.get('minorSuggestions') or []),
         'requiredNextAction': payload.get('requiredNextAction'),
     }
-
-
-# Phase D-2 aliases — drop next release
-codex_cloud_placeholder = external_review_placeholder
-build_codex_cloud_thread = build_external_review_thread
-summarize_codex_cloud_review = summarize_external_review
-fetch_codex_pr_body_signal = fetch_external_review_pr_body_signal
-fetch_codex_cloud_review = fetch_external_review
-build_codex_cloud_repair_handoff_payload = build_external_review_repair_handoff_payload
-record_codex_cloud_repair_handoff = record_external_review_repair_handoff
-should_dispatch_codex_cloud_repair_handoff = should_dispatch_external_review_repair_handoff

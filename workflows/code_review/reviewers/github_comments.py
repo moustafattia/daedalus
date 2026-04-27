@@ -1,10 +1,9 @@
 """GitHub PR-comments external reviewer.
 
 Generalizes the Codex Cloud fetcher: configurable bot logins,
-clean/pending reactions, repo slug, cache TTL. Today this still
-delegates to ``reviews.fetch_codex_cloud_review`` /
-``reviews.fetch_codex_pr_body_signal`` for the actual work — Phase D
-will rename those helpers.
+clean/pending reactions, repo slug, cache TTL. Delegates to
+``reviews.fetch_external_review`` /
+``reviews.fetch_external_review_pr_body_signal`` for the actual work.
 """
 from __future__ import annotations
 
@@ -54,9 +53,9 @@ class GithubCommentsReviewer:
         current_head_sha: str | None,
         cached_review: dict | None,
     ) -> dict[str, Any]:
-        from workflows.code_review.reviews import fetch_codex_cloud_review
+        from workflows.code_review.reviews import fetch_external_review
 
-        return fetch_codex_cloud_review(
+        return fetch_external_review(
             pr_number,
             current_head_sha=current_head_sha,
             cached_review=cached_review,
@@ -74,9 +73,9 @@ class GithubCommentsReviewer:
         )
 
     def fetch_pr_body_signal(self, pr_number: int | None) -> dict | None:
-        from workflows.code_review.reviews import fetch_codex_pr_body_signal
+        from workflows.code_review.reviews import fetch_external_review_pr_body_signal
 
-        return fetch_codex_pr_body_signal(
+        return fetch_external_review_pr_body_signal(
             pr_number,
             run_json_fn=self._ctx.run_json,
             cwd=self._ctx.repo_path,
@@ -93,9 +92,9 @@ class GithubCommentsReviewer:
         status: str,
         summary: str,
     ) -> dict[str, Any]:
-        from workflows.code_review.reviews import codex_cloud_placeholder
+        from workflows.code_review.reviews import external_review_placeholder
 
-        return codex_cloud_placeholder(
+        return external_review_placeholder(
             required=required,
             status=status,
             summary=summary,

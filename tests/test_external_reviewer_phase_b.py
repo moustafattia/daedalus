@@ -95,7 +95,7 @@ def test_github_comments_reviewer_uses_configured_logins():
     }
     rv = build_reviewer(cfg, ws_context=ctx)
     out = rv.fetch_review(pr_number=42, current_head_sha="abc123", cached_review=None)
-    assert any(t.get("source") == "codexCloud" for t in out.get("threads", []))
+    assert any(t.get("source") == "externalReview" for t in out.get("threads", []))
 
 
 def test_github_comments_reviewer_ignores_non_matching_logins():

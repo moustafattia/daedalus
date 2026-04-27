@@ -41,9 +41,9 @@ class DisabledReviewer:
         status: str,
         summary: str,
     ) -> dict[str, Any]:
-        from workflows.code_review.reviews import codex_cloud_placeholder
+        from workflows.code_review.reviews import external_review_placeholder
 
-        return codex_cloud_placeholder(
+        return external_review_placeholder(
             required=required,
             status=status,
             summary=summary,

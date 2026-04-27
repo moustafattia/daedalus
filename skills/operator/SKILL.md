@@ -281,3 +281,12 @@ Plus `claudeModel` is dropped entirely — its value lives in `internalReviewerM
 **Status output keys also renamed** — external tooling that parsed `claudeModel` / `interReviewAgentModel` / `codexCloudAutoResolved` / `lastClaudeVerdict` from `yoyopod-workflow-status.json` should switch to the new names.
 
 **Workspace internals.** Four `_codex_cloud_repair_handoff_*` shims in `workflows/code_review/workspace.py` renamed to `_external_review_repair_handoff_*`. Workspace-internal API; affects subagent test fixtures only.
+
+## Deprecation cleanup round 2 (Phase D-4)
+
+The Phase D-2 / D-3 one-release back-compat aliases have been removed:
+- 8 D-2 module-level function aliases in `workflows/code_review/reviews.py` (`fetch_codex_cloud_review`, etc.) — gone. Use the `external_review` names.
+- D-3 read-time legacy-key fallbacks in `get_ledger_field`, `reviews.py:308`, `workspace.py:504` — gone. Live ledgers were migrated by the D-3 bootstrap; restored backups still get migrated automatically before any read.
+- Per-thread `"source": "codexCloud"` review-thread label is now `"externalReview"`. Threads are rebuilt from GitHub data each tick, so old labels self-heal.
+
+Migration helpers (`migrate_review_keys`, `migrate_top_level_keys`, `migrate_persisted_ledger`) remain — they run idempotently on bootstrap and protect against stale state from backups.

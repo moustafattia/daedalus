@@ -547,8 +547,6 @@ def apply_ledger_reviews_and_header(
     ledger["schemaVersion"] = 6
     ledger["reviewLoopState"] = review_loop_state
     ledger["internalReviewerModel"] = inter_review_agent_model
-    ledger.pop("claudeModel", None)
-    ledger.pop("interReviewAgentModel", None)
     ledger["codexModel"] = codex_model
     ledger["workflowActors"] = actor_labels
     ledger.setdefault("approval", {})
@@ -556,8 +554,6 @@ def apply_ledger_reviews_and_header(
     ledger["reviews"]["rockClaw"] = reviews["rockClaw"]
     ledger["reviews"]["internalReview"] = reviews["internalReview"]
     ledger["reviews"]["externalReview"] = reviews["externalReview"]
-    ledger["reviews"].pop("claudeCode", None)
-    ledger["reviews"].pop("codexCloud", None)
 
 
 def apply_ledger_implementation_merge(

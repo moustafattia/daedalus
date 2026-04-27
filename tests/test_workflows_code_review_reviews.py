@@ -62,7 +62,7 @@ def test_should_dispatch_claude_repair_handoff_rejects_duplicate_handoff_for_sam
 def test_should_dispatch_codex_cloud_repair_handoff_when_postpublish_review_is_actionable_and_routable():
     reviews_module = load_module("daedalus_workflows_code_review_reviews_test", "workflows/code_review/reviews.py")
 
-    result = reviews_module.should_dispatch_codex_cloud_repair_handoff(
+    result = reviews_module.should_dispatch_external_review_repair_handoff(
         lane_state={},
         session_action={"action": "poke-session", "sessionName": "lane-224"},
         codex_review={
@@ -360,7 +360,7 @@ def test_review_bucket_and_codex_cloud_placeholder_cover_pending_findings_clean_
     assert reviews_module.review_bucket({"verdict": "PASS_CLEAN"}) == "clean"
     assert reviews_module.review_bucket({"verdict": None}) == "pending"
 
-    placeholder = reviews_module.codex_cloud_placeholder(
+    placeholder = reviews_module.external_review_placeholder(
         required=False,
         status="not_started",
         summary="Codex Cloud review starts only after publish.",
@@ -438,7 +438,7 @@ def test_repair_handoff_payload_builders_shape_claude_and_codex_payloads():
         lane_state_path="/tmp/state.json",
         now_iso="2026-04-23T00:20:00Z",
     )
-    codex_payload = reviews_module.build_codex_cloud_repair_handoff_payload(
+    codex_payload = reviews_module.build_external_review_repair_handoff_payload(
         session_action={"sessionName": "lane-224"},
         issue={"number": 224, "title": "Issue 224"},
         codex_review={"reviewedHeadSha": "def456", "updatedAt": "2026-04-23T00:11:00Z", "reviewScope": "postpublish-pr", "verdict": "PASS_WITH_FINDINGS"},
@@ -478,7 +478,7 @@ def test_record_repair_handoff_helpers_store_payload_under_session_control(tmp_p
         load_optional_json_fn=fake_load,
         write_json_fn=fake_write,
     )
-    codex_state = reviews_module.record_codex_cloud_repair_handoff(
+    codex_state = reviews_module.record_external_review_repair_handoff(
         worktree=tmp_path,
         payload={"sessionName": "lane-224", "headSha": "def456"},
         lane_state_path_fn=lambda worktree: worktree / ".lane-state.json",
@@ -556,7 +556,7 @@ def test_classify_lane_failure_covers_clean_session_review_and_preflight_paths()
 def test_codex_cloud_review_shaping_helpers_cover_thread_mapping_findings_pending_and_clean():
     reviews_module = load_module("daedalus_workflows_code_review_reviews_test", "workflows/code_review/reviews.py")
 
-    superseded_thread = reviews_module.build_codex_cloud_thread(
+    superseded_thread = reviews_module.build_external_review_thread(
         node={"id": "thread-1", "path": "app.py", "line": 12, "isResolved": False, "isOutdated": False},
         comment={"url": "https://example.com/thread-1", "createdAt": "2026-04-23T00:00:00Z"},
         severity="major",
@@ -565,7 +565,7 @@ def test_codex_cloud_review_shaping_helpers_cover_thread_mapping_findings_pendin
         signal_epoch=200,
         comment_epoch=100,
     )
-    blocking_thread = reviews_module.build_codex_cloud_thread(
+    blocking_thread = reviews_module.build_external_review_thread(
         node={"id": "thread-2", "path": "core.py", "line": 44, "isResolved": False, "isOutdated": False},
         comment={"url": "https://example.com/thread-2", "createdAt": "2026-04-23T00:05:00Z"},
         severity="critical",
@@ -574,21 +574,21 @@ def test_codex_cloud_review_shaping_helpers_cover_thread_mapping_findings_pendin
         signal_epoch=200,
         comment_epoch=300,
     )
-    findings = reviews_module.summarize_codex_cloud_review(
+    findings = reviews_module.summarize_external_review(
         head_sha="head-1",
         latest_ts="2026-04-23T00:05:00Z",
         threads=[superseded_thread, blocking_thread],
         pr_signal={"state": "clean", "createdAt": "2026-04-23T00:10:00Z", "content": "+1", "user": "codex-cloud"},
         agent_name="External_Reviewer_Agent",
     )
-    pending = reviews_module.summarize_codex_cloud_review(
+    pending = reviews_module.summarize_external_review(
         head_sha="head-2",
         latest_ts=None,
         threads=[],
         pr_signal={"state": "pending", "createdAt": "2026-04-23T00:11:00Z", "content": "eyes", "user": "codex-cloud"},
         agent_name="External_Reviewer_Agent",
     )
-    clean = reviews_module.summarize_codex_cloud_review(
+    clean = reviews_module.summarize_external_review(
         head_sha="head-3",
         latest_ts="2026-04-23T00:06:00Z",
         threads=[superseded_thread],
@@ -726,7 +726,7 @@ def test_fetch_codex_pr_body_signal_picks_latest_codex_reaction_and_maps_clean_v
             {"user": {"login": "codex-bot"}, "content": "+1", "created_at": "2026-04-23T00:02:00Z"},
         ]
 
-    result = reviews_module.fetch_codex_pr_body_signal(
+    result = reviews_module.fetch_external_review_pr_body_signal(
         297,
         run_json_fn=fake_run_json,
         cwd="/tmp/repo",
@@ -748,7 +748,7 @@ def test_fetch_codex_pr_body_signal_picks_latest_codex_reaction_and_maps_clean_v
 def test_fetch_codex_cloud_review_uses_cache_and_builds_from_graphql_threads():
     reviews_module = load_module("daedalus_workflows_code_review_reviews_test", "workflows/code_review/reviews.py")
 
-    cached = reviews_module.fetch_codex_cloud_review(
+    cached = reviews_module.fetch_external_review(
         297,
         current_head_sha="head-1",
         cached_review={"reviewedHeadSha": "head-1", "updatedAt": "cached-ts", "summary": "cached summary"},
@@ -798,7 +798,7 @@ def test_fetch_codex_cloud_review_uses_cache_and_builds_from_graphql_threads():
             }
         }
 
-    built = reviews_module.fetch_codex_cloud_review(
+    built = reviews_module.fetch_external_review(
         297,
         current_head_sha="head-other",
         cached_review=None,

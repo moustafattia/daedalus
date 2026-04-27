@@ -501,7 +501,6 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     )
     inter_review_agent_model = str(
         review_policy.get("internalReviewerModel")
-        or review_policy.get("interReviewAgentModel")
         or "claude-sonnet-4-6"
     )
     inter_review_agent_max_turns = int(

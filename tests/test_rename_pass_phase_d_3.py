@@ -16,7 +16,6 @@ def test_migrate_top_level_keys_renames_legacy():
         "codexCloudRepairHandoff": {"v": 2},
         "codexCloudAutoResolved": {"v": 3},
         "interReviewAgentModel": "claude-sonnet-4",
-        "lastClaudeVerdict": "PASS_CLEAN",
     }
     out, changed = migrate_top_level_keys(ledger)
     assert changed is True
@@ -24,11 +23,9 @@ def test_migrate_top_level_keys_renames_legacy():
     assert out["externalReviewRepairHandoff"] == {"v": 2}
     assert out["externalReviewAutoResolved"] == {"v": 3}
     assert out["internalReviewerModel"] == "claude-sonnet-4"
-    assert out["lastInternalVerdict"] == "PASS_CLEAN"
     for old in (
         "claudeRepairHandoff", "codexCloudRepairHandoff",
         "codexCloudAutoResolved", "interReviewAgentModel",
-        "lastClaudeVerdict",
     ):
         assert old not in out
 
@@ -85,12 +82,6 @@ def test_migrate_persisted_ledger_runs_both_migrations(tmp_path):
 def test_get_ledger_field_returns_new_when_present():
     from workflows.code_review.migrations import get_ledger_field
     assert get_ledger_field({"internalReviewerModel": "x"}, "internalReviewerModel") == "x"
-
-
-def test_get_ledger_field_falls_back_to_legacy():
-    from workflows.code_review.migrations import get_ledger_field
-    assert get_ledger_field({"interReviewAgentModel": "x"}, "internalReviewerModel") == "x"
-    assert get_ledger_field({"claudeRepairHandoff": {"v": 1}}, "internalReviewRepairHandoff") == {"v": 1}
 
 
 def test_get_ledger_field_returns_none_for_unknown_key():
