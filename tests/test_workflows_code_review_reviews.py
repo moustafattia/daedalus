@@ -614,7 +614,7 @@ def test_synthesize_repair_brief_collects_required_codex_threads_and_local_findi
 
     result = reviews_module.synthesize_repair_brief(
         {
-            "codexCloud": {
+            "externalReview": {
                 "required": True,
                 "threads": [
                     {"id": "t1", "status": "open", "isOutdated": False, "severity": "major", "summary": "Fix API edge", "path": "api.py", "line": 88, "url": "https://example.com/t1"},
@@ -635,9 +635,36 @@ def test_synthesize_repair_brief_collects_required_codex_threads_and_local_findi
 
     assert result["forHeadSha"] == "head-123"
     assert result["openedAt"] == "2026-04-23T00:20:00Z"
-    assert result["rerunRequiredReviewers"] == ["codexCloud", "claudeCode"]
-    assert [item["id"] for item in result["mustFix"]] == ["codexCloud:t1", "claudeCode:blocking:1", "claudeCode:major:1"]
+    assert result["rerunRequiredReviewers"] == ["externalReview", "claudeCode"]
+    assert [item["id"] for item in result["mustFix"]] == ["externalReview:t1", "claudeCode:blocking:1", "claudeCode:major:1"]
     assert [item["summary"] for item in result["shouldFix"]] == ["Rename helper"]
+
+
+def test_synthesize_repair_brief_accepts_legacy_codex_cloud_key():
+    reviews_module = load_module("daedalus_workflows_code_review_reviews_test", "workflows/code_review/reviews.py")
+
+    result = reviews_module.synthesize_repair_brief(
+        {
+            "codexCloud": {
+                "required": True,
+                "threads": [
+                    {"id": "t1", "status": "open", "isOutdated": False, "severity": "major", "summary": "Fix API edge", "path": "api.py", "line": 88, "url": "https://example.com/t1"},
+                    {"id": "t2", "status": "resolved", "isOutdated": False, "severity": "critical", "summary": "Already closed"},
+                ],
+            },
+        },
+        head_sha="head-legacy",
+        now_iso="2026-04-23T00:20:00Z",
+    )
+
+    assert result is not None
+    assert result["forHeadSha"] == "head-legacy"
+    assert result["rerunRequiredReviewers"] == ["codexCloud"]
+    # Legacy key still routes through the externalReview branch — IDs use the
+    # canonical source label so downstream consumers see one shape.
+    assert [item["id"] for item in result["mustFix"]] == ["externalReview:t1"]
+    assert result["mustFix"][0]["source"] == "externalReview"
+    assert result["shouldFix"] == []
 
 
 def test_codex_review_mutation_helpers_cover_pr_ready_thread_resolution_and_superseded_cleanup():

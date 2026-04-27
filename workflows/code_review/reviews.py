@@ -597,13 +597,13 @@ def synthesize_repair_brief(
     for source, review in (reviews or {}).items():
         if not review.get("required"):
             continue
-        if source == "codexCloud":
+        if source in ("externalReview", "codexCloud"):
             for thread in review.get("threads", []):
                 if thread.get("status") != "open" or thread.get("isOutdated"):
                     continue
                 item = {
-                    "id": f"codexCloud:{thread['id']}",
-                    "source": "codexCloud",
+                    "id": f"externalReview:{thread['id']}",
+                    "source": "externalReview",
                     "severity": thread["severity"],
                     "summary": thread["summary"],
                     "path": thread.get("path"),
