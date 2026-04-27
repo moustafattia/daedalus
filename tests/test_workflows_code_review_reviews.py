@@ -153,6 +153,27 @@ def test_single_pass_local_claude_gate_satisfied_handles_pass_clean_and_pass_wit
     assert rework is False
 
 
+def test_single_pass_local_claude_gate_satisfied_handles_new_key_shape():
+    """Phase D-5: post-migration lane-state with the new key shape works."""
+    reviews_module = load_module("daedalus_workflows_code_review_reviews_test", "workflows/code_review/reviews.py")
+
+    pass_clean = reviews_module.single_pass_local_claude_gate_satisfied(
+        {"reviewScope": "local-prepublish", "status": "completed", "reviewedHeadSha": "abc", "verdict": "PASS_CLEAN"},
+        "abc",
+        {"review": {"lastInternalReviewedHeadSha": "abc", "lastInternalVerdict": "PASS_CLEAN"}},
+        pass_with_findings_reviews=1,
+    )
+    pass_with_findings = reviews_module.single_pass_local_claude_gate_satisfied(
+        {"reviewScope": "local-prepublish", "status": "completed", "reviewedHeadSha": "old-head", "verdict": "PASS_WITH_FINDINGS"},
+        "new-head",
+        {"review": {"localInternalReviewCount": 0, "lastInternalReviewedHeadSha": "older-head", "lastInternalVerdict": "PASS_WITH_FINDINGS"}},
+        pass_with_findings_reviews=1,
+    )
+
+    assert pass_clean is True
+    assert pass_with_findings is True
+
+
 def test_determine_review_loop_state_handles_pending_findings_and_rework():
     reviews_module = load_module("daedalus_workflows_code_review_reviews_test", "workflows/code_review/reviews.py")
 
