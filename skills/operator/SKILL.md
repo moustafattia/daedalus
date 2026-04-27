@@ -156,3 +156,31 @@ agents:
 ```
 
 No code changes required.
+
+## External reviewer config (Phase B — pluggable)
+
+Pick a reviewer kind via `agents.external-reviewer.kind`:
+
+```yaml
+agents:
+  external-reviewer:
+    enabled: true
+    name: ChatGPT_Codex_Cloud
+    kind: github-comments         # default; reads PR review threads
+    repo-slug: owner/repo         # optional; falls back to legacy hardcode
+    cache-seconds: 300
+    logins:
+      - chatgpt-codex-connector[bot]
+    clean-reactions: ["+1", "rocket", "heart", "hooray"]
+    pending-reactions: ["eyes"]
+```
+
+**Kinds:**
+- `github-comments` — reads PR review threads via `gh api graphql`. Configurable bot logins, clean/pending reactions, repo slug, cache TTL.
+- `disabled` — no external review; placeholder review with `status: skipped`.
+
+**`enabled: false`** is equivalent to `kind: disabled` regardless of any other field.
+
+**Deprecated:** the top-level `codex-bot:` block (`logins`/`clean-reactions`/`pending-reactions`) is still honored as a fallback for one release. Move those keys inside `agents.external-reviewer:` to silence the deprecation path.
+
+**Prompt overrides:** the repair-handoff prompt now lives at `workflows/code_review/prompts/external-reviewer-repair-handoff.md`. Drop a file at `<workspace>/config/prompts/external-reviewer-repair-handoff.md` to override it (Phase A resolution chain).

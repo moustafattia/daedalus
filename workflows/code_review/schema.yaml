@@ -70,8 +70,23 @@ properties:
         properties:
           enabled: {type: boolean}
           name: {type: string}
-          provider: {type: string}
+          kind:
+            type: string
+            enum: [github-comments, disabled]
+          provider:
+            type: string
+            description: "Informational label only; reviewer behavior is selected via 'kind'."
           cache-seconds: {type: integer}
+          repo-slug: {type: string}
+          logins:
+            type: array
+            items: {type: string}
+          clean-reactions:
+            type: array
+            items: {type: string}
+          pending-reactions:
+            type: array
+            items: {type: string}
       advisory-reviewer:
         type: object
         required: [enabled, name]

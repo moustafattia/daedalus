@@ -668,6 +668,41 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         setattr(ns, loader_name, loader_fn)
     _install_wrapper_adapter_shims(ns)
 
+    # -- external reviewer ----------------------------------------------
+    # Build the external reviewer once; downstream shims delegate to it.
+    from workflows.code_review.reviewers import ReviewerContext, build_reviewer
+
+    # Resolve config: agents.external-reviewer first, top-level codex-bot
+    # block as a deprecated fallback (one-release back-compat). The YAML
+    # shape exposes agents/codex-bot at the top level; the legacy JSON view
+    # doesn't surface them, so fall back to empty dicts in that case.
+    _yaml_agents = (yaml_cfg or {}).get("agents", {}) or {}
+    ext_reviewer_cfg = dict(_yaml_agents.get("external-reviewer") or {})
+    codex_bot_block = (yaml_cfg or {}).get("codex-bot") or config.get("codex-bot") or {}
+    for legacy_key, modern_key in (
+        ("logins", "logins"),
+        ("clean-reactions", "clean-reactions"),
+        ("pending-reactions", "pending-reactions"),
+    ):
+        if modern_key not in ext_reviewer_cfg and legacy_key in codex_bot_block:
+            ext_reviewer_cfg[modern_key] = codex_bot_block[legacy_key]
+
+    # Default repo-slug preserves current hardcoded behavior for unmodified configs.
+    if "repo-slug" not in ext_reviewer_cfg:
+        ext_reviewer_cfg["repo-slug"] = "moustafattia/YoyoPod_Core"
+
+    reviewer_ctx = ReviewerContext(
+        run_json=ns._run_json,
+        repo_path=ns.REPO_PATH,
+        repo_slug=ext_reviewer_cfg["repo-slug"],
+        iso_to_epoch=ns._iso_to_epoch,
+        now_epoch=time.time,
+        extract_severity=ns._extract_severity,
+        extract_summary=ns._extract_summary,
+        agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
+    )
+    ns.reviewer = build_reviewer(ext_reviewer_cfg, ws_context=reviewer_ctx)
+
     # -- runtimes -------------------------------------------------------
     # Phase 3 bridges runtime profiles from the old-JSON session/review
     # policy fields. Phase 4 replaces this with YAML-driven instantiation.
@@ -1373,42 +1408,17 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _fetch_codex_pr_body_signal(pr_number):
-        return ns._load_adapter_reviews_module().fetch_codex_pr_body_signal(
-            pr_number,
-            run_json_fn=ns._run_json,
-            cwd=ns.REPO_PATH,
-            codex_bot_logins=ns.CODEX_BOT_LOGINS,
-            clean_reactions=ns.CODEX_CLEAN_REACTIONS,
-            pending_reactions=ns.CODEX_PENDING_REACTIONS,
-            repo_slug="moustafattia/YoyoPod_Core",
-        )
+        return ns.reviewer.fetch_pr_body_signal(pr_number)
 
     def _fetch_codex_cloud_review(pr_number, current_head_sha, cached_review=None):
-        return ns._load_adapter_reviews_module().fetch_codex_cloud_review(
-            pr_number,
+        return ns.reviewer.fetch_review(
+            pr_number=pr_number,
             current_head_sha=current_head_sha,
             cached_review=cached_review,
-            fetch_pr_body_signal_fn=ns._fetch_codex_pr_body_signal,
-            run_json_fn=ns._run_json,
-            cwd=ns.REPO_PATH,
-            repo_slug="moustafattia/YoyoPod_Core",
-            codex_bot_logins=ns.CODEX_BOT_LOGINS,
-            cache_seconds=ns.CODEX_CLOUD_CACHE_SECONDS,
-            iso_to_epoch_fn=ns._iso_to_epoch,
-            now_epoch_fn=time.time,
-            extract_severity_fn=ns._extract_severity,
-            extract_summary_fn=ns._extract_summary,
-            agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
         )
 
     def _codex_cloud_placeholder(*, required, status, summary):
-        return ns._load_adapter_reviews_module().codex_cloud_placeholder(
-            required=required,
-            status=status,
-            summary=summary,
-            agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
-            agent_role="external_reviewer_agent",
-        )
+        return ns.reviewer.placeholder(required=required, status=status, summary=summary)
 
     def _normalize_review(review, *, required=True, pending_summary, agent_name=None, agent_role=None):
         return ns._load_adapter_reviews_module().normalize_review(

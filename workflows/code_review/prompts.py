@@ -150,7 +150,7 @@ def render_implementation_dispatch_prompt(
     )
 
 
-def render_codex_cloud_repair_handoff_prompt(
+def render_external_reviewer_repair_handoff_prompt(
     *,
     issue: dict[str, Any] | None,
     codex_review: dict[str, Any] | None,
@@ -163,33 +163,24 @@ def render_codex_cloud_repair_handoff_prompt(
     review = codex_review or {}
     must_fix = [item.get("summary", "") for item in (repair_brief or {}).get("mustFix", []) if item.get("summary")][:8]
     should_fix = [item.get("summary", "") for item in (repair_brief or {}).get("shouldFix", []) if item.get("summary")][:8]
-    lines = [
-        f"{external_reviewer_agent_name} review found follow-up work for issue #{(issue or {}).get('number')} on published head {review.get('reviewedHeadSha') or 'unknown'}.",
-        f"Issue: #{(issue or {}).get('number')} {(issue or {}).get('title')}",
-        f"PR: {pr_url or 'unknown'}",
-        f"Lane memo: {lane_memo_path}" if lane_memo_path else "Lane memo: none",
-        f"Lane state: {lane_state_path}" if lane_state_path else "Lane state: none",
-        "Read .lane-memo.md and .lane-state.json first; they are authoritative.",
-        "Stay on the same branch and fix the current Codex Cloud review findings on the published head.",
-        "After fixes, run focused validation, update the branch head, and stop so the normal review loop can re-evaluate.",
-        "",
-        "Codex Cloud summary:",
-        review.get("summary") or "No Codex Cloud summary recorded.",
-        "",
-        "Current must-fix items:",
-    ]
-    lines.extend([f"- {item}" for item in must_fix] or ["- none recorded"])
-    lines.extend(["", "Current should-fix items:"])
-    lines.extend([f"- {item}" for item in should_fix] or ["- none recorded"])
-    lines.extend([
-        "",
-        "Guardrails:",
-        "- Do not touch data/test_messages/messages.json.",
-        "- Do not publish .codex artifacts.",
-        "- Keep scope narrow to the active Codex Cloud repair brief.",
-        "- Report exactly what changed, what validation ran, and the new HEAD SHA.",
-    ])
-    return "\n".join(lines)
+    must_fix_lines = "\n".join([f"- {item}" for item in must_fix] or ["- none recorded"])
+    should_fix_lines = "\n".join([f"- {item}" for item in should_fix] or ["- none recorded"])
+    return _load_template("external-reviewer-repair-handoff").format(
+        external_reviewer_agent_name=external_reviewer_agent_name,
+        issue_number=(issue or {}).get("number"),
+        issue_title=(issue or {}).get("title"),
+        reviewed_head_sha=review.get("reviewedHeadSha") or "unknown",
+        lane_memo_line=f"Lane memo: {lane_memo_path}" if lane_memo_path else "Lane memo: none",
+        lane_state_line=f"Lane state: {lane_state_path}" if lane_state_path else "Lane state: none",
+        pr_url=pr_url or "unknown",
+        review_summary=review.get("summary") or f"No {external_reviewer_agent_name} summary recorded.",
+        must_fix_lines=must_fix_lines,
+        should_fix_lines=should_fix_lines,
+    )
+
+
+# Back-compat alias — Phase D will remove all callers.
+render_codex_cloud_repair_handoff_prompt = render_external_reviewer_repair_handoff_prompt
 
 
 def render_claude_repair_handoff_prompt(

@@ -88,7 +88,7 @@ def test_render_codex_cloud_repair_handoff_prompt_includes_pr_url_and_guardrails
 
     assert 'External_Reviewer_Agent review found follow-up work for issue #224 on published head def456.' in result
     assert 'PR: https://example.com/pull/301' in result
-    assert 'Codex Cloud summary:' in result
+    assert 'External_Reviewer_Agent summary:' in result
     assert '- Tighten edge case' in result
     assert 'Do not publish .codex artifacts.' in result
 
@@ -130,6 +130,7 @@ def test_prompt_templates_bundle_exists_with_three_files():
     names = sorted(p.name for p in bundle.glob("*.md"))
     assert names == [
         "coder.md",
+        "external-reviewer-repair-handoff.md",
         "internal-reviewer.md",
         "repair-handoff.md",
     ]

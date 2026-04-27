@@ -751,10 +751,13 @@ def fetch_codex_pr_body_signal(
         )
     except Exception:
         return None
+    if not isinstance(reactions, list):
+        return None
     matches = [
         reaction
         for reaction in reactions
-        if (reaction.get("user") or {}).get("login") in codex_bot_logins
+        if isinstance(reaction, dict)
+        and (reaction.get("user") or {}).get("login") in codex_bot_logins
         and reaction.get("content") in (clean_reactions | pending_reactions)
     ]
     if not matches:
