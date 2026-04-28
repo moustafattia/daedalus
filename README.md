@@ -30,7 +30,7 @@ Daedalus runs your agent workflows reliably, 24/7. You describe the work — its
 
 ### 🧵 The thread
 
-One owner per lane. A heartbeat keeps the thread taut. If the holder dies mid-flight, another instance picks it up on the next tick — work never gets dropped or duplicated.
+One owner per issue. A heartbeat keeps the thread taut. If the holder dies mid-flight, another instance picks it up on the next tick — work never gets dropped or duplicated.
 
 → [Leases & heartbeats](docs/concepts/leases.md)
 
@@ -39,7 +39,7 @@ One owner per lane. A heartbeat keeps the thread taut. If the holder dies mid-fl
 
 ### 🌀 The labyrinth
 
-Every lane walks a clear path through the workflow — picked, coded, reviewed, shipped. State is tracked, not guessed. You always know where each issue is and how it got there.
+Every issue walks a clear path through the workflow — picked, coded, reviewed, shipped. State is tracked, not guessed. You always know where each issue is and how it got there.
 
 → [Lanes](docs/concepts/lanes.md) · [Events](docs/concepts/events.md)
 
@@ -48,7 +48,7 @@ Every lane walks a clear path through the workflow — picked, coded, reviewed, 
 
 ### 🪶 The wings
 
-Daedalus warned Icarus, then flew home. Edits to your workflow rules take effect on the next tick — and a bad edit never crashes the loop, it just gets ignored until you fix it. Wedged workers get cleaned up automatically.
+Daedalus warned Icarus, then flew home. Edits take effect on the next tick. A bad edit doesn't crash the loop — it gets ignored until you fix it. Wedged workers clean up automatically.
 
 → [Hot-reload](docs/concepts/hot-reload.md) · [Stalls](docs/concepts/stalls.md)
 
@@ -62,28 +62,20 @@ Daedalus warned Icarus, then flew home. Edits to your workflow rules take effect
 - **Hot-reload.** Edit `workflow.yaml` and the next tick picks it up. Bad edits don't crash the loop; they get ignored until you fix them.
 - **Stall detection.** Wedged agents get terminated automatically and the lane retries. No zombie workers.
 - **Symphony-aligned event vocabulary** — events follow the [openai/symphony](https://github.com/openai/symphony) taxonomy, so observability tools work across systems.
-- **Operator commands** — `/daedalus status`, `shadow-report`, `doctor`, `iterate-active`.
+- **Operator commands** — `/daedalus status`, `/daedalus doctor`, `/workflow code-review status`, `/workflow code-review tick`.
 - **Live status dashboard** — ships separately as a Hermes-Agent watch plugin.
 
-## Install
+## Install & quick start
 
 ```bash
 # 1. Get the code
 git clone https://github.com/attmous/daedalus.git
 cd daedalus
 
-# 2. Drop it into your Hermes home
-./scripts/install.sh                                  # default Hermes home
-./scripts/install.sh --hermes-home /path/to/hermes-home
-./scripts/install.sh --destination /tmp/daedalus      # explicit destination
-```
+# 2. Install into your Hermes home
+./scripts/install.sh
 
-The installer copies the plugin payload only — no packaging theater.
-
-## Quick start
-
-```bash
-./scripts/install.sh --destination /tmp/daedalus
+# 3. Launch Hermes with project plugins enabled
 export HERMES_ENABLE_PROJECT_PLUGINS=true
 cd <project-root>
 hermes
@@ -93,28 +85,33 @@ Inside Hermes:
 
 ```text
 /daedalus status
-/daedalus shadow-report
 /daedalus doctor
+/workflow code-review status
 ```
 
-The full operator surface is documented in the [operator cheat sheet](docs/operator/cheat-sheet.md). Direct `runtime.py` invocations (for debugging without the Hermes shell) live in the [slash commands catalog](docs/operator/slash-commands.md).
+**Need a non-default install location?**
+
+```bash
+./scripts/install.sh --hermes-home /path/to/hermes-home    # custom Hermes home
+./scripts/install.sh --destination /tmp/daedalus           # arbitrary destination
+```
+
+The full operator surface is in the [cheat sheet](docs/operator/cheat-sheet.md); every slash command is catalogued in [slash-commands.md](docs/operator/slash-commands.md).
 
 ## Philosophy
 
-- **The thread, not the loom.** Daedalus runs the loop. Your wrapper picks the next thread.
-- **State is tracked, not guessed.** Never reconstruct what's happening from prompt context.
-- **Crash is a bug, not a strategy.** Bad config skips dispatch; reconciliation never stops.
+- **State is tracked, not guessed.** The workflow always knows where each issue stands.
+- **A bad edit doesn't crash anything.** It just gets ignored until you fix it.
+- **Recovery is automatic.** Lost workers never block forward motion.
 - **`--json` is the default operator dialect.** Humans read formatters, scripts read JSON.
-- **No packaging theater.** This is a plugin payload. Flat top level, on purpose.
+- **No packaging theater.** This is a plugin payload — flat top level, on purpose.
 
-## Where to read next
+## Documentation
 
-| Audience | Start here |
-|---|---|
-| New operator | [docs/operator/cheat-sheet.md](docs/operator/cheat-sheet.md) |
-| New contributor | [docs/architecture.md](docs/architecture.md) → [docs/concepts/](docs/concepts/) |
-| Workflow author | [docs/concepts/runtimes.md](docs/concepts/runtimes.md) |
-| Decision archaeologist | [docs/adr/](docs/adr/) |
+- **[docs/architecture.md](docs/architecture.md)** — the big picture, end to end.
+- **[docs/concepts/](docs/concepts/)** — short explainers for each moving part: lanes, leases, runtimes, events, hot-reload, stalls.
+- **[docs/operator/](docs/operator/)** — day-to-day commands, the operator cheat sheet, the full slash-command catalogue.
+- **[docs/adr/](docs/adr/)** — architectural decision records.
 
 ## License
 
