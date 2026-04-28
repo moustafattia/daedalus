@@ -1,0 +1,61 @@
+"""Constants for the README banner generator.
+
+Everything tunable lives here. Other modules import from this one.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+# ── paths ────────────────────────────────────────────────────────────────
+ROOT = Path(__file__).resolve().parents[2]
+ASSETS = ROOT / "assets"
+OUT_PATH = ASSETS / "daedalus-banner.gif"
+BUST_SRC = ASSETS / "source" / "plato-bust.jpg"
+
+FONT_DISPLAY = ASSETS / "fonts" / "PlayfairDisplay.ttf"
+FONT_DISPLAY_ITALIC = ASSETS / "fonts" / "PlayfairDisplay-Italic.ttf"
+FONT_MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+FONT_SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+# ── canvas ───────────────────────────────────────────────────────────────
+W, H = 1200, 400
+
+# ── palette ──────────────────────────────────────────────────────────────
+PAPER = (232, 226, 213)         # cream parchment
+PAPER_SHADOW = (210, 202, 186)
+INK = (28, 32, 36)              # near-black for body text
+INK_SOFT = (76, 84, 92)
+CYAN = (16, 130, 142)           # darker, painterly variant of brand cyan
+CYAN_BRIGHT = (34, 180, 195)
+GOLD = (180, 148, 78)           # editorial accent under subtitle
+HERMES_GOLD = (165, 132, 60)    # warmer gold for the caduceus
+
+NETWORK_COLORS = [
+    (110, 70, 60),    # burgundy
+    (170, 130, 70),   # ochre
+    (60, 110, 110),   # teal-grey
+    (120, 130, 90),   # olive
+    (90, 80, 110),    # ink-purple
+    (160, 100, 80),   # terracotta
+]
+
+# ── animation timing ─────────────────────────────────────────────────────
+FRAMES = 50
+DURATION_MS = 80  # 12.5 fps
+
+# ── layout anchors ───────────────────────────────────────────────────────
+TITLE_X = 56
+TITLE_Y = 70
+
+# Title block vertical offsets relative to TITLE_Y.
+OFFSET_GOLD_LINE = 130
+OFFSET_SUBTITLE_1 = 145
+OFFSET_SUBTITLE_2 = 185
+OFFSET_FLOW = 240
+# Single inline caption: caduceus + "A Hermes Agent plugin," +
+# GitHub mark + "fluent in GitHub."
+OFFSET_INLINE_CAPTION = 274
+
+# Bust target height (it sits flush to the bottom-right)
+BUST_TARGET_H = 380
+BUST_RIGHT_MARGIN = 30
