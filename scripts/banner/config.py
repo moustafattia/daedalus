@@ -27,7 +27,6 @@ INK = (28, 32, 36)              # near-black for body text
 INK_SOFT = (76, 84, 92)
 CYAN = (16, 130, 142)           # darker, painterly variant of brand cyan
 CYAN_BRIGHT = (34, 180, 195)
-GOLD = (180, 148, 78)           # editorial accent under subtitle
 HERMES_GOLD = (165, 132, 60)    # warmer gold for the caduceus
 
 NETWORK_COLORS = [
@@ -57,7 +56,6 @@ TITLE_X = 130
 TITLE_Y = 70
 
 # Title block vertical offsets relative to TITLE_Y.
-OFFSET_GOLD_LINE = 130
 OFFSET_SUBTITLE_1 = 145
 OFFSET_SUBTITLE_2 = 185
 OFFSET_FLOW = 240

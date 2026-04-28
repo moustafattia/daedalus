@@ -46,10 +46,6 @@ def brush_progress(f: int) -> float:
     return _ramp(f, 0.45, 0.62)
 
 
-def underline_progress(f: int) -> float:
-    return _ramp(f, 0.62, 0.74)
-
-
 def hold_to_loop(f: int) -> float:
     """Constellation/icons dim slightly at end-of-loop for smooth wrap."""
     start = 0.90 * F

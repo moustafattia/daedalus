@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw
 from . import config, flow, icons, typography
 
 
-def draw(im: Image.Image, *, underline_progress: float, frame: int) -> None:
+def draw(im: Image.Image, *, frame: int) -> None:
     """Paint the entire left-side title block onto `im`."""
 
     # ── Caduceus emblem on the far-left margin ──────────────────────────
@@ -47,13 +47,6 @@ def draw(im: Image.Image, *, underline_progress: float, frame: int) -> None:
     # Wordmark
     d.text((x, y), "Daedalus",
            font=typography.title(), fill=(*config.INK, 255))
-
-    # Gold underline accent (animated draw-in)
-    if underline_progress > 0:
-        ux2 = x + int(140 * underline_progress)
-        d.line((x, y + config.OFFSET_GOLD_LINE,
-                ux2, y + config.OFFSET_GOLD_LINE),
-               fill=(*config.GOLD, 255), width=3)
 
     # Subtitle — two lines, second in cyan
     d.text((x, y + config.OFFSET_SUBTITLE_1), "Agents that fly.",
