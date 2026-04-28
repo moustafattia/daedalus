@@ -126,3 +126,45 @@ def test_legacy_log_lines_canonicalize_on_read(tmp_path):
     )
     canon = [canonicalize(json.loads(l)["event_type"]) for l in log.read_text().splitlines()]
     assert canon == [DAEDALUS_LANE_PROMOTED, DAEDALUS_RUNTIME_STARTED]
+
+
+def test_runtime_py_emits_only_canonical_event_types():
+    """AST scan of runtime.py: every dict literal {"event_type": "..."}
+    has its value supplied by an event_taxonomy constant, never a bare
+    string literal. Regression for the S-4 rename pass.
+    """
+    import ast
+    import pathlib
+    from workflows.code_review import event_taxonomy as et
+
+    canonical_values = {
+        v for v in vars(et).values()
+        if isinstance(v, str) and (v.startswith("daedalus.") or "_" not in v or v in {
+            et.SESSION_STARTED, et.TURN_COMPLETED, et.TURN_FAILED,
+            et.TURN_CANCELLED, et.TURN_INPUT_REQUIRED, et.NOTIFICATION,
+            et.UNSUPPORTED_TOOL_CALL, et.MALFORMED, et.STARTUP_FAILED,
+        })
+    }
+
+    repo_root = pathlib.Path(__file__).resolve().parents[1]
+    runtime_src = (repo_root / "runtime.py").read_text()
+    tree = ast.parse(runtime_src)
+
+    bare_literal_sites: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "event_type"
+                    and isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                ):
+                    if value.value not in canonical_values:
+                        bare_literal_sites.append((value.lineno, value.value))
+
+    assert bare_literal_sites == [], (
+        f"runtime.py contains bare event_type string literals that aren't "
+        f"event_taxonomy canonicals: {bare_literal_sites}. Use a DAEDALUS_* "
+        f"constant from workflows.code_review.event_taxonomy instead."
+    )
