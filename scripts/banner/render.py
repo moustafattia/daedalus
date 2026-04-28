@@ -98,8 +98,13 @@ def render_frame(scene: Scene, f: int) -> Image.Image:
         icons.draw_margin_icons(md, margin_alpha)
     im.paste(margin, (0, 0), margin)
 
-    # 7. left-side title block (always opaque; underline animates draw-in)
-    # text_block now paints onto `im` directly so it can paste PNG icons.
-    text_block.draw(im, underline_progress=timeline.underline_progress(f))
+    # 7. left-side title block (always opaque; underline animates draw-in;
+    # workflow flow line animates stage-by-stage with a pulse).
+    # text_block paints onto `im` directly so it can paste PNG icons.
+    text_block.draw(
+        im,
+        underline_progress=timeline.underline_progress(f),
+        frame=f,
+    )
 
     return im

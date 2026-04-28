@@ -22,10 +22,10 @@ from __future__ import annotations
 
 from PIL import Image, ImageDraw
 
-from . import config, icons, typography
+from . import config, flow, icons, typography
 
 
-def draw(im: Image.Image, *, underline_progress: float) -> None:
+def draw(im: Image.Image, *, underline_progress: float, frame: int) -> None:
     """Paint the entire left-side title block onto `im`."""
 
     # ── Caduceus emblem on the far-left margin ──────────────────────────
@@ -61,11 +61,6 @@ def draw(im: Image.Image, *, underline_progress: float) -> None:
     d.text((x, y + config.OFFSET_SUBTITLE_2), "Workflows that don't melt.",
            font=typography.subtitle(), fill=(*config.CYAN, 255))
 
-    # Workflow flow
-    d.text((x, y + config.OFFSET_FLOW),
-           "Issue   →   Code   →   Review   →   Merge",
-           font=typography.caption_sans(), fill=(*config.INK, 255))
-
     # Caption line 1 — plugin + behaviour
     cap_font = typography.caption_serif_italic()
     d.text((x, y + config.OFFSET_CAPTION_1),
@@ -73,6 +68,11 @@ def draw(im: Image.Image, *, underline_progress: float) -> None:
            font=cap_font, fill=(*config.INK, 255))
 
     im.paste(text_layer, (0, 0), text_layer)
+
+    # ── Animated workflow flow — its own module so timing + look stay
+    #    isolated. Renders directly onto `im` so the pulse glow can blur
+    #    cleanly across the parchment.
+    flow.draw(im, anchor=(x, y + config.OFFSET_FLOW), frame=frame)
 
     # ── Caption line 2 — GitHub mark + roadmap (PNG icon needs Image) ──
     cap_y_2 = y + config.OFFSET_CAPTION_2

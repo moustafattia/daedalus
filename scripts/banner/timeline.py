@@ -56,3 +56,53 @@ def hold_to_loop(f: int) -> float:
     if f < start:
         return 1.0
     return 1.0 - ease((f - start) / (F - start)) * 0.55
+
+
+# ── workflow-flow pipeline animation ────────────────────────────────────
+#
+# 7 tokens in the flow line:  Issue → Code → Review → Merge
+# Each token has two phases:
+#   1. fade-in       — alpha 0 → 255
+#   2. ignite-settle — colour cyan → ink  (a brief "the stage just lit up"
+#                      highlight before it cools to body-text colour)
+
+FLOW_TOKEN_COUNT = 7
+FLOW_FIRST_START = 0.74    # fraction of loop where first token starts
+FLOW_TOKEN_STRIDE = 0.025  # fraction-of-loop gap between consecutive starts
+FLOW_FADE_IN = 0.04        # how long each token's fade-in takes
+FLOW_SETTLE = 0.12         # how long the cyan→ink settle takes
+
+
+def flow_token_state(f: int, token_idx: int) -> tuple[int, float]:
+    """Return ``(alpha, color_blend)`` for token ``token_idx`` at frame ``f``.
+
+    * alpha          0..255
+    * color_blend    0.0 = full cyan (just ignited)
+                     1.0 = full ink  (settled)
+    """
+    t = f / F
+    start = FLOW_FIRST_START + token_idx * FLOW_TOKEN_STRIDE
+
+    fade_p = max(0.0, min(1.0, (t - start) / FLOW_FADE_IN))
+    if fade_p == 0.0:
+        return 0, 0.0
+    alpha = int(255 * ease(fade_p))
+
+    settle_p = max(0.0, min(1.0,
+                            (t - start - FLOW_FADE_IN) / FLOW_SETTLE))
+    return alpha, ease(settle_p)
+
+
+def flow_pulse_progress(f: int) -> float | None:
+    """Position (0..1) of the travelling glow pulse, or None if not active.
+
+    Fires once after all tokens have ignited, sweeping left → right.
+    """
+    pulse_start = (FLOW_FIRST_START
+                   + (FLOW_TOKEN_COUNT - 1) * FLOW_TOKEN_STRIDE
+                   + FLOW_FADE_IN)
+    pulse_end = 1.0
+    t = f / F
+    if t < pulse_start or t > pulse_end:
+        return None
+    return ease((t - pulse_start) / (pulse_end - pulse_start))
