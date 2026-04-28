@@ -236,7 +236,7 @@ def test_request_active_actions_event_payload_uses_retry_count(runtime_module, t
     assert actions[0]["recovery_attempt_count"] == 1
 
     event_lines = paths["event_log_path"].read_text(encoding="utf-8").strip().splitlines()
-    active_action_requested = [json.loads(line) for line in event_lines if json.loads(line).get("event_type") == "active_action_requested"]
+    active_action_requested = [json.loads(line) for line in event_lines if json.loads(line).get("event_type") == "daedalus.active_action_requested"]
     assert active_action_requested[-1]["payload"]["retry_count"] == 1
     assert active_action_requested[-1]["payload"]["recovery_attempt_count"] == 1
 

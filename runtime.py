@@ -14,6 +14,22 @@ from workflows.code_review.paths import (
     runtime_paths as yoyopod_runtime_paths,
     yoyopod_cli_argv,
 )
+from workflows.code_review.event_taxonomy import (
+    DAEDALUS_ACTIVE_ACTION_COMPLETED,
+    DAEDALUS_ACTIVE_ACTION_FAILED,
+    DAEDALUS_ACTIVE_ACTION_REQUESTED,
+    DAEDALUS_ACTIVE_EXECUTION_CONTROL_UPDATED,
+    DAEDALUS_ERROR_ANALYSIS_COMPLETED,
+    DAEDALUS_ERROR_ANALYSIS_REQUESTED,
+    DAEDALUS_FAILURE_DETECTED,
+    DAEDALUS_LANE_PROMOTED,
+    DAEDALUS_OPERATOR_ATTENTION_REQUIRED,
+    DAEDALUS_RECOVERY_REQUESTED,
+    DAEDALUS_RUNTIME_HEARTBEAT,
+    DAEDALUS_RUNTIME_STARTED,
+    DAEDALUS_SHADOW_ACTION_REQUESTED,
+    canonicalize as canonicalize_event_type,
+)
 from workflows.code_review.status import build_status as build_yoyopod_core_status
 import sys
 
@@ -751,7 +767,7 @@ def set_execution_control(
         event_log_path=paths["event_log_path"],
         event={
             "event_id": f"evt:active_execution_control_updated:{int(bool(active_execution_enabled))}:{now_iso}",
-            "event_type": "active_execution_control_updated",
+            "event_type": DAEDALUS_ACTIVE_EXECUTION_CONTROL_UPDATED,
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Workflow_Orchestrator",
@@ -839,7 +855,7 @@ def bootstrap_runtime(
         conn.close()
     event = {
         "event_id": f"evt:daedalus_runtime_started:{instance_id}:{now_iso}",
-        "event_type": "daedalus_runtime_started",
+        "event_type": DAEDALUS_RUNTIME_STARTED,
         "event_version": 1,
         "created_at": now_iso,
         "producer": "Daedalus_Runtime",
@@ -1134,7 +1150,7 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
         event_log_path=paths["event_log_path"],
         event={
             "event_id": f"evt:lane_promoted:{lane_id}:{now_iso}",
-            "event_type": "lane_promoted",
+            "event_type": DAEDALUS_LANE_PROMOTED,
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Legacy_Watchdog_Shadow",
@@ -1363,7 +1379,7 @@ def persist_shadow_actions(*, workflow_root: Path, lane_id: str, now_iso: str | 
                 persisted.append({**action, "action_id": action_id})
                 events_to_emit.append({
                     "event_id": f"evt:shadow_action_requested:{lane_id}:{action['action_type']}:{now_iso}:{idx}",
-                    "event_type": "shadow_action_requested",
+                    "event_type": DAEDALUS_SHADOW_ACTION_REQUESTED,
                     "event_version": 1,
                     "created_at": now_iso,
                     "producer": "Workflow_Orchestrator",
@@ -1497,7 +1513,7 @@ def request_active_actions_for_lane(*, workflow_root: Path, lane_id: str, now_is
                 persisted.append(persisted_action)
                 events_to_emit.append({
                     "event_id": f"evt:active_action_requested:{lane_id}:{action['action_type']}:{now_iso}:{idx}",
-                    "event_type": "active_action_requested",
+                    "event_type": DAEDALUS_ACTIVE_ACTION_REQUESTED,
                     "event_version": 1,
                     "created_at": now_iso,
                     "producer": "Workflow_Orchestrator",
@@ -1917,7 +1933,7 @@ def reap_stuck_dispatched_actions(*, workflow_root: Path, lane_id: str, now_iso:
                 events_to_emit.append(
                     {
                         "event_id": f"evt:recovery_requested:dispatch-timeout:{failure_id}:{now_iso}",
-                        "event_type": "recovery_requested",
+                        "event_type": DAEDALUS_RECOVERY_REQUESTED,
                         "event_version": 1,
                         "created_at": now_iso,
                         "producer": "Workflow_Orchestrator",
@@ -1951,7 +1967,7 @@ def reap_stuck_dispatched_actions(*, workflow_root: Path, lane_id: str, now_iso:
                 events_to_emit.append(
                     {
                         "event_id": f"evt:operator_attention_required:dispatch-timeout:{failure_id}:{now_iso}",
-                        "event_type": "operator_attention_required",
+                        "event_type": DAEDALUS_OPERATOR_ATTENTION_REQUIRED,
                         "event_version": 1,
                         "created_at": now_iso,
                         "producer": "Workflow_Orchestrator",
@@ -1972,7 +1988,7 @@ def reap_stuck_dispatched_actions(*, workflow_root: Path, lane_id: str, now_iso:
             events_to_emit.append(
                 {
                     "event_id": f"evt:active_action_failed:dispatch-timeout:{failure_id}:{now_iso}",
-                    "event_type": "active_action_failed",
+                    "event_type": DAEDALUS_ACTIVE_ACTION_FAILED,
                     "event_version": 1,
                     "created_at": now_iso,
                     "producer": "Workflow_Orchestrator",
@@ -2408,7 +2424,7 @@ def _recent_relay_events_for_lane(*, event_log_path: Path, lane_id: str | None, 
         selected.append(
             {
                 "event_id": entry.get("event_id"),
-                "event_type": entry.get("event_type"),
+                "event_type": canonicalize_event_type(entry.get("event_type") or ""),
                 "created_at": entry.get("created_at"),
                 "causal_action_id": entry.get("causal_action_id"),
             }
@@ -2764,7 +2780,7 @@ def _analyze_ambiguous_failure(
     events = [
         {
             "event_id": f"evt:error_analysis_requested:{failure_id}:{now_iso}",
-            "event_type": "error_analysis_requested",
+            "event_type": DAEDALUS_ERROR_ANALYSIS_REQUESTED,
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Workflow_Orchestrator",
@@ -2810,7 +2826,7 @@ def _analyze_ambiguous_failure(
     events.append(
         {
             "event_id": f"evt:error_analysis_completed:{failure_id}:{now_iso}",
-            "event_type": "error_analysis_completed",
+            "event_type": DAEDALUS_ERROR_ANALYSIS_COMPLETED,
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Workflow_Orchestrator",
@@ -3145,7 +3161,7 @@ def execute_requested_action(
             event_log_path=paths["event_log_path"],
             event={
                 "event_id": f"evt:active_action_failed:{action_id}:{now_iso}",
-                "event_type": "active_action_failed",
+                "event_type": DAEDALUS_ACTIVE_ACTION_FAILED,
                 "event_version": 1,
                 "created_at": now_iso,
                 "producer": "Workflow_Orchestrator",
@@ -3163,7 +3179,7 @@ def execute_requested_action(
             event_log_path=paths["event_log_path"],
             event={
                 "event_id": f"evt:failure_detected:{action_id}:{now_iso}",
-                "event_type": "failure_detected",
+                "event_type": DAEDALUS_FAILURE_DETECTED,
                 "event_version": 1,
                 "created_at": now_iso,
                 "producer": "Workflow_Orchestrator",
@@ -3198,7 +3214,7 @@ def execute_requested_action(
                 event_log_path=paths["event_log_path"],
                 event={
                     "event_id": f"evt:active_action_requested:{recovery_action['action_id']}:{now_iso}",
-                    "event_type": "active_action_requested",
+                    "event_type": DAEDALUS_ACTIVE_ACTION_REQUESTED,
                     "event_version": 1,
                     "created_at": now_iso,
                     "producer": "Workflow_Orchestrator",
@@ -3222,7 +3238,7 @@ def execute_requested_action(
                 event_log_path=paths["event_log_path"],
                 event={
                     "event_id": f"evt:operator_attention_required:{action_id}:{now_iso}",
-                    "event_type": "operator_attention_required",
+                    "event_type": DAEDALUS_OPERATOR_ATTENTION_REQUIRED,
                     "event_version": 1,
                     "created_at": now_iso,
                     "producer": "Workflow_Orchestrator",
@@ -3247,7 +3263,7 @@ def execute_requested_action(
         event_log_path=paths["event_log_path"],
         event={
             "event_id": f"evt:active_action_completed:{action_id}:{now_iso}",
-            "event_type": "active_action_completed",
+            "event_type": DAEDALUS_ACTIVE_ACTION_COMPLETED,
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Workflow_Orchestrator",
@@ -3332,7 +3348,7 @@ def refresh_runtime_lease(*, workflow_root: Path, instance_id: str, now_iso: str
         event_log_path=paths["event_log_path"],
         event={
             "event_id": f"evt:daedalus_runtime_heartbeat:{instance_id}:{now_iso}",
-            "event_type": "daedalus_runtime_heartbeat",
+            "event_type": DAEDALUS_RUNTIME_HEARTBEAT,
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Daedalus_Runtime",
@@ -3418,7 +3434,7 @@ def reconcile_stalled_recoveries(*, workflow_root: Path, lane_id: str, now_iso: 
                 events_to_emit.append(
                     {
                         "event_id": f"evt:operator_attention_required:stalled:{failure.get('failure_id')}:{now_iso}",
-                        "event_type": "operator_attention_required",
+                        "event_type": DAEDALUS_OPERATOR_ATTENTION_REQUIRED,
                         "event_version": 1,
                         "created_at": now_iso,
                         "producer": "Workflow_Orchestrator",
