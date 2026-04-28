@@ -158,3 +158,54 @@ def test_reconcile_stalls_opt_out_when_method_absent():
         f"Opt-out runtime (no last_activity_ts attr) must be skipped, "
         f"not force-killed via started_at fallback. Got verdicts={verdicts}"
     )
+
+
+def test_schema_accepts_stall_section():
+    import yaml
+    from pathlib import Path
+    from jsonschema import Draft7Validator
+
+    schema = yaml.safe_load(Path("workflows/code_review/schema.yaml").read_text())
+    base = {
+        "workflow": "code-review", "schema-version": 1,
+        "instance": {"name": "i", "engine-owner": "hermes"},
+        "repository": {"local-path": "/tmp", "github-slug": "o/r", "active-lane-label": "x"},
+        "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}},
+        "agents": {
+            "coder": {"t1": {"name": "c", "model": "m", "runtime": "r1"}},
+            "internal-reviewer": {"name": "i", "model": "m", "runtime": "r1"},
+            "external-reviewer": {"enabled": False, "name": "e"},
+        },
+        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "triggers": {"lane-selector": {"type": "github-issue-label", "label": "x"}},
+        "storage": {"ledger": "l", "health": "h", "audit-log": "a"},
+        "stall": {"timeout_ms": 60000},
+    }
+    Draft7Validator(schema).validate(base)
+
+
+def test_schema_rejects_negative_stall_timeout():
+    import yaml
+    import pytest
+    from pathlib import Path
+    from jsonschema import Draft7Validator
+    from jsonschema.exceptions import ValidationError as JSError
+
+    schema = yaml.safe_load(Path("workflows/code_review/schema.yaml").read_text())
+    base = {
+        "workflow": "code-review", "schema-version": 1,
+        "instance": {"name": "i", "engine-owner": "hermes"},
+        "repository": {"local-path": "/tmp", "github-slug": "o/r", "active-lane-label": "x"},
+        "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}},
+        "agents": {
+            "coder": {"t1": {"name": "c", "model": "m", "runtime": "r1"}},
+            "internal-reviewer": {"name": "i", "model": "m", "runtime": "r1"},
+            "external-reviewer": {"enabled": False, "name": "e"},
+        },
+        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "triggers": {"lane-selector": {"type": "github-issue-label", "label": "x"}},
+        "storage": {"ledger": "l", "health": "h", "audit-log": "a"},
+        "stall": {"timeout_ms": -1},
+    }
+    with pytest.raises(JSError):
+        Draft7Validator(schema).validate(base)

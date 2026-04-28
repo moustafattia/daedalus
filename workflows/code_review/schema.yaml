@@ -248,6 +248,16 @@ properties:
         timeout-seconds: {type: integer, minimum: 1, maximum: 30}
         retry-count: {type: integer, minimum: 0, maximum: 5}
 
+  stall:
+    type: object
+    additionalProperties: false
+    properties:
+      timeout_ms:
+        type: integer
+        minimum: 0
+        default: 300000
+        description: "Worker terminated if its runtime has shown no activity for this long. 0 = disabled."
+
 definitions:
   acpx-codex-runtime:
     type: object
