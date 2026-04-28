@@ -28,3 +28,20 @@ def test_claude_cli_runtime_updates_last_activity_on_stdout_line(monkeypatch):
     ts = rt.last_activity_ts()
     assert ts is not None
     assert before <= ts <= after
+
+
+def test_acpx_codex_runtime_updates_last_activity_on_app_server_event():
+    import time
+    from workflows.code_review.runtimes.acpx_codex import AcpxCodexRuntime
+
+    rt = AcpxCodexRuntime(
+        {"kind": "acpx-codex",
+         "session-idle-freshness-seconds": 60,
+         "session-idle-grace-seconds": 60,
+         "session-nudge-cooldown-seconds": 60},
+        run=None, run_json=None,
+    )
+    assert rt.last_activity_ts() is None
+
+    rt._record_activity()
+    assert rt.last_activity_ts() is not None
