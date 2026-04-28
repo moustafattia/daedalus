@@ -5,7 +5,7 @@ from __future__ import annotations
 def test_canonical_constants_present():
     from workflows.code_review import event_taxonomy as et
 
-    # Symphony bare names
+    # Symphony bare names (forward-use; no current writer emits these)
     assert et.SESSION_STARTED == "session_started"
     assert et.TURN_COMPLETED == "turn_completed"
     assert et.TURN_FAILED == "turn_failed"
@@ -21,11 +21,24 @@ def test_daedalus_native_constants_have_prefix():
     from workflows.code_review import event_taxonomy as et
 
     daedalus_natives = [
-        et.DAEDALUS_LANE_CLAIMED, et.DAEDALUS_LANE_RELEASED,
-        et.DAEDALUS_REPAIR_HANDOFF, et.DAEDALUS_REVIEW_LANDED,
-        et.DAEDALUS_VERDICT_PUBLISHED, et.DAEDALUS_CONFIG_RELOADED,
-        et.DAEDALUS_CONFIG_RELOAD_FAILED, et.DAEDALUS_DISPATCH_SKIPPED,
-        et.DAEDALUS_STALL_DETECTED, et.DAEDALUS_STALL_TERMINATED,
+        et.DAEDALUS_RUNTIME_STARTED,
+        et.DAEDALUS_RUNTIME_HEARTBEAT,
+        et.DAEDALUS_LANE_PROMOTED,
+        et.DAEDALUS_ACTIVE_EXECUTION_CONTROL_UPDATED,
+        et.DAEDALUS_SHADOW_ACTION_REQUESTED,
+        et.DAEDALUS_ACTIVE_ACTION_REQUESTED,
+        et.DAEDALUS_ACTIVE_ACTION_COMPLETED,
+        et.DAEDALUS_ACTIVE_ACTION_FAILED,
+        et.DAEDALUS_RECOVERY_REQUESTED,
+        et.DAEDALUS_OPERATOR_ATTENTION_REQUIRED,
+        et.DAEDALUS_FAILURE_DETECTED,
+        et.DAEDALUS_ERROR_ANALYSIS_REQUESTED,
+        et.DAEDALUS_ERROR_ANALYSIS_COMPLETED,
+        et.DAEDALUS_CONFIG_RELOADED,
+        et.DAEDALUS_CONFIG_RELOAD_FAILED,
+        et.DAEDALUS_DISPATCH_SKIPPED,
+        et.DAEDALUS_STALL_DETECTED,
+        et.DAEDALUS_STALL_TERMINATED,
         et.DAEDALUS_REFRESH_REQUESTED,
     ]
     for name in daedalus_natives:
@@ -33,21 +46,30 @@ def test_daedalus_native_constants_have_prefix():
 
 
 def test_canonicalize_passes_canonical_names_through():
-    from workflows.code_review.event_taxonomy import canonicalize, TURN_COMPLETED
+    from workflows.code_review.event_taxonomy import canonicalize, TURN_COMPLETED, DAEDALUS_LANE_PROMOTED
 
     assert canonicalize(TURN_COMPLETED) == TURN_COMPLETED
+    assert canonicalize(DAEDALUS_LANE_PROMOTED) == DAEDALUS_LANE_PROMOTED
     assert canonicalize("session_started") == "session_started"
 
 
 def test_canonicalize_resolves_legacy_aliases():
+    """Pre-rename Daedalus orchestration names get resolved to daedalus.* canonical."""
     from workflows.code_review.event_taxonomy import canonicalize
 
-    assert canonicalize("claude_review_started") == "session_started"
-    assert canonicalize("claude_review_completed") == "turn_completed"
-    assert canonicalize("claude_review_failed") == "turn_failed"
-    assert canonicalize("codex_handoff_dispatched") == "daedalus.repair_handoff_dispatched"
-    assert canonicalize("internal_review_started") == "session_started"
-    assert canonicalize("internal_review_completed") == "turn_completed"
+    assert canonicalize("daedalus_runtime_started") == "daedalus.runtime_started"
+    assert canonicalize("daedalus_runtime_heartbeat") == "daedalus.runtime_heartbeat"
+    assert canonicalize("lane_promoted") == "daedalus.lane_promoted"
+    assert canonicalize("active_execution_control_updated") == "daedalus.active_execution_control_updated"
+    assert canonicalize("shadow_action_requested") == "daedalus.shadow_action_requested"
+    assert canonicalize("active_action_requested") == "daedalus.active_action_requested"
+    assert canonicalize("active_action_completed") == "daedalus.active_action_completed"
+    assert canonicalize("active_action_failed") == "daedalus.active_action_failed"
+    assert canonicalize("recovery_requested") == "daedalus.recovery_requested"
+    assert canonicalize("operator_attention_required") == "daedalus.operator_attention_required"
+    assert canonicalize("failure_detected") == "daedalus.failure_detected"
+    assert canonicalize("error_analysis_requested") == "daedalus.error_analysis_requested"
+    assert canonicalize("error_analysis_completed") == "daedalus.error_analysis_completed"
 
 
 def test_canonicalize_unknown_passthrough():
@@ -57,48 +79,50 @@ def test_canonicalize_unknown_passthrough():
 
 
 def test_event_aliases_table_integrity():
-    """Every legacy name maps to a known canonical."""
+    """Every legacy alias resolves to a string starting with 'daedalus.' (the
+    canonical namespace for Daedalus-native orchestration events that this
+    rename pass formalizes)."""
     from workflows.code_review import event_taxonomy as et
 
-    canonical_names = {
-        v for k, v in vars(et).items()
-        if isinstance(v, str) and (v == k.lower() or v.startswith("daedalus."))
-    }
     for legacy, canonical in et.EVENT_ALIASES.items():
-        assert canonical in canonical_names or canonical.startswith("daedalus.") or "_" in canonical, \
-            f"alias {legacy!r} -> {canonical!r} not a known canonical name"
+        assert canonical.startswith("daedalus."), \
+            f"alias {legacy!r} -> {canonical!r} must resolve to a daedalus.* canonical"
 
 
 def test_round_trip_canonical_writer_reader(tmp_path):
-    """Writer writes canonical; reader reads canonical via canonicalize."""
+    """Writer writes canonical; reader reads canonical via canonicalize.
+
+    Daedalus's append_daedalus_event uses field 'event_type' (not 'type');
+    test mirrors that schema.
+    """
     import json
     from workflows.code_review.event_taxonomy import (
-        canonicalize, TURN_COMPLETED, DAEDALUS_LANE_CLAIMED,
+        canonicalize, DAEDALUS_LANE_PROMOTED, DAEDALUS_RUNTIME_STARTED,
     )
 
     log = tmp_path / "events.jsonl"
     with log.open("w") as f:
-        f.write(json.dumps({"type": TURN_COMPLETED}) + "\n")
-        f.write(json.dumps({"type": DAEDALUS_LANE_CLAIMED}) + "\n")
+        f.write(json.dumps({"event_type": DAEDALUS_LANE_PROMOTED}) + "\n")
+        f.write(json.dumps({"event_type": DAEDALUS_RUNTIME_STARTED}) + "\n")
 
     seen = []
     for line in log.read_text().splitlines():
         e = json.loads(line)
-        seen.append(canonicalize(e["type"]))
-    assert seen == [TURN_COMPLETED, DAEDALUS_LANE_CLAIMED]
+        seen.append(canonicalize(e["event_type"]))
+    assert seen == [DAEDALUS_LANE_PROMOTED, DAEDALUS_RUNTIME_STARTED]
 
 
 def test_legacy_log_lines_canonicalize_on_read(tmp_path):
-    """Old jsonl files with legacy names still resolve through canonicalize."""
+    """Old jsonl files with bare Daedalus names still resolve through canonicalize."""
     import json
     from workflows.code_review.event_taxonomy import (
-        canonicalize, SESSION_STARTED, DAEDALUS_REPAIR_HANDOFF,
+        canonicalize, DAEDALUS_LANE_PROMOTED, DAEDALUS_RUNTIME_STARTED,
     )
 
     log = tmp_path / "events.jsonl"
     log.write_text(
-        json.dumps({"type": "claude_review_started"}) + "\n" +
-        json.dumps({"type": "codex_handoff_dispatched"}) + "\n"
+        json.dumps({"event_type": "lane_promoted"}) + "\n" +
+        json.dumps({"event_type": "daedalus_runtime_started"}) + "\n"
     )
-    canon = [canonicalize(json.loads(l)["type"]) for l in log.read_text().splitlines()]
-    assert canon == [SESSION_STARTED, DAEDALUS_REPAIR_HANDOFF]
+    canon = [canonicalize(json.loads(l)["event_type"]) for l in log.read_text().splitlines()]
+    assert canon == [DAEDALUS_LANE_PROMOTED, DAEDALUS_RUNTIME_STARTED]
