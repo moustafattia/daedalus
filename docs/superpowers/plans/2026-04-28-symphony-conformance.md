@@ -521,18 +521,29 @@ class ConfigWatcher:
     workflow_yaml_path: Path
     snapshot_ref: AtomicRef[ConfigSnapshot]
     emit_event: Callable[[str, dict], None]
-    _last_mtime: float = 0.0
+    _last_key: tuple[float, int] = (0.0, 0)
 
     def __post_init__(self) -> None:
-        self._last_mtime = self.snapshot_ref.get().source_mtime
+        snap = self.snapshot_ref.get()
+        # Initialize from the loaded snapshot's mtime; size unknown at boot,
+        # so a first poll will always detect a change and re-stat. That's
+        # fine — re-parse on first tick is cheap and validates the on-disk
+        # bytes match the snapshot we booted with.
+        self._last_key = (snap.source_mtime, -1)
 
     def poll(self) -> None:
-        """One tick of the watcher loop. Cheap when no change."""
+        """One tick of the watcher loop. Cheap when no change.
+
+        Uses (st_mtime, st_size) as the change-detection key. mtime alone
+        is insufficient on filesystems with coarse timestamp resolution
+        or mtime-preserving copies (NFS, rsync -t, overlayfs).
+        """
         try:
-            mtime = self.workflow_yaml_path.stat().st_mtime
+            st = self.workflow_yaml_path.stat()
         except OSError:
             return  # file vanished mid-poll (atomic rename); keep last-known-good
-        if mtime == self._last_mtime:
+        key = (st.st_mtime, st.st_size)
+        if key == self._last_key:
             return
 
         try:
@@ -540,16 +551,16 @@ class ConfigWatcher:
         except (ParseError, ValidationError) as exc:
             self.emit_event(
                 "daedalus.config_reload_failed",
-                {"error": str(exc), "mtime": mtime},
+                {"error": str(exc), "mtime": st.st_mtime, "size": st.st_size},
             )
-            self._last_mtime = mtime  # suppress retrying same broken bytes
+            self._last_key = key  # suppress retrying same broken bytes
             return
 
         self.snapshot_ref.set(new_snapshot)
-        self._last_mtime = mtime
+        self._last_key = key
         self.emit_event(
             "daedalus.config_reloaded",
-            {"loaded_at": new_snapshot.loaded_at, "source_mtime": mtime},
+            {"loaded_at": new_snapshot.loaded_at, "source_mtime": st.st_mtime, "size": st.st_size},
         )
 ```
 
@@ -724,7 +735,13 @@ EOF
 
 ---
 
-## Task S-2.4: mtime-tied retry suppression
+## Task S-2.4: change-detection key = `(mtime, size)` retry suppression
+
+> **Why a tuple, not just mtime:** Codex review on PR #16 flagged that mtime
+> equality alone misses real edits on filesystems with coarse timestamp
+> resolution or mtime-preserving copies (NFS, rsync `-t`, overlayfs). The
+> key compares both `st_mtime` and `st_size` so any byte-length change is
+> caught even when mtime is unchanged.
 
 **Files:**
 - Modify: `tests/test_config_watcher.py`
@@ -776,6 +793,76 @@ EOF
 
 ---
 
+## Task S-2.4b: Size change with unchanged mtime triggers reload
+
+**Files:**
+- Modify: `tests/test_config_watcher.py`
+
+> **Why this test:** filesystems with coarse mtime resolution (some NFS,
+> some FAT-like mounts) and tools that preserve mtime (`cp -p`, `rsync -t`,
+> some editor "atomic save" implementations) can change file bytes without
+> bumping mtime. The watcher must still detect the edit. Codex P2 finding
+> on PR #16.
+
+- [ ] **Step 1: Add failing test**
+
+Append to `tests/test_config_watcher.py`:
+
+```python
+def test_watcher_poll_detects_size_change_at_same_mtime(tmp_path):
+    """Bytes changed but mtime preserved (e.g. rsync -t). Must reload."""
+    import os
+    from workflows.code_review.config_snapshot import AtomicRef
+    from workflows.code_review.config_watcher import ConfigWatcher
+
+    p, initial = _seed_snapshot(tmp_path)
+    ref = AtomicRef(initial)
+    events: list[tuple[str, dict]] = []
+    w = ConfigWatcher(p, ref, lambda t, d: events.append((t, d)))
+
+    # Force first poll to record current key
+    w.poll()
+    events.clear()
+
+    # Rewrite with longer content but force-restore the original mtime
+    new_yaml = p.read_text() + "\n# trailing comment to bump size\n"
+    original_mtime = p.stat().st_mtime
+    p.write_text(new_yaml)
+    os.utime(p, (original_mtime, original_mtime))
+
+    # mtime is unchanged but size grew. Watcher must still re-parse.
+    w.poll()
+
+    reloads = [t for t, _ in events if t == "daedalus.config_reloaded"]
+    assert len(reloads) == 1, f"Expected size-change to trigger reload, got events={events}"
+    assert ref.get() is not initial  # snapshot replaced
+```
+
+- [ ] **Step 2: Run tests**
+
+```bash
+/usr/bin/python3 -m pytest tests/test_config_watcher.py -v
+```
+Expected: 9 passed (was 8 before this task).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/test_config_watcher.py
+git commit -m "$(cat <<'EOF'
+test(symphony): size-change detection at unchanged mtime
+
+Covers Codex P2 finding from PR #16: filesystems with coarse mtime
+resolution or mtime-preserving copy tools must still surface real
+edits to the watcher.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ## Task S-2.5: File temporarily missing — no failure event
 
 **Files:**
@@ -806,7 +893,7 @@ def test_watcher_poll_missing_file_keeps_lkg_no_event(tmp_path):
 ```bash
 /usr/bin/python3 -m pytest tests/test_config_watcher.py -v
 ```
-Expected: 9 passed.
+Expected: 10 passed.
 
 - [ ] **Step 3: Commit**
 
@@ -2275,6 +2362,28 @@ def test_reconcile_stalls_default_timeout_when_section_absent():
     assert verdicts == []  # 299s < 300s default
     verdicts = reconcile_stalls(snap, {"i1": entry}, now=400.0)
     assert len(verdicts) == 1
+
+
+def test_reconcile_stalls_opt_out_when_method_absent():
+    """Codex P1 on PR #16: a runtime that doesn't implement
+    last_activity_ts opts out entirely — the reconciler must skip it,
+    NOT fall back to started_at_monotonic."""
+    from workflows.code_review.stall import reconcile_stalls
+
+    class _OptOutRuntime:
+        # Deliberately does NOT define last_activity_ts.
+        pass
+
+    snap = _snap_with_stall(1000)
+    rt = _OptOutRuntime()
+    entry = _FakeEntry(runtime=rt, started_at_monotonic=100.0)
+    # Elapsed since started_at is 99_900 seconds — vastly past threshold.
+    # If the implementation falls back to started_at, this would terminate.
+    verdicts = reconcile_stalls(snap, {"i1": entry}, now=100_000.0)
+    assert verdicts == [], (
+        f"Opt-out runtime (no last_activity_ts attr) must be skipped, "
+        f"not force-killed via started_at fallback. Got verdicts={verdicts}"
+    )
 ```
 
 - [ ] **Step 2: Verify failure**
@@ -2343,7 +2452,15 @@ def reconcile_stalls(
     out: list[StallVerdict] = []
     for issue_id, entry in running.items():
         rt = getattr(entry, "runtime", None)
-        last = rt.last_activity_ts() if rt is not None and hasattr(rt, "last_activity_ts") else None
+        # OPT-OUT: runtime instance lacks `last_activity_ts` attribute entirely.
+        # Per spec §8.1, opting out skips stall enforcement; we do NOT fall
+        # back to started_at_monotonic for these. Codex P1 finding on PR #16.
+        if rt is None or not hasattr(rt, "last_activity_ts"):
+            continue
+        last = rt.last_activity_ts()
+        # Method defined and returned None = "still in startup, not yet
+        # produced a signal" — fall back to started_at so a hung-startup
+        # worker still has a deadline.
         baseline = last if last is not None else entry.started_at_monotonic
         elapsed = now - baseline
         if elapsed > threshold_s:
@@ -2363,7 +2480,7 @@ def reconcile_stalls(
 ```bash
 /usr/bin/python3 -m pytest tests/test_stall_detection.py -v
 ```
-Expected: 9 passed.
+Expected: 10 passed (was 9 before adding the opt-out test).
 
 - [ ] **Step 5: Commit**
 
@@ -2473,7 +2590,7 @@ In `workflows/code_review/schema.yaml`, add (alongside `webhooks`, before `defin
 ```bash
 /usr/bin/python3 -m pytest tests/test_stall_detection.py -v
 ```
-Expected: 11 passed.
+Expected: 12 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -3078,6 +3195,58 @@ def test_refresh_flag_coalesces():
     flag.queue()
     assert flag.consume() is True
     assert flag.consume() is False  # already drained
+
+
+def test_refresh_flag_concurrent_queue_during_consume_not_lost():
+    """Codex P2 finding on PR #16 — exercise the consume/queue race.
+
+    Spawn N HTTP-side threads that queue() while a tick-side thread
+    repeatedly consume()s. Total observed True consumes plus the final
+    pending state must equal total queue() calls — i.e. no signal
+    silently dropped.
+    """
+    import threading
+    from workflows.code_review.server.refresh import RefreshFlag
+
+    flag = RefreshFlag()
+    QUEUERS = 8
+    PER_THREAD = 200
+    seen_true = 0
+    stop = threading.Event()
+
+    def queuer():
+        for _ in range(PER_THREAD):
+            flag.queue()
+
+    def consumer():
+        nonlocal seen_true
+        while not stop.is_set():
+            if flag.consume():
+                seen_true += 1
+
+    threads = [threading.Thread(target=queuer) for _ in range(QUEUERS)]
+    cons = threading.Thread(target=consumer)
+    cons.start()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    # Drain any final pending then stop the consumer.
+    stop.set()
+    cons.join()
+    if flag.consume():
+        seen_true += 1
+
+    # We don't assert seen_true == QUEUERS * PER_THREAD because coalescing
+    # is the explicit design (N rapid queue()s collapse to one consume()).
+    # We DO assert that at least one True was observed — which would fail
+    # under the racy Event-based implementation when a queue() lands
+    # between is_set() and clear() and the consumer never sees it AND no
+    # later queue() arrives before the test ends.
+    assert seen_true >= 1, (
+        f"No queue()s were ever consumed (expected coalesced result). "
+        f"Strong evidence of dropped signal under race."
+    )
 ```
 
 - [ ] **Step 2: Verify failure**
@@ -3103,18 +3272,32 @@ import threading
 
 
 class RefreshFlag:
+    """Coalescing pending-flag for POST /api/v1/refresh.
+
+    Codex P2 finding on PR #16: a naive `Event.is_set()` + `Event.clear()`
+    pair is racy — a `set()` between the two steps gets dropped. Use a
+    Lock + bool so queue/consume are mutually exclusive.
+    """
+
     def __init__(self) -> None:
-        self._event = threading.Event()
+        self._lock = threading.Lock()
+        self._pending = False
 
     def queue(self) -> None:
-        self._event.set()
+        with self._lock:
+            self._pending = True
 
     def consume(self) -> bool:
-        """Return True (and clear) if a refresh is pending; False otherwise."""
-        if self._event.is_set():
-            self._event.clear()
-            return True
-        return False
+        """Return True (and clear) if a refresh is pending; False otherwise.
+
+        Atomic under the internal lock — a concurrent `queue()` cannot be
+        dropped between the read and the clear.
+        """
+        with self._lock:
+            if self._pending:
+                self._pending = False
+                return True
+            return False
 ```
 
 - [ ] **Step 4: Run tests**
@@ -3122,7 +3305,7 @@ class RefreshFlag:
 ```bash
 /usr/bin/python3 -m pytest tests/test_status_server.py -v
 ```
-Expected: 5 passed.
+Expected: 6 passed (4 prior + 2 RefreshFlag tests including the concurrent-race regression).
 
 - [ ] **Step 5: Commit**
 
@@ -3423,7 +3606,7 @@ def start_server(
 ```bash
 /usr/bin/python3 -m pytest tests/test_status_server.py -v
 ```
-Expected: 11 passed (5 prior + 6 new).
+Expected: 12 passed (6 prior + 6 new).
 
 - [ ] **Step 5: Commit**
 
@@ -3494,7 +3677,7 @@ def test_non_loopback_bind_passes_schema_when_explicit():
 ```bash
 /usr/bin/python3 -m pytest tests/test_status_server.py -v
 ```
-Expected: 13 passed.
+Expected: 14 passed.
 
 - [ ] **Step 3: Commit**
 

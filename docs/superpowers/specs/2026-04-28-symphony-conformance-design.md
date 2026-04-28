@@ -94,7 +94,7 @@ class ConfigWatcher:
 
 ### 4.2 Semantics
 
-- **Detection:** `st_mtime` poll on every tick (default 5s). No `inotify` dependency, robust on NFS / overlayfs / Docker bind mounts.
+- **Detection:** Poll `(st_mtime, st_size)` tuple on every tick (default 5s). Both fields together — mtime alone misses edits on filesystems with coarse mtime resolution or mtime-preserving copy tools (NFS / rsync `-t` / overlayfs). No `inotify` dependency.
 - **Reload scope:** poll interval, concurrency limits (currently single-lane; will respect future caps), active/terminal label sets, runtime/reviewer/webhook configs, prompt templates for *future* runs. Live agent sessions are NOT restarted — Symphony §6.2 explicitly allows this.
 - **Bad reload behavior:** keep `ConfigSnapshot` reference unchanged, emit `daedalus.config_reload_failed` event, log to stderr, never crash the daemon.
 - **HTTP listener exclusion:** `server.port` and `server.bind` are excluded from hot reload. Listener changes require restart (matches Symphony §6.2 "MAY require restart for listener changes").
@@ -350,8 +350,16 @@ class Runtime(Protocol):
     # NEW (optional method — runtimes that don't implement it opt out of stall detection)
     def last_activity_ts(self) -> float | None:
         """Monotonic timestamp of the most recent forward-progress signal
-        from the running agent. None = no signal yet (still in startup) OR
-        runtime doesn't track liveness."""
+        from the running agent. None = method is defined but no signal has
+        been produced yet (still in startup); the stall reconciler then
+        uses worker `started_at_monotonic` as the baseline so a worker
+        that hangs during startup still has a deadline.
+
+        Runtimes that DO NOT IMPLEMENT this method (the attribute is
+        absent on the instance) opt out of stall detection entirely —
+        the reconciler skips them rather than falling back to
+        `started_at_monotonic`. Returning None is a startup signal,
+        not an opt-out signal."""
         ...
 ```
 
@@ -387,7 +395,13 @@ def reconcile_stalls(
     threshold_s = threshold_ms / 1000
     out = []
     for issue_id, entry in running.items():
-        last = entry.runtime.last_activity_ts()
+        rt = getattr(entry, "runtime", None)
+        # Opt out: runtime doesn't implement last_activity_ts at all.
+        if rt is None or not hasattr(rt, "last_activity_ts"):
+            continue
+        last = rt.last_activity_ts()
+        # Defined but None = "still in startup, no signal yet" — fall back
+        # to started_at so a hung-startup worker still has a deadline.
         baseline = last if last is not None else entry.started_at_monotonic
         elapsed = now - baseline
         if elapsed > threshold_s:
@@ -439,6 +453,7 @@ def reconcile_stalls_and_act(snapshot, db, running, now):
 - Worker never produced a signal → baseline is `started_at`, deadline still applies.
 - Per-runtime test: each runtime's `last_activity_ts()` updates on its respective signal source.
 - Stall + tracker-terminal race: stall verdict wins, both events emitted.
+- Opt-out: a runtime instance without `last_activity_ts` attribute is skipped (no `StallVerdict` produced) regardless of elapsed time.
 
 ## 9. Phasing
 
