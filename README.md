@@ -16,7 +16,7 @@
 
 ## What it is
 
-Daedalus automates your **SDLC** with agents — driven by your GitHub issues. Label an issue (default: `active-lane`, configurable in `workflow.yaml`) and Daedalus walks it through your workflow: picks the right agent for each stage, tracks state, survives crashes, ships when done. The first workflow we ship and dogfood is **Code-Review** (`Issue → Code → Review → Merge`). More are coming.
+Daedalus automates your **SDLC** with agents — driven by your GitHub issues. Label an issue and Daedalus walks it through your workflow: picks the right agent for each stage, tracks state, survives crashes, ships when done. The first workflow we ship is **Code-Review** (`Issue → Code → Review → Merge`). More are coming.
 
 ## Three myths, three guarantees
 
