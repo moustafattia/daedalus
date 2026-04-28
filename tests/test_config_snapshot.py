@@ -64,3 +64,40 @@ def test_atomic_ref_holds_config_snapshot():
     ref.set(s2)
     assert ref.get() is s2
     assert ref.get().config == {"v": 2}
+
+
+def test_atomic_ref_concurrent_readers_and_writer_consistent():
+    """N reader threads + 1 writer thread; readers always see one of
+    the values the writer set, never a torn read."""
+    import threading
+    import time
+    from workflows.code_review.config_snapshot import AtomicRef
+
+    valid_values = {0, 1, 2, 3, 4}
+    ref: AtomicRef[int] = AtomicRef(0)
+    stop = threading.Event()
+    seen_bad: list[int] = []
+
+    def reader() -> None:
+        while not stop.is_set():
+            v = ref.get()
+            if v not in valid_values:
+                seen_bad.append(v)
+
+    def writer() -> None:
+        for v in (1, 2, 3, 4, 1, 2, 3, 4):
+            ref.set(v)
+            time.sleep(0.001)
+
+    readers = [threading.Thread(target=reader) for _ in range(4)]
+    for t in readers:
+        t.start()
+    w = threading.Thread(target=writer)
+    w.start()
+    w.join()
+    stop.set()
+    for t in readers:
+        t.join()
+
+    assert seen_bad == []
+    assert ref.get() in valid_values
