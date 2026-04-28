@@ -15,6 +15,7 @@ inline invocation) with the call-site-specific flags (``--output-format``,
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from workflows.code_review.runtimes import (
@@ -40,6 +41,13 @@ class ClaudeCliRuntime:
         self._run = run
         self._max_turns = int(cfg.get("max-turns-per-invocation", 24))
         self._timeout = int(cfg.get("timeout-seconds", 1200))
+        self._last_activity: float | None = None
+
+    def _record_activity(self) -> None:
+        self._last_activity = time.monotonic()
+
+    def last_activity_ts(self) -> float | None:
+        return self._last_activity
 
     def ensure_session(
         self,
@@ -74,6 +82,7 @@ class ClaudeCliRuntime:
             prompt,
         ]
         completed = self._run(cmd, cwd=worktree, timeout=self._timeout)
+        self._record_activity()
         return getattr(completed, "stdout", "") or ""
 
     def assess_health(
@@ -99,4 +108,5 @@ class ClaudeCliRuntime:
     ) -> str:
         """Execute a fully-formed argv via the configured timeout."""
         completed = self._run(command_argv, cwd=worktree, timeout=self._timeout)
+        self._record_activity()
         return getattr(completed, "stdout", "") or ""

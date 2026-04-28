@@ -13,3 +13,18 @@ def test_runtime_protocol_has_last_activity_ts():
 
     assert "last_activity_ts" in Runtime.__dict__ or hasattr(Runtime, "last_activity_ts"), \
         "Runtime Protocol must declare last_activity_ts"
+
+
+def test_claude_cli_runtime_updates_last_activity_on_stdout_line(monkeypatch):
+    import time
+    from workflows.code_review.runtimes.claude_cli import ClaudeCliRuntime
+
+    rt = ClaudeCliRuntime({"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}, run=None, run_json=None)
+    assert rt.last_activity_ts() is None  # no signal yet
+
+    before = time.monotonic()
+    rt._record_activity()  # internal helper called per stdout/stderr line
+    after = time.monotonic()
+    ts = rt.last_activity_ts()
+    assert ts is not None
+    assert before <= ts <= after
