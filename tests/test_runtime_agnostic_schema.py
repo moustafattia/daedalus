@@ -8,7 +8,7 @@ import pytest
 import yaml
 from jsonschema import Draft7Validator
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent / "daedalus"
 SCHEMA_PATH = REPO_ROOT / "workflows/code_review/schema.yaml"
 
 

@@ -67,8 +67,8 @@ Shells out the workflow's CLI entry point (resolved via `workflow_cli_argv()` so
 
 ## Where this lives in code
 
-- Server entrypoint: `workflows/code_review/server/__init__.py`
-- Routes: `workflows/code_review/server/routes.py`
-- Read views: `workflows/code_review/server/views.py`
-- Refresh hook: `workflows/code_review/server/refresh.py`
-- HTML: `workflows/code_review/server/html.py`
+- Server entrypoint: `daedalus/workflows/code_review/server/__init__.py`
+- Routes: `daedalus/workflows/code_review/server/routes.py`
+- Read views: `daedalus/workflows/code_review/server/views.py`
+- Refresh hook: `daedalus/workflows/code_review/server/refresh.py`
+- HTML: `daedalus/workflows/code_review/server/html.py`

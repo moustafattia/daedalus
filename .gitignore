@@ -6,7 +6,7 @@ __pycache__/
 .DS_Store
 .claude/
 content/*
-projects/yoyopod_core/runtime/*
-!projects/yoyopod_core/runtime/README.md
-projects/yoyopod_core/workspace/*
-!projects/yoyopod_core/workspace/README.md
+daedalus/projects/*/runtime/*
+!daedalus/projects/*/runtime/README.md
+daedalus/projects/*/workspace/*
+!daedalus/projects/*/workspace/README.md

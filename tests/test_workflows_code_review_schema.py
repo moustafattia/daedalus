@@ -5,7 +5,7 @@ import jsonschema
 import pytest
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
 SCHEMA_PATH = REPO_ROOT / "workflows" / "code_review" / "schema.yaml"
 
 

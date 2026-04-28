@@ -207,7 +207,7 @@ def test_schema_accepts_stall_section():
     from pathlib import Path
     from jsonschema import Draft7Validator
 
-    schema = yaml.safe_load(Path("workflows/code_review/schema.yaml").read_text())
+    schema = yaml.safe_load(Path("daedalus/workflows/code_review/schema.yaml").read_text())
     base = {
         "workflow": "code-review", "schema-version": 1,
         "instance": {"name": "i", "engine-owner": "hermes"},
@@ -233,7 +233,7 @@ def test_schema_rejects_negative_stall_timeout():
     from jsonschema import Draft7Validator
     from jsonschema.exceptions import ValidationError as JSError
 
-    schema = yaml.safe_load(Path("workflows/code_review/schema.yaml").read_text())
+    schema = yaml.safe_load(Path("daedalus/workflows/code_review/schema.yaml").read_text())
     base = {
         "workflow": "code-review", "schema-version": 1,
         "instance": {"name": "i", "engine-owner": "hermes"},

@@ -68,11 +68,11 @@ flowchart LR
 
 ## Reading events efficiently
 
-The dashboard tails the last 20 events on every HTTP hit. Naïve `readlines()` is O(file size); the implementation in `workflows/code_review/server/views.py::_read_events_tail` uses an 8 KiB reverse-chunked seek so request cost is bounded regardless of how big the log gets. Same algorithm if you write your own consumer.
+The dashboard tails the last 20 events on every HTTP hit. Naïve `readlines()` is O(file size); the implementation in `daedalus/workflows/code_review/server/views.py::_read_events_tail` uses an 8 KiB reverse-chunked seek so request cost is bounded regardless of how big the log gets. Same algorithm if you write your own consumer.
 
 ## Where this lives in code
 
-- Taxonomy constants: `workflows/code_review/event_taxonomy.py`
-- Writer: `runtime.py::append_daedalus_event`
-- Reader (tail): `workflows/code_review/server/views.py::_read_events_tail`
-- AST regression test: `tests/test_event_taxonomy.py` ensures `runtime.py` only emits known event types
+- Taxonomy constants: `daedalus/workflows/code_review/event_taxonomy.py`
+- Writer: `daedalus/runtime.py::append_daedalus_event`
+- Reader (tail): `daedalus/workflows/code_review/server/views.py::_read_events_tail`
+- AST regression test: `tests/test_event_taxonomy.py` ensures `daedalus/runtime.py` only emits known event types

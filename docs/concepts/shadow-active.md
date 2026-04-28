@@ -22,7 +22,7 @@ The shadow path exists so you can:
 
 - Stand up a new instance against a live workspace and watch it for a day before promoting it.
 - Diff "what would shadow do" vs "what active actually did" to catch policy regressions.
-- Keep a passive observer running for alerting (`alerts.py`) without having two writers fight.
+- Keep a passive observer running for alerting (`daedalus/alerts.py`) without having two writers fight.
 
 ## Promotion sequence
 
@@ -52,14 +52,14 @@ sequenceDiagram
 
 ## Operator commands that touch this
 
-- `runtime.py active-gate-status` — what's blocking promotion
-- `runtime.py iterate-shadow` / `iterate-active` — single tick in either mode
-- `runtime.py run-shadow` / `run-active` — long-running supervised loop
+- `daedalus/runtime.py active-gate-status` — what's blocking promotion
+- `daedalus/runtime.py iterate-shadow` / `iterate-active` — single tick in either mode
+- `daedalus/runtime.py run-shadow` / `run-active` — long-running supervised loop
 - `/daedalus shadow-report` — diff between shadow plan and active reality
 
 ## Where this lives in code
 
-- Mode selection: `runtime.py` (look for `Mode`, `iterate_shadow`, `iterate_active`)
-- Active gate: `runtime.py::active_gate_status`
-- Service supervision: `tools.py` (systemd helpers)
-- Shadow reporting: `formatters.py::format_shadow_report`
+- Mode selection: `daedalus/runtime.py` (look for `Mode`, `iterate_shadow`, `iterate_active`)
+- Active gate: `daedalus/runtime.py::active_gate_status`
+- Service supervision: `daedalus/tools.py` (systemd helpers)
+- Shadow reporting: `daedalus/formatters.py::format_shadow_report`

@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 
 
-RUNTIME_MODULE_PATH = Path(__file__).resolve().parents[1] / "runtime.py"
+RUNTIME_MODULE_PATH = Path(__file__).resolve().parents[1] / "daedalus" / "runtime.py"
 
 
 def load_runtime_module():

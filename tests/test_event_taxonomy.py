@@ -146,7 +146,7 @@ def test_runtime_py_emits_only_canonical_event_types():
         })
     }
 
-    repo_root = pathlib.Path(__file__).resolve().parents[1]
+    repo_root = pathlib.Path(__file__).resolve().parents[1] / "daedalus"
     runtime_src = (repo_root / "runtime.py").read_text()
     tree = ast.parse(runtime_src)
 

@@ -53,7 +53,7 @@ States with no outgoing arrows in this diagram (other than terminal `merged` / `
 
 ## Where this lives in code
 
-- Schema: `workflows/code_review/migrations.py` (lanes table)
-- Selection: `workflows/code_review/lane_selection.py` (which issues become lanes)
-- State transitions: `workflows/code_review/workflow.py` + `dispatch.py`
-- Read views: `workflows/code_review/server/views.py`
+- Schema: `daedalus/workflows/code_review/migrations.py` (lanes table)
+- Selection: `daedalus/workflows/code_review/lane_selection.py` (which issues become lanes)
+- State transitions: `daedalus/workflows/code_review/workflow.py` + `dispatch.py`
+- Read views: `daedalus/workflows/code_review/server/views.py`

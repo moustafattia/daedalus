@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
 
 
 def load_module(module_name: str, relative_path: str):
@@ -273,7 +273,7 @@ def test_workspace_exposes_runtime_accessor_with_named_profiles(tmp_path):
     import sys
     from pathlib import Path as _Path
 
-    REPO_ROOT = _Path(__file__).resolve().parents[1]
+    REPO_ROOT = _Path(__file__).resolve().parents[1] / "daedalus"
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
 
@@ -322,7 +322,7 @@ def test_workspace_runtime_accessor_errors_on_unknown_name(tmp_path):
     import sys
     from pathlib import Path as _Path
 
-    REPO_ROOT = _Path(__file__).resolve().parents[1]
+    REPO_ROOT = _Path(__file__).resolve().parents[1] / "daedalus"
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
 

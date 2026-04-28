@@ -6,6 +6,11 @@ import shutil
 from pathlib import Path
 
 PLUGIN_NAME = "daedalus"
+# All plugin payload lives under ``daedalus/`` in the repo. The install
+# script copies the *contents* of that directory into the destination
+# plugin root — keeping the source layout cleanly separated from
+# operator scripts and dev material at the repo root.
+PAYLOAD_ROOT = "daedalus"
 PAYLOAD_ITEMS = [
     "__init__.py",
     "alerts.py",
@@ -79,11 +84,14 @@ def _prepare_install_target(target: Path) -> Path:
 def install_plugin(*, repo_root: Path, hermes_home: Path | None = None, destination: Path | None = None) -> Path:
     _check_runtime_deps()
     repo_root = repo_root.expanduser().resolve()
+    payload_root = repo_root / PAYLOAD_ROOT
+    if not payload_root.is_dir():
+        raise FileNotFoundError(f"missing payload root: {payload_root}")
     target = resolve_destination(hermes_home=hermes_home, destination=destination)
     install_dir = _prepare_install_target(target)
 
     for item in PAYLOAD_ITEMS:
-        source = repo_root / item
+        source = payload_root / item
         if not source.exists():
             raise FileNotFoundError(f"missing payload item: {source}")
         dest = install_dir / item

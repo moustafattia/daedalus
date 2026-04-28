@@ -81,12 +81,12 @@ Every meaningful handoff should survive:
 
 ## 3.1 Core files
 - `__init__.py` — plugin registration
-- `schemas.py` — CLI/slash parser schema
-- `tools.py` — operator surface and service helpers
-- `runtime.py` — durable Daedalus engine
-- `alerts.py` — outage alert logic
+- `daedalus/schemas.py` — CLI/slash parser schema
+- `daedalus/tools.py` — operator surface and service helpers
+- `daedalus/runtime.py` — durable Daedalus engine
+- `daedalus/alerts.py` — outage alert logic
 - `plugin.yaml` — plugin manifest
-- `skills/operator/SKILL.md` — operator usage guidance
+- `daedalus/skills/operator/SKILL.md` — operator usage guidance
 - `scripts/install.py` / `scripts/install.sh` — plugin installation
 
 ## 3.2 Responsibility split
@@ -97,7 +97,7 @@ Registers the plugin surfaces:
 - CLI command
 - optional operator skill
 
-### `tools.py`
+### `daedalus/tools.py`
 Provides the human/operator interface:
 - status surfaces
 - doctoring
@@ -105,7 +105,7 @@ Provides the human/operator interface:
 - active gate checks
 - systemd install/start/restart helpers
 
-### `runtime.py`
+### `daedalus/runtime.py`
 Implements the real orchestration model:
 - database schema
 - leases
@@ -116,7 +116,7 @@ Implements the real orchestration model:
 - failure analysis state
 - runtime loops
 
-### `alerts.py`
+### `daedalus/alerts.py`
 Isolates outage alert decision logic from orchestration logic.
 
 ---

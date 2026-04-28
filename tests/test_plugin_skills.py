@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
 SKILLS_DIR = REPO_ROOT / "skills"
 
 

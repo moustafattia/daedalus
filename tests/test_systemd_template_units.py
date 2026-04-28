@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 
-TOOLS_PATH = Path(__file__).resolve().parents[1] / "tools.py"
+TOOLS_PATH = Path(__file__).resolve().parents[1] / "daedalus" / "tools.py"
 
 
 def load_tools():

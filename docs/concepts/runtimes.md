@@ -63,6 +63,6 @@ The preflight pass walks `runtimes.<name>.kind` and `agents.external-reviewer.ki
 
 ## Where this lives in code
 
-- Protocol: `workflows/code_review/runtimes/__init__.py`
-- Adapters: `workflows/code_review/runtimes/{claude_cli,acpx_codex,hermes_agent}.py`
-- Preflight: `workflows/code_review/preflight.py`
+- Protocol: `daedalus/workflows/code_review/runtimes/__init__.py`
+- Adapters: `daedalus/workflows/code_review/runtimes/{claude_cli,acpx_codex,hermes_agent}.py`
+- Preflight: `daedalus/workflows/code_review/preflight.py`

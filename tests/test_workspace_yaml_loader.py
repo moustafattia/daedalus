@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
 
 
 def _load_workspace_module():

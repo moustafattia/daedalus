@@ -167,7 +167,7 @@ def test_existing_yoyopod_ledger_migrates_cleanly(tmp_path):
 def test_action_dispatcher_accepts_run_internal_review():
     """The dispatcher matches the new literal."""
     from pathlib import Path
-    src = Path(__file__).resolve().parent.parent / "workflows/code_review/actions.py"
+    src = Path(__file__).resolve().parent.parent / "daedalus" / "workflows/code_review/actions.py"
     text = src.read_text()
     assert "run_internal_review" in text
 
@@ -176,7 +176,7 @@ def test_parity_gate_accepts_run_internal_review():
     """Phase D-1 alias regression: parity compatibility map must accept the new
     relay action type, otherwise active mode blocks the lane with shadow-parity-mismatch."""
     from pathlib import Path
-    repo_root = Path(__file__).resolve().parent.parent
+    repo_root = Path(__file__).resolve().parent.parent / "daedalus"
     runtime_src = (repo_root / "runtime.py").read_text()
     tools_src = (repo_root / "tools.py").read_text()
     for src in (runtime_src, tools_src):

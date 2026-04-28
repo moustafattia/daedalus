@@ -43,7 +43,7 @@ def test_get_ledger_field_no_legacy_fallback():
 def test_reviews_no_lastClaudeVerdict_fallback():
     """reviews.py:308 should read only the new key after D-4."""
     from pathlib import Path
-    src = (Path(__file__).resolve().parent.parent / "workflows/code_review/reviews.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "daedalus" / "workflows/code_review/reviews.py").read_text()
     # The fallback `or state_review.get("lastClaudeVerdict")` should be gone.
     assert 'state_review.get("lastClaudeVerdict")' not in src
 
@@ -51,6 +51,6 @@ def test_reviews_no_lastClaudeVerdict_fallback():
 def test_workspace_no_interReviewAgentModel_fallback():
     """workspace.py review_policy fallback should not include the legacy key after D-4."""
     from pathlib import Path
-    src = (Path(__file__).resolve().parent.parent / "workflows/code_review/workspace.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "daedalus" / "workflows/code_review/workspace.py").read_text()
     # The fallback `or review_policy.get("interReviewAgentModel")` should be gone.
     assert 'review_policy.get("interReviewAgentModel")' not in src

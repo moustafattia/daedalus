@@ -2,7 +2,7 @@ import importlib.util
 from pathlib import Path
 
 
-MIGRATION_MODULE_PATH = Path(__file__).resolve().parents[1] / "migration.py"
+MIGRATION_MODULE_PATH = Path(__file__).resolve().parents[1] / "daedalus" / "migration.py"
 
 
 def load_migration_module():
@@ -147,7 +147,7 @@ def test_cli_migrate_filesystem_invokes_migrator(tmp_path, monkeypatch):
     """Smoke test: `daedalus migrate-filesystem --workflow-root <path>`
     invokes migrate_filesystem_state and prints the result."""
     import importlib.util
-    tools_path = Path(__file__).resolve().parents[1] / "tools.py"
+    tools_path = Path(__file__).resolve().parents[1] / "daedalus" / "tools.py"
     spec = importlib.util.spec_from_file_location("daedalus_tools_for_migrate_test", tools_path)
     tools = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tools)

@@ -6,7 +6,7 @@ import importlib.util
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
 
 
 def load_module(module_name: str, relative_path: str):

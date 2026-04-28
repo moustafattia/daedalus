@@ -41,10 +41,10 @@ sequenceDiagram
 
 ## Split-brain check
 
-`runtime.py::detect_split_brain()` scans for two non-expired leases on the same lane. This *should* be impossible (the UPDATE is atomic), but the check exists to catch clock skew across hosts. The cheat sheet shows how to trigger it manually.
+`daedalus/runtime.py::detect_split_brain()` scans for two non-expired leases on the same lane. This *should* be impossible (the UPDATE is atomic), but the check exists to catch clock skew across hosts. The cheat sheet shows how to trigger it manually.
 
 ## Where this lives in code
 
-- Lease + heartbeat tables: `runtime.py` (look for `acquire_lease`, `heartbeat`, `release_lease`)
-- Recovery: `runtime.py::reconcile_leases()`
-- CLI surface: `runtime.py heartbeat`, `runtime.py iterate-active`
+- Lease + heartbeat tables: `daedalus/runtime.py` (look for `acquire_lease`, `heartbeat`, `release_lease`)
+- Recovery: `daedalus/runtime.py::reconcile_leases()`
+- CLI surface: `daedalus/runtime.py heartbeat`, `daedalus/runtime.py iterate-active`

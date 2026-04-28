@@ -51,8 +51,8 @@ The retry reason is always `stall_timeout` so it's distinguishable from regular 
 
 ## Where this lives in code
 
-- Pure decision function: `workflows/code_review/stall.py::reconcile_stalls`
+- Pure decision function: `daedalus/workflows/code_review/stall.py::reconcile_stalls`
 - Runtime hook: `Runtime.last_activity_ts()` — see [runtimes.md](runtimes.md)
-- Tick wiring: `watch.py::reconcile_stalls_tick`
-- Schema: `workflows/code_review/schema.yaml`
+- Tick wiring: `daedalus/watch.py::reconcile_stalls_tick`
+- Schema: `daedalus/workflows/code_review/schema.yaml`
 - Tests: `tests/test_stall_detection.py`

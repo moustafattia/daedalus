@@ -63,11 +63,13 @@ def render_frame(scene: Scene, f: int) -> Image.Image:
 
     # 4. code overlays (each on its own RGBA layer for clean alpha).
     # Anchored relative to the hero image's left edge so they sit next
-    # to it without overlap regardless of the hero's width.
+    # to it without overlap regardless of the hero's width. The 270px
+    # offset keeps the GITHUB block's left edge clear of the wordmark
+    # tagline ("Workflows that don't melt.") that runs to ~x=577.
     code_layer = Image.new("RGBA", (config.W, config.H), (0, 0, 0, 0))
     cd = ImageDraw.Draw(code_layer)
     bx = scene.bust_pos["x"]
-    code_x = bx - 320
+    code_x = bx - 270
     code_overlays.draw_block(cd, code_overlays.AGENTS_BLOCK,
                              code_x, 50,
                              typography.code(), timeline.code_alpha(f, 0))

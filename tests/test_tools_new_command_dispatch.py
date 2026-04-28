@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
 
 
 def load_module(module_name: str, relative_path: str):

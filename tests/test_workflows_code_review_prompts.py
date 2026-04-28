@@ -2,7 +2,7 @@ import importlib.util
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
 
 
 def load_module(module_name: str, relative_path: str):
@@ -125,7 +125,7 @@ def test_summarize_validation_and_render_lane_memo_capture_checks_progress_and_f
 
 def test_prompt_templates_bundle_exists_with_three_files():
     from pathlib import Path
-    bundle = Path(__file__).resolve().parents[1] / "workflows" / "code_review" / "prompts"
+    bundle = Path(__file__).resolve().parents[1] / "daedalus" / "workflows" / "code_review" / "prompts"
     assert bundle.is_dir(), f"prompts bundle missing at {bundle}"
     names = sorted(p.name for p in bundle.glob("*.md"))
     assert names == [

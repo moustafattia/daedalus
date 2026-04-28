@@ -7,7 +7,7 @@ import pytest
 
 
 def test_repair_handoff_template_file_exists():
-    bundled = Path(__file__).resolve().parent.parent / "workflows" / "code_review" / "prompts" / "external-reviewer-repair-handoff.md"
+    bundled = Path(__file__).resolve().parent.parent / "daedalus" / "workflows" / "code_review" / "prompts" / "external-reviewer-repair-handoff.md"
     assert bundled.is_file()
 
 

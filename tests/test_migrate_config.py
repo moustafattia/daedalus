@@ -74,7 +74,7 @@ def test_migrate_emits_valid_workflow_yaml(tmp_path):
 
     # Validate against the live schema
     import jsonschema
-    schema_path = REPO_ROOT / "workflows" / "code_review" / "schema.yaml"
+    schema_path = REPO_ROOT / "daedalus" / "workflows" / "code_review" / "schema.yaml"
     schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
     jsonschema.validate(cfg, schema)
 

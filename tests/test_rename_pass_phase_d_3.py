@@ -119,7 +119,7 @@ def test_lane_state_read_falls_back_to_legacy_lastClaudeVerdict():
     # Structural assertion: reviews.py must accept either key when reading
     # state_review verdict.
     from pathlib import Path
-    src = (Path(__file__).resolve().parent.parent / "workflows/code_review/reviews.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "daedalus" / "workflows/code_review/reviews.py").read_text()
     # The reads should reference both keys (new first, legacy fallback)
     assert "lastInternalVerdict" in src
 
