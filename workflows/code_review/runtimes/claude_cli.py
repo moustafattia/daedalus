@@ -15,6 +15,7 @@ inline invocation) with the call-site-specific flags (``--output-format``,
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from workflows.code_review.runtimes import (
@@ -40,6 +41,13 @@ class ClaudeCliRuntime:
         self._run = run
         self._max_turns = int(cfg.get("max-turns-per-invocation", 24))
         self._timeout = int(cfg.get("timeout-seconds", 1200))
+        self._last_activity: float | None = None
+
+    def _record_activity(self) -> None:
+        self._last_activity = time.monotonic()
+
+    def last_activity_ts(self) -> float | None:
+        return self._last_activity
 
     def ensure_session(
         self,
@@ -73,7 +81,13 @@ class ClaudeCliRuntime:
             "--print",
             prompt,
         ]
+        # Codex P1 on PR #18: record activity BEFORE the blocking call so
+        # stall reconciliation measures from "work started", not from "previous
+        # work ended". Otherwise a long-running invocation looks idle for its
+        # entire runtime and gets force-killed once stall.timeout_ms passes.
+        self._record_activity()
         completed = self._run(cmd, cwd=worktree, timeout=self._timeout)
+        self._record_activity()
         return getattr(completed, "stdout", "") or ""
 
     def assess_health(
@@ -98,5 +112,7 @@ class ClaudeCliRuntime:
         env: dict | None = None,
     ) -> str:
         """Execute a fully-formed argv via the configured timeout."""
+        self._record_activity()
         completed = self._run(command_argv, cwd=worktree, timeout=self._timeout)
+        self._record_activity()
         return getattr(completed, "stdout", "") or ""

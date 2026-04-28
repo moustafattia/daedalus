@@ -86,6 +86,13 @@ class Runtime(Protocol):
         env: dict[str, str] | None = None,
     ) -> str: ...
 
+    def last_activity_ts(self) -> float | None:
+        """Monotonic timestamp of the most recent forward-progress signal
+        from the running agent. None means either: no signal yet (still in
+        startup) or the runtime does not track liveness (opts out of stall
+        detection). Symphony §8.5."""
+        ...
+
 
 _RUNTIME_KINDS: dict[str, type] = {}
 

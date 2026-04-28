@@ -8,6 +8,7 @@ agent role; this adapter only provides session plumbing (none) and the
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from workflows.code_review.runtimes import (
@@ -30,6 +31,13 @@ class HermesAgentRuntime:
     def __init__(self, cfg: dict, *, run, run_json=None):
         self._cfg = cfg
         self._run = run
+        self._last_activity: float | None = None
+
+    def _record_activity(self) -> None:
+        self._last_activity = time.monotonic()
+
+    def last_activity_ts(self) -> float | None:
+        return self._last_activity
 
     def ensure_session(
         self,
@@ -75,5 +83,9 @@ class HermesAgentRuntime:
         command_argv: list[str],
         env: dict | None = None,
     ) -> str:
+        # Codex P1 on PR #18: record activity BEFORE the blocking run so a
+        # long-running invocation isn't classified as stalled mid-flight.
+        self._record_activity()
         completed = self._run(command_argv, cwd=worktree)
+        self._record_activity()
         return getattr(completed, "stdout", "") or ""

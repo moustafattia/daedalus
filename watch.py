@@ -142,3 +142,53 @@ def cmd_watch(args, parser) -> str:
     except KeyboardInterrupt:
         return ""
     return ""
+
+
+# --- Stall reconciliation hook (Symphony §8.5) ---------------------------
+#
+# This function is called from the tick loop owner BEFORE tracker-state
+# refresh per spec §8.6, so a stalled worker on a now-terminal issue still
+# gets stall-terminated. The contract is intentionally minimal: the caller
+# supplies a snapshot, a running-lanes mapping (issue_id -> entry exposing
+# `.runtime` and `.started_at_monotonic`), an event-log path, and an
+# orchestrator that supports `terminate_worker(issue_id, reason=...)` and
+# `queue_retry(issue_id, error=...)`. Each detected stall produces a
+# `daedalus.stall.detected` event, a termination, a
+# `daedalus.stall.terminated` event, and a queued retry.
+def reconcile_stalls_tick(
+    *,
+    snapshot,
+    running: Mapping[str, Any],
+    event_log_path: Path,
+    orchestrator,
+    now: float | None = None,
+) -> list:
+    import time as _time
+
+    from workflows.code_review.event_taxonomy import (
+        DAEDALUS_STALL_DETECTED,
+        DAEDALUS_STALL_TERMINATED,
+    )
+    from workflows.code_review.stall import reconcile_stalls
+    from runtime import append_daedalus_event
+
+    if now is None:
+        now = _time.monotonic()
+    verdicts = reconcile_stalls(snapshot, running, now=now)
+    for verdict in verdicts:
+        append_daedalus_event(
+            event_log_path=event_log_path,
+            event={
+                "type": DAEDALUS_STALL_DETECTED,
+                "issue_id": verdict.issue_id,
+                "elapsed_seconds": verdict.elapsed_seconds,
+                "threshold_seconds": verdict.threshold_seconds,
+            },
+        )
+        orchestrator.terminate_worker(verdict.issue_id, reason="stall")
+        append_daedalus_event(
+            event_log_path=event_log_path,
+            event={"type": DAEDALUS_STALL_TERMINATED, "issue_id": verdict.issue_id},
+        )
+        orchestrator.queue_retry(verdict.issue_id, error="stall_timeout")
+    return verdicts

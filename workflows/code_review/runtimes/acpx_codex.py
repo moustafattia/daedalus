@@ -1,6 +1,7 @@
 """Persistent-session runtime for Codex via `acpx codex`."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,13 @@ class AcpxCodexRuntime:
         self._freshness = int(cfg.get("session-idle-freshness-seconds", 900))
         self._grace = int(cfg.get("session-idle-grace-seconds", 1800))
         self._nudge_cooldown = int(cfg.get("session-nudge-cooldown-seconds", 600))
+        self._last_activity: float | None = None
+
+    def _record_activity(self) -> None:
+        self._last_activity = time.monotonic()
+
+    def last_activity_ts(self) -> float | None:
+        return self._last_activity
 
     def ensure_session(
         self,
@@ -91,7 +99,11 @@ class AcpxCodexRuntime:
             session_name,
             prompt,
         ]
+        # Codex P1 on PR #18: record activity BEFORE the blocking run so a
+        # long-running invocation isn't classified as stalled mid-flight.
+        self._record_activity()
         completed = self._run(cmd, cwd=worktree)
+        self._record_activity()
         return getattr(completed, "stdout", "") or ""
 
     def assess_health(
@@ -151,4 +163,5 @@ class AcpxCodexRuntime:
         Session plumbing (ensure/close) is the caller's responsibility.
         """
         completed = self._run(command_argv, cwd=worktree)
+        self._record_activity()
         return getattr(completed, "stdout", "") or ""
