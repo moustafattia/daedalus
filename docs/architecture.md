@@ -25,37 +25,37 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         EXTERNAL TRIGGERS                                    │
-│   GitHub Issue (#42)    Operator (/daedalus)    workflow.yaml (hot-reload)   │
+│                         EXTERNAL TRIGGERS                                   │
+│   GitHub Issue (#42)    Operator (/daedalus)    workflow.yaml (hot-reload)  │
 └─────────────────────────────────────────────────────────────────────────────┘
          │                       │                       │
          ▼                       ▼                       ▼
 ┌──────────────────────────────────────┐  ┌──────────────────────────────────────┐
-│     DAEDALUS ENGINE (Cyan)          │  │    WORKFLOW WRAPPER (Emerald)       │
+│     DAEDALUS ENGINE                  │  │    WORKFLOW WRAPPER                  │
 │  ─────────────────────────────────   │  │  ─────────────────────────────────   │
-│  Runtime Loop                        │  │  Status / Read Model                │
+│  Runtime Loop                        │  │  Status / Read Model                 │
 │    Tick → Ingest → Derive → Dispatch │◄─┤  Policy Engine                       │
 │    → Record                          │  │  Actors (Coder / Reviewer / Merge)   │
 │                                      │  │  Lane State Machine                  │
-│  Leases (heartbeat · TTL · recovery) │  │  Handoffs (explicit, durable)       │
+│  Leases (heartbeat · TTL · recovery) │  │  Handoffs (explicit, durable)        │
 │                                      │  │                                      │
-│  SQLite ──► lanes · actions ·      │  │  Semantic Actions                    │
+│  SQLite ──► lanes · actions ·        │  │  Semantic Actions                    │
 │             reviews · failures       │  │    run_claude_review                 │
 │                                      │  │    publish_ready_pr                  │
 │  JSONL ───► turn_started ·           │  │    merge_and_promote                 │
-│             turn_completed · stall     │  │                                      │
+│             turn_completed · stall   │  │                                      │
 │                                      │  │  ▼                                   │
-│  Shadow Mode ──► observe · plan     │  │  Execution Actions                   │
-│  Active Mode ──► execute · dispatch │◄─┤    request_internal_review           │
+│  Shadow Mode ──► observe · plan      │  │  Execution Actions                   │
+│  Active Mode ──► execute · dispatch  │◄─┤    request_internal_review           │
 │                                      │  │    publish_pr                        │
 │  Operator Surfaces                   │  │    merge_pr                          │
 │    /daedalus status · doctor · watch │  │    dispatch_implementation_turn      │
-│    shadow-report · active-gate        │  │                                      │
+│    shadow-report · active-gate       │  │                                      │
 └──────────────────────────────────────┘  └──────────────────────────────────────┘
          │                                           │
          ▼                                           ▼
 ┌────────────────────────────┐              ┌────────────────────────────┐
-│  SUPERVISION (Rose)        │              │  EXTERNAL (Amber/Grey)     │
+│  SUPERVISION               │              │  EXTERNAL                  │
 │  systemd service           │              │  GitHub API                │
 │  /daedalus watch (TUI)     │              │  Webhooks (Slack / HTTP)   │
 │  HTTP status :8765         │              │  Comments (PR audit trail) │
@@ -119,17 +119,17 @@ Daedalus exists to provide five guarantees that fragile cron-loop automation can
 ### 1. Exactly-One Ownership (Leases)
 
 ```
-┌─────────┐    acquire lease    ┌─────────┐
+┌─────────┐    acquire lease     ┌─────────┐
 │ Runtime │ ───────────────────► │  Lane   │
 │    A    │ ◄─────────────────── │  #42    │
 └─────────┘    heartbeat (TTL)   └─────────┘
       │
       │  process dies
       ▼
-┌─────────┐    lease expires    ┌─────────┐
+┌─────────┐    lease expires     ┌─────────┐
 │ Runtime │ ◄─────────────────── │  Lane   │
 │    B    │ ───────────────────► │  #42    │
-└─────────┘    claim on next tick └─────────┘
+└─────────┘   claim on next tick └─────────┘
 ```
 
 - **Exclusivity:** One runtime owns a lane at a time.
@@ -235,8 +235,8 @@ Coding and reviewing are **explicit roles**, not ad-hoc prompt invocations.
 Orchestrator ──► Coder ──► Internal Reviewer ──► Publish ──► External Reviewer ──► Merge
      │              │              │                    │              │
      │              │              └─► repair ──────────┘              │
-     │              │                                                   │
-     │              └─► repair ◄────────────────────────────────────────┘
+     │              │                                                  │
+     │              └─► repair ◄───────────────────────────────────────┘
      │
      └─► restart session (if stale)
 ```
