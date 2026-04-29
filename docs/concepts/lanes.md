@@ -51,9 +51,58 @@ States with no outgoing arrows in this diagram (other than terminal `merged` / `
 
 `merged`, `closed`, and `archived` are terminal. The `workflows.code_review.server.views._TERMINAL_LANE_STATUSES` set keeps these out of the operator dashboard. Anything else is "active" for observability purposes.
 
+## Lane selection
+
+Not every labeled issue becomes a lane. `lane_selection.py` filters and ranks issues using the `lane-selection:` block in `workflow.yaml`.
+
+### Config schema
+
+```yaml
+lane-selection:
+  require-labels: ["bug", "ready"]      # must have ALL of these
+  allow-any-of: ["feature", "refactor"]  # must have AT LEAST ONE of these
+  exclude-labels: ["blocked"]            # must have NONE of these
+  priority: ["urgent", "security"]       # boost these to the front
+  tiebreak: "oldest"                     # "oldest" | "newest" | "random"
+```
+
+### Defaults
+
+| Field | Default | Notes |
+|---|---|---|
+| `require-labels` | `[]` | Empty = no required labels. |
+| `allow-any-of` | `[]` | Empty = no restriction. |
+| `exclude-labels` | `[<active-lane-label>]` | Auto-injected so currently-active lanes are never re-picked. |
+| `priority` | `[]` | Empty = no priority boost. |
+| `tiebreak` | `"oldest"` | How to rank candidates after filtering. |
+
+### Selection flow
+
+```mermaid
+flowchart TD
+  A[GitHub issues with active-lane label] --> B{has all require-labels?}
+  B -- no --> Z[skip]
+  B -- yes --> C{has at least one allow-any-of?}
+  C -- no --> Z
+  C -- yes --> D{has any exclude-label?}
+  D -- yes --> Z
+  D -- no --> E[rank by priority, then tiebreak]
+  E --> F[pick top N]
+```
+
+### Workspace binding
+
+Each lane is bound to a **workspace** (a temporary directory under `/tmp/`). The workspace holds:
+- A clone of the target repo
+- `.lane-state.json` — lane-local state
+- `.lane-memo.md` — handoff notes between actors
+
+---
+
 ## Where this lives in code
 
 - Schema: `daedalus/workflows/code_review/migrations.py` (lanes table)
-- Selection: `daedalus/workflows/code_review/lane_selection.py` (which issues become lanes)
+- Selection config: `daedalus/workflows/code_review/lane_selection.py`
+- Selection logic: `daedalus/workflows/code_review/lane_selection.py` + `workspace.py`
 - State transitions: `daedalus/workflows/code_review/workflow.py` + `dispatch.py`
 - Read views: `daedalus/workflows/code_review/server/views.py`

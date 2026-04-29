@@ -175,28 +175,42 @@ Daedalus service
 
 ## `/workflow` — per-workflow operations
 
-| Command | What it does |
-|---|---|
-| `/workflow` | List installed workflows |
-| `/workflow <name>` | Show that workflow's `--help` |
-| `/workflow <name> <cmd> [args]` | Route to that workflow's CLI |
+|| Command | What it does |
+|---|---|---|
+|| `/workflow` | List installed workflows |
+|| `/workflow <name>` | Show that workflow's `--help` |
+|| `/workflow <name> <cmd> [args]` | Route to that workflow's CLI |
 
 ### `code-review` workflow shortcuts (the common ones)
 
-| Command | What it does |
-|---|---|
-| `/workflow code-review status` | Lane state + `nextAction` |
-| `/workflow code-review tick` | One workflow tick |
-| `/workflow code-review show-active-lane` | Current active GitHub issue |
-| `/workflow code-review show-lane-state` | `.lane-state.json` contents |
-| `/workflow code-review show-lane-memo` | `.lane-memo.md` contents |
-| `/workflow code-review dispatch-implementation-turn` | Force a coder turn |
-| `/workflow code-review dispatch-claude-review` | Force an internal Claude review |
-| `/workflow code-review publish-ready-pr` | Force PR publish |
-| `/workflow code-review merge-and-promote` | Force merge + promote next lane |
-| `/workflow code-review reconcile` | Repair stale ledger state |
-| `/workflow code-review pause` | Disable lane processing |
-| `/workflow code-review resume` | Re-enable |
+|| Command | What it does |
+|---|---|---|
+|| `/workflow code-review status` | Lane state + `nextAction` |
+|| `/workflow code-review tick` | One workflow tick |
+|| `/workflow code-review show-active-lane` | Current active GitHub issue |
+|| `/workflow code-review show-lane-state` | `.lane-state.json` contents |
+|| `/workflow code-review show-lane-memo` | `.lane-memo.md` contents |
+|| `/workflow code-review dispatch-implementation-turn` | Force a coder turn |
+|| `/workflow code-review dispatch-claude-review` | Force an internal Claude review |
+|| `/workflow code-review publish-ready-pr` | Force PR publish |
+|| `/workflow code-review merge-and-promote` | Force merge + promote next lane |
+|| `/workflow code-review reconcile` | Repair stale ledger state |
+|| `/workflow code-review pause` | Disable lane processing |
+|| `/workflow code-review resume` | Re-enable |
+
+### Webhook commands
+
+|| Command | What it does |
+|---|---|---|
+|| `/workflow code-review webhooks status` | Show configured webhook subscribers |
+|| `/workflow code-review webhooks test` | Fire a test event to all webhooks |
+
+### Comments commands
+
+|| Command | What it does |
+|---|---|---|
+|| `/workflow code-review comments status` | Show comment publisher state |
+|| `/workflow code-review comments sync` | Force a comment sync for current lane |
 
 ## Most useful day-to-day, in order
 

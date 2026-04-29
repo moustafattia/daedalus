@@ -66,6 +66,46 @@ flowchart LR
 
 `workflows.code_review.event_taxonomy.canonicalize(event_type)` resolves either form to the current canonical name.
 
+## Event writer
+
+Events are appended by `daedalus/runtime.py::append_daedalus_event`. The function:
+
+1. Builds the event dict with `type`, `lane_id`, `at`, and `payload`
+2. Atomically appends one JSON line to `daedalus-events.jsonl`
+3. Never blocks on a full disk — if the write fails, the event is dropped and a warning is emitted
+
+### File rotation
+
+The JSONL file is **not rotated automatically**. For long-lived deployments:
+
+- Archive old logs: `mv daedalus-events.jsonl daedalus-events-$(date +%Y%m%d).jsonl`
+- The next event write creates a fresh `daedalus-events.jsonl`
+- No data is lost if you archive while the process is running (append is atomic)
+
+### Event schema
+
+All events share a common envelope:
+
+```json
+{
+  "type": "daedalus.turn_completed",
+  "lane_id": "lane:220",
+  "issue_number": 42,
+  "actor_id": "coder-claude-1",
+  "at": "2026-04-28T14:03:11Z",
+  "payload": { ... }
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `type` | ✅ | Canonical event type. |
+| `lane_id` | ❌ | Present for lane-scoped events. |
+| `issue_number` | ❌ | Present for lane-scoped events. |
+| `actor_id` | ❌ | Present for actor-scoped events. |
+| `at` | ✅ | ISO-8601 UTC timestamp. |
+| `payload` | ✅ | Event-specific data. |
+
 ## Reading events efficiently
 
 The dashboard tails the last 20 events on every HTTP hit. Naïve `readlines()` is O(file size); the implementation in `daedalus/workflows/code_review/server/views.py::_read_events_tail` uses an 8 KiB reverse-chunked seek so request cost is bounded regardless of how big the log gets. Same algorithm if you write your own consumer.

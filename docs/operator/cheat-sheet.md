@@ -303,6 +303,60 @@ python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/daedalus/runtime.py request
 
 ---
 
+## 11.5. Webhook debugging
+
+### Show configured webhooks
+```bash
+python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/daedalus/workflows/__main__.py \
+  --workflow-root ~/\.hermes/workflows/yoyopod status --json | jq '.webhooks'
+```
+
+### Test a webhook manually
+```bash
+# Trigger a test event to all configured webhooks
+python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/daedalus/workflows/__main__.py \
+  --workflow-root ~/\.hermes/workflows/yoyopod dispatch-test-webhook --event action=test
+```
+
+---
+
+## 11.6. Comments debugging
+
+### Show comment publisher state
+```bash
+python3 ~/\.hermes/workflows/yoyopod/.hermes/plugins/daedalus/workflows/__main__.py \
+  --workflow-root ~/\.hermes/workflows/yoyopod status --json | jq '.comments'
+```
+
+### Force a comment sync
+```bash
+/daedalus set-observability --workflow code-review --github-comments on
+# Then trigger any action; the comment will update on the next tick.
+```
+
+---
+
+## 11.7. Config hot-reload debugging
+
+### Check if a bad workflow.yaml is being ignored
+```bash
+/daedalus doctor
+```
+Look for `config_reload_failed` in the event tail or doctor output.
+
+### Force a config re-read
+```bash
+# Touch the file; the next tick will pick it up.
+touch ~/.hermes/workflows/yoyopod/workflow.yaml
+```
+
+### Show effective config (merged layers)
+```bash
+/daedalus get-observability --workflow code-review
+```
+
+---
+
 ## 12. Common failure signatures
 
 ### A. Wrapper says `run_claude_review`, Daedalus returns `[]`

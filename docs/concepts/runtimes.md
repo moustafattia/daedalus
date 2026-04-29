@@ -20,8 +20,8 @@ class Runtime(Protocol):
 
 ## Adapter shape comparison
 
-| | `claude-cli` | `acpx-codex` | `hermes-agent` |
-|---|---|---|---|
+|| | `claude-cli` | `acpx-codex` | `hermes-agent` |
+|---|---|---|---|---|
 | Persistent session | ❌ one-shot | ✅ resumable | ❌ one-shot |
 | `ensure_session` | no-op | `acpx codex sessions ensure` | no-op |
 | `run_prompt` | `claude --print …` | `acpx codex prompt -s <name>` | requires `command:` override |
@@ -53,6 +53,20 @@ agents:
 ```
 
 The preflight pass walks `runtimes.<name>.kind` and `agents.external-reviewer.kind` to confirm every referenced runtime resolves to a registered adapter before a tick dispatches.
+
+### `hermes-agent` runtime
+
+The `hermes-agent` runtime delegates turns to a local Hermes agent process. It is **one-shot** (no persistent session) and requires a `command:` override in `workflow.yaml` because the exact invocation depends on the agent's entry point.
+
+```yaml
+runtimes:
+  my-agent-runtime:
+    kind: hermes-agent
+    command: ["python3", "-m", "my_agent", "--workflow-root", "{{workflow_root}}"]
+    timeout-seconds: 1200
+```
+
+Because it is one-shot, `assess_health` always returns healthy and `last_activity_ts` records the subprocess start/end timestamps.
 
 ## Adding a new runtime
 

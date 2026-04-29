@@ -81,13 +81,18 @@ Every meaningful handoff should survive:
 
 ## 3.1 Core files
 - `__init__.py` — plugin registration
+- `plugin.yaml` — plugin manifest
 - `daedalus/schemas.py` — CLI/slash parser schema
 - `daedalus/tools.py` — operator surface and service helpers
 - `daedalus/runtime.py` — durable Daedalus engine
 - `daedalus/alerts.py` — outage alert logic
-- `plugin.yaml` — plugin manifest
-- `daedalus/skills/operator/SKILL.md` — operator usage guidance
+- `daedalus/watch.py` — TUI frame renderer for `/daedalus watch`
+- `daedalus/watch_sources.py` — watch source aggregation (lanes + alerts + events)
+- `daedalus/formatters.py` — inspection output formatting (status, doctor, shadow-report)
+- `daedalus/migration.py` — relay→daedalus filesystem migration
+- `daedalus/observability_overrides.py` — operator observability config overrides
 - `scripts/install.py` / `scripts/install.sh` — plugin installation
+- `scripts/migrate_config.py` — config path migration helper
 
 ## 3.2 Responsibility split
 
@@ -118,6 +123,20 @@ Implements the real orchestration model:
 
 ### `daedalus/alerts.py`
 Isolates outage alert decision logic from orchestration logic.
+
+### `daedalus/watch.py` + `watch_sources.py`
+Implements the `/daedalus watch` TUI. `watch_sources.py` aggregates three sources into a snapshot dict:
+- `active_lanes` — from SQLite
+- `alert_state` — from `alerts.py` output
+- `recent_events` — from JSONL tail
+
+`watch.py` renders the snapshot into a Rich panel layout. Supports both live mode (1s refresh) and one-shot mode (`--once`).
+
+### `daedalus/formatters.py`
+Human-readable panel renderer for all `/daedalus` inspection commands. Each command (`status`, `doctor`, `shadow-report`, `active-gate-status`, `service-status`, `get-observability`) has a dedicated formatter that builds `Section` + `Row` objects and calls `format_panel`. ANSI color is auto-detected; `--format json` bypasses formatting entirely.
+
+### `daedalus/migration.py` + `observability_overrides.py`
+`migration.py` handles relay→daedalus filesystem renames (idempotent). `observability_overrides.py` reads/writes the `observability-overrides.json` file that lets operators change GitHub-comments behavior without editing `workflow.yaml`.
 
 ---
 
