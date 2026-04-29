@@ -66,7 +66,8 @@ Daedalus warned Icarus, then flew home. Edits take effect on the next tick. A ba
 Daedalus is ready to publish on one explicit path:
 
 - **Platform:** Linux
-- **Plugin home:** `~/.hermes/plugins/daedalus`
+- **Install path:** `hermes plugins install attmous/daedalus --enable`
+- **Plugin home after install:** `~/.hermes/plugins/daedalus`
 - **Workflow root:** `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`
 - **Host Python:** `python3` with `yaml` and `jsonschema` available
 - **24/7 supervision:** `systemd --user`
@@ -77,19 +78,15 @@ If you want the exact operator contract we support, read [docs/public-contract.m
 ## Install & quick start
 
 ```bash
-# 1. Get the code
-git clone https://github.com/attmous/daedalus.git
-cd daedalus
-
-# 2. Make sure host python has the runtime deps
+# 1. Make sure host python has the runtime deps
 # Debian/Ubuntu example:
 sudo apt install python3-yaml python3-jsonschema
 
-# 3. Install the plugin into your Hermes home
-./scripts/install.sh
+# 2. Install and enable the plugin
+hermes plugins install attmous/daedalus --enable
 
-# 4. Scaffold one workflow instance
-python3 ~/.hermes/plugins/daedalus/tools.py scaffold-workflow \
+# 3. Scaffold one workflow instance
+hermes daedalus scaffold-workflow \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --github-slug your-org/your-repo
 ```
@@ -103,22 +100,22 @@ Edit `~/.hermes/workflows/your-org-your-repo-code-review/config/workflow.yaml` b
 Then initialize, verify, and supervise it:
 
 ```bash
-python3 ~/.hermes/plugins/daedalus/tools.py init \
+hermes daedalus init \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review
 
-python3 ~/.hermes/plugins/daedalus/tools.py doctor \
+hermes daedalus doctor \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --format json
 
-python3 ~/.hermes/plugins/daedalus/tools.py service-install \
+hermes daedalus service-install \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --service-mode active
 
-python3 ~/.hermes/plugins/daedalus/tools.py service-enable \
+hermes daedalus service-enable \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --service-mode active
 
-python3 ~/.hermes/plugins/daedalus/tools.py service-start \
+hermes daedalus service-start \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --service-mode active
 ```
@@ -126,7 +123,6 @@ python3 ~/.hermes/plugins/daedalus/tools.py service-start \
 Start Hermes in your repo:
 
 ```bash
-export HERMES_ENABLE_PROJECT_PLUGINS=true
 export DAEDALUS_WORKFLOW_ROOT=~/.hermes/workflows/your-org-your-repo-code-review
 cd /path/to/your/repo
 hermes
@@ -143,12 +139,28 @@ Inside Hermes:
 
 The full supported install path is documented in [docs/operator/installation.md](docs/operator/installation.md).
 
-Need a non-default plugin install location?
+Daedalus also ships a standard Hermes pip entry point. From a local checkout or
+published package, Hermes can discover it through `hermes_agent.plugins`:
 
 ```bash
+python3 -m pip install .
+hermes plugins enable daedalus
+```
+
+The Git install path above remains the primary community path because it is the
+most direct operator story and handles install + enable in one command.
+
+Need a local-dev fallback instead of `hermes plugins install`?
+
+```bash
+git clone https://github.com/attmous/daedalus.git
+cd daedalus
 ./scripts/install.sh --hermes-home /path/to/hermes-home    # custom Hermes home
 ./scripts/install.sh --destination /tmp/daedalus           # arbitrary destination
+hermes plugins enable daedalus
 ```
+
+`HERMES_ENABLE_PROJECT_PLUGINS=true` is only for project-local plugins under `./.hermes/plugins/`. It is not required for the supported global install path above.
 
 The full operator surface is in the [cheat sheet](docs/operator/cheat-sheet.md); every slash command is catalogued in [slash-commands.md](docs/operator/slash-commands.md).
 

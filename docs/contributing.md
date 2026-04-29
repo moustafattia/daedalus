@@ -31,7 +31,13 @@ The public onboarding path should stay green too:
 
 ```bash
 pytest tests/test_public_onboarding_smoke.py -v
+pytest tests/test_official_plugin_layout.py -v
+pytest tests/test_pip_plugin_packaging.py -v
 ```
+
+If you touch files loaded at runtime via `Path(__file__).parent` — prompts,
+skills, workflow templates, project packs, or `plugin.yaml` — keep the package
+metadata in `pyproject.toml` / `MANIFEST.in` and the packaging test green.
 
 ---
 

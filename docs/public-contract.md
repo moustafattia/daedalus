@@ -7,9 +7,11 @@ This document defines the stability boundary for the first public Daedalus relea
 These are the surfaces we should treat as `v1` public contract:
 
 - `config/workflow.yaml` for workflow instance configuration
-- `python3 ~/.hermes/plugins/daedalus/tools.py scaffold-workflow`
-- `python3 ~/.hermes/plugins/daedalus/tools.py init`
-- `python3 ~/.hermes/plugins/daedalus/tools.py service-*`
+- `hermes plugins install attmous/daedalus --enable`
+- the `hermes_agent.plugins` entry point name `daedalus`
+- `hermes daedalus scaffold-workflow`
+- `hermes daedalus init`
+- `hermes daedalus service-*`
 - `/daedalus ...` operator commands
 - `/workflow <name> ...` workflow commands
 - the workflow root naming convention: `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`

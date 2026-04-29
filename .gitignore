@@ -5,6 +5,9 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 .claude/
+build/
+dist/
+*.egg-info/
 content/*
 daedalus/projects/*/runtime/*
 !daedalus/projects/*/runtime/README.md

@@ -20,10 +20,8 @@ If your host does not have those runtimes, edit `workflow.yaml` before starting 
 ## Install the plugin
 
 ```bash
-git clone https://github.com/attmous/daedalus.git
-cd daedalus
 sudo apt install python3-yaml python3-jsonschema
-./scripts/install.sh
+hermes plugins install attmous/daedalus --enable
 ```
 
 The plugin source of truth is:
@@ -32,10 +30,19 @@ The plugin source of truth is:
 ~/.hermes/plugins/daedalus
 ```
 
+Daedalus also ships a standard Hermes pip plugin entry point. If you install it
+as a Python package instead of through `hermes plugins install`, Hermes will
+discover it on the next startup and you must enable it explicitly:
+
+```bash
+python3 -m pip install .
+hermes plugins enable daedalus
+```
+
 ## Scaffold a workflow root
 
 ```bash
-python3 ~/.hermes/plugins/daedalus/tools.py scaffold-workflow \
+hermes daedalus scaffold-workflow \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --github-slug your-org/your-repo
 ```
@@ -63,10 +70,10 @@ At minimum, set:
 ## Initialize and verify
 
 ```bash
-python3 ~/.hermes/plugins/daedalus/tools.py init \
+hermes daedalus init \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review
 
-python3 ~/.hermes/plugins/daedalus/tools.py doctor \
+hermes daedalus doctor \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --format json
 ```
@@ -74,15 +81,15 @@ python3 ~/.hermes/plugins/daedalus/tools.py doctor \
 ## Supervise it
 
 ```bash
-python3 ~/.hermes/plugins/daedalus/tools.py service-install \
+hermes daedalus service-install \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --service-mode active
 
-python3 ~/.hermes/plugins/daedalus/tools.py service-enable \
+hermes daedalus service-enable \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --service-mode active
 
-python3 ~/.hermes/plugins/daedalus/tools.py service-start \
+hermes daedalus service-start \
   --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
   --service-mode active
 ```
@@ -92,7 +99,6 @@ Use `--service-mode shadow` if you want read-only parity validation first.
 ## Operate it from Hermes
 
 ```bash
-export HERMES_ENABLE_PROJECT_PLUGINS=true
 export DAEDALUS_WORKFLOW_ROOT=~/.hermes/workflows/your-org-your-repo-code-review
 cd /path/to/your/repo
 hermes
@@ -104,6 +110,41 @@ Then use:
 /daedalus status
 /daedalus doctor
 /workflow code-review status
+```
+
+## Plugin state
+
+Hermes plugins are opt-in. `hermes plugins install ... --enable` is the
+supported path because it installs the repo and enables the plugin in one step.
+
+If you install Daedalus by some other method, enable it explicitly:
+
+```bash
+hermes plugins enable daedalus
+```
+
+`HERMES_ENABLE_PROJECT_PLUGINS=true` is only for project-local plugins under
+`./.hermes/plugins/`. It is not required for a global `~/.hermes/plugins/daedalus`
+install.
+
+## Manage the plugin
+
+```bash
+hermes plugins list
+hermes plugins update daedalus
+hermes plugins disable daedalus
+```
+
+## Local-dev fallback
+
+If you want to install straight from a local checkout instead of the Hermes
+plugin manager:
+
+```bash
+git clone https://github.com/attmous/daedalus.git
+cd daedalus
+./scripts/install.sh
+hermes plugins enable daedalus
 ```
 
 ## Legacy migration

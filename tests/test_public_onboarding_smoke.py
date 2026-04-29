@@ -78,7 +78,13 @@ def test_public_onboarding_path_install_scaffold_init_and_supervise(tmp_path, mo
 def test_readme_quickstart_mentions_supported_public_path():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
+    assert "hermes plugins install attmous/daedalus --enable" in readme
+    assert "hermes daedalus scaffold-workflow" in readme
     assert "scaffold-workflow" in readme
     assert "service-install" in readme
     assert "docs/operator/installation.md" in readme
     assert "docs/public-contract.md" in readme
+    assert "python3 -m pip install ." in readme
+    assert "hermes plugins enable daedalus" in readme
+    assert "HERMES_ENABLE_PROJECT_PLUGINS=true" in readme
+    assert "project-local plugins" in readme
