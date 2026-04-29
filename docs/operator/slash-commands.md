@@ -4,7 +4,7 @@ Quick reference for the two slash commands the plugin registers in Hermes:
 `/daedalus` (engine + service control) and `/workflow` (per-workflow operations).
 
 For the operator playbook ("when something looks wrong, do X"), see
-`docs/operator-cheat-sheet.md`. This file is a flat catalog: every command,
+`docs/operator/cheat-sheet.md`. This file is a flat catalog: every command,
 grouped by purpose, with a one-line description.
 
 ## `/daedalus` — engine + service control

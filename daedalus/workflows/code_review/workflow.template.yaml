@@ -18,6 +18,8 @@ repository:
   active-lane-label: active-lane
 
 runtimes:
+  # These runtime kinds are host prerequisites. Change them if your
+  # environment uses a different adapter mix.
   coder-runtime:
     kind: acpx-codex
     session-idle-freshness-seconds: 900

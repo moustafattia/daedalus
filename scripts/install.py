@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import sys
 from pathlib import Path
 
 PLUGIN_NAME = "daedalus"
@@ -30,7 +31,12 @@ PAYLOAD_ITEMS = [
 
 
 def _check_runtime_deps() -> None:
-    """Fail early if PyYAML or jsonschema are missing on the host python."""
+    """Fail early if the supported host python/runtime deps are missing."""
+    if sys.version_info < (3, 10):
+        raise RuntimeError(
+            "daedalus plugin requires python3 >= 3.10 on the host "
+            "(see docs/operator/installation.md)"
+        )
     missing = []
     try:
         import yaml  # noqa: F401
@@ -44,6 +50,7 @@ def _check_runtime_deps() -> None:
         raise RuntimeError(
             "daedalus plugin requires the following python modules on the host: "
             + ", ".join(missing)
+            + " (see docs/operator/installation.md)"
         )
 
 

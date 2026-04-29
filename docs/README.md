@@ -5,7 +5,9 @@ Entry point for everything that won't fit on the [project landing page](../READM
 ## Start here
 
 - **[architecture.md](architecture.md)** — the big picture. What Daedalus is, what it isn't, how the pieces fit together.
+- **[operator/installation.md](operator/installation.md)** — the supported install, scaffold, verify, and supervise flow.
 - **[examples/code-review.workflow.yaml](examples/code-review.workflow.yaml)** — copyable public baseline for `config/workflow.yaml`.
+- **[public-contract.md](public-contract.md)** — the stability boundary for the first public release.
 
 ## Concepts
 
@@ -41,10 +43,11 @@ Day-2 commands and observability.
 docs/
 ├── README.md                this file
 ├── architecture.md          big picture
+├── public-contract.md       stable public surfaces for the first release
 │
 ├── concepts/                "what does X mean" — one file per abstraction
 ├── examples/                copyable config baselines
-├── operator/                day-2 surface — cheat sheets, commands, endpoints
+├── operator/                install + day-2 surface — cheat sheets, commands, endpoints
 │
 ├── adr/                     architectural decisions (immutable record)
 ├── design/                  implementation specs that shipped

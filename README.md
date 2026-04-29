@@ -61,6 +61,19 @@ Daedalus warned Icarus, then flew home. Edits take effect on the next tick. A ba
 - **Operator commands** — `/daedalus status`, `/daedalus doctor`, `/workflow code-review status`, `/workflow code-review tick`.
 - **Live status dashboard** — ships separately as a Hermes-Agent watch plugin.
 
+## Supported path
+
+Daedalus is ready to publish on one explicit path:
+
+- **Platform:** Linux
+- **Plugin home:** `~/.hermes/plugins/daedalus`
+- **Workflow root:** `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`
+- **Host Python:** `python3` with `yaml` and `jsonschema` available
+- **24/7 supervision:** `systemd --user`
+- **Runtime adapters:** whatever `workflow.yaml` names must exist on the host (`acpx-codex`, `claude-cli`, `hermes-agent`, ...).
+
+If you want the exact operator contract we support, read [docs/public-contract.md](docs/public-contract.md).
+
 ## Install & quick start
 
 ```bash
@@ -68,24 +81,69 @@ Daedalus warned Icarus, then flew home. Edits take effect on the next tick. A ba
 git clone https://github.com/attmous/daedalus.git
 cd daedalus
 
-# 2. Install into your Hermes home
+# 2. Make sure host python has the runtime deps
+# Debian/Ubuntu example:
+sudo apt install python3-yaml python3-jsonschema
+
+# 3. Install the plugin into your Hermes home
 ./scripts/install.sh
 
-# 3. Launch Hermes with project plugins enabled
+# 4. Scaffold one workflow instance
+python3 ~/.hermes/plugins/daedalus/tools.py scaffold-workflow \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --github-slug your-org/your-repo
+```
+
+Edit `~/.hermes/workflows/your-org-your-repo-code-review/config/workflow.yaml` before starting the engine:
+
+- set `repository.local-path`
+- confirm the runtime kinds you actually have installed
+- tune agents/models/gates for your repo
+
+Then initialize, verify, and supervise it:
+
+```bash
+python3 ~/.hermes/plugins/daedalus/tools.py init \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review
+
+python3 ~/.hermes/plugins/daedalus/tools.py doctor \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --format json
+
+python3 ~/.hermes/plugins/daedalus/tools.py service-install \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --service-mode active
+
+python3 ~/.hermes/plugins/daedalus/tools.py service-enable \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --service-mode active
+
+python3 ~/.hermes/plugins/daedalus/tools.py service-start \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --service-mode active
+```
+
+Start Hermes in your repo:
+
+```bash
 export HERMES_ENABLE_PROJECT_PLUGINS=true
-cd <project-root>
+export DAEDALUS_WORKFLOW_ROOT=~/.hermes/workflows/your-org-your-repo-code-review
+cd /path/to/your/repo
 hermes
 ```
 
 Inside Hermes:
 
 ```text
+
 /daedalus status
 /daedalus doctor
 /workflow code-review status
 ```
 
-**Need a non-default install location?**
+The full supported install path is documented in [docs/operator/installation.md](docs/operator/installation.md).
+
+Need a non-default plugin install location?
 
 ```bash
 ./scripts/install.sh --hermes-home /path/to/hermes-home    # custom Hermes home
@@ -134,6 +192,8 @@ A **labeled issue** is the trigger. The **engine** ticks; for every active issue
 ## Documentation
 
 - **[docs/architecture.md](docs/architecture.md)** — the big picture, end to end.
+- **[docs/operator/installation.md](docs/operator/installation.md)** — the supported install, scaffold, verify, and supervise path.
+- **[docs/public-contract.md](docs/public-contract.md)** — the stability boundary for the first public release.
 - **[docs/concepts/](docs/concepts/)** — short explainers for each moving part: lanes, leases, runtimes, events, hot-reload, stalls.
 - **[docs/operator/](docs/operator/)** — day-to-day commands, the operator cheat sheet, the full slash-command catalogue.
 

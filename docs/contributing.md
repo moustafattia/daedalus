@@ -11,6 +11,9 @@ So you want to hack on Daedalus? Welcome. This doc covers how to run tests, add 
 git clone https://github.com/attmous/daedalus.git
 cd daedalus
 
+# Install contributor/test deps
+python3 -m pip install -r requirements-dev.txt
+
 # Install (into your Hermes home)
 ./scripts/install.sh
 
@@ -22,6 +25,12 @@ pytest tests/test_stall_detection.py -v
 
 # Run with coverage
 pytest --cov=daedalus --cov-report=term-missing
+```
+
+The public onboarding path should stay green too:
+
+```bash
+pytest tests/test_public_onboarding_smoke.py -v
 ```
 
 ---

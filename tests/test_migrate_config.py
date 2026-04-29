@@ -62,10 +62,20 @@ def _sample_old_json():
 def test_migrate_emits_valid_workflow_yaml(tmp_path):
     json_path = tmp_path / "legacy-workflow.json"
     json_path.write_text(json.dumps(_sample_old_json()), encoding="utf-8")
-    yaml_path = tmp_path / "workflow.yaml"
+    workflow_root = tmp_path / "attmous-daedalus-code-review"
+    yaml_path = workflow_root / "config" / "workflow.yaml"
 
     result = subprocess.run(
-        [sys.executable, str(MIGRATE_SCRIPT), str(json_path), str(yaml_path)],
+        [
+            sys.executable,
+            str(MIGRATE_SCRIPT),
+            str(json_path),
+            str(yaml_path),
+            "--github-slug",
+            "attmous/daedalus",
+            "--milestone-chat-id",
+            "123456",
+        ],
         capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0, result.stderr
@@ -82,14 +92,50 @@ def test_migrate_emits_valid_workflow_yaml(tmp_path):
     assert cfg["workflow"] == "code-review"
     assert cfg["schema-version"] == 1
     assert cfg["instance"]["engine-owner"] == "hermes"
+    assert cfg["instance"]["name"] == "attmous-daedalus-code-review"
     assert cfg["repository"]["local-path"] == "/home/radxa/.hermes/workspaces/example-repo"
     assert cfg["runtimes"]["acpx-codex"]["session-idle-freshness-seconds"] == 900
     assert cfg["runtimes"]["claude-cli"]["max-turns-per-invocation"] == 24
     assert cfg["agents"]["coder"]["default"]["model"] == "gpt-5.3-codex-spark/high"
     assert cfg["agents"]["internal-reviewer"]["model"] == "claude-sonnet-4-6"
     assert cfg["agents"]["external-reviewer"]["provider"] == "codex-cloud"
-    assert cfg["repository"]["github-slug"] == "FIXME/FIXME"
-    assert cfg["schedules"]["milestone-notifier"]["delivery"]["chat-id"] == "FIXME_CHAT_ID"
+    assert cfg["repository"]["github-slug"] == "attmous/daedalus"
+    assert cfg["schedules"]["milestone-notifier"]["delivery"]["chat-id"] == "123456"
+
+
+def test_migrate_requires_github_slug_when_legacy_json_has_none(tmp_path):
+    json_path = tmp_path / "legacy-workflow.json"
+    payload = _sample_old_json()
+    payload.pop("githubSlug", None)
+    payload.pop("repositorySlug", None)
+    json_path.write_text(json.dumps(payload), encoding="utf-8")
+    yaml_path = tmp_path / "workflow.yaml"
+
+    result = subprocess.run(
+        [sys.executable, str(MIGRATE_SCRIPT), str(json_path), str(yaml_path)],
+        capture_output=True, text=True, check=False,
+    )
+
+    assert result.returncode == 2
+    assert "--github-slug" in result.stderr
+    assert not yaml_path.exists()
+
+
+def test_migrate_omits_milestone_notifier_when_no_chat_id_is_available(tmp_path):
+    json_path = tmp_path / "legacy-workflow.json"
+    payload = _sample_old_json()
+    payload["githubSlug"] = "attmous/daedalus"
+    json_path.write_text(json.dumps(payload), encoding="utf-8")
+    yaml_path = tmp_path / "workflow.yaml"
+
+    result = subprocess.run(
+        [sys.executable, str(MIGRATE_SCRIPT), str(json_path), str(yaml_path)],
+        capture_output=True, text=True, check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    cfg = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    assert "milestone-notifier" not in cfg["schedules"]
 
 
 def test_migrate_refuses_to_overwrite_existing_yaml(tmp_path):

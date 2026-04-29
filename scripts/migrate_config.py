@@ -1,39 +1,113 @@
 #!/usr/bin/env python3
 """One-shot migrator: legacy workflow JSON -> workflow.yaml.
 
-Usage: python3 scripts/migrate_config.py <old-json-path> <new-yaml-path>
-
-Reads the legacy JSON, projects each setting into its new YAML location
-under the shape defined by workflows/code_review/schema.yaml, and writes
-the YAML file. The legacy JSON is NOT deleted by this script — do that
-manually after verifying the migration.
+This script exists only to carry older JSON configs into the public
+``workflow.yaml`` contract. It is not the primary onboarding path for new
+installs; new users should use ``scaffold-workflow`` instead.
 """
 from __future__ import annotations
 
+import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
 import yaml
 
 
-def convert(old: dict) -> dict:
+def _normalize_segment(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    if not normalized:
+        raise ValueError(f"unable to derive instance name segment from {value!r}")
+    return normalized
+
+
+def _derive_instance_name(*, github_slug: str, new_path: Path, old: dict) -> str:
+    if new_path.name == "workflow.yaml" and new_path.parent.name == "config":
+        root_name = new_path.parent.parent.name.strip()
+        if root_name:
+            return root_name
+    legacy_name = Path(old.get("ledgerPath", "")).parent.parent.name.strip()
+    if legacy_name:
+        return legacy_name
+    owner, repo = _parse_github_slug(github_slug)
+    return f"{_normalize_segment(owner)}-{_normalize_segment(repo)}-code-review"
+
+
+def _parse_github_slug(value: str) -> tuple[str, str]:
+    parts = [part.strip() for part in value.split("/", 1)]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError("expected owner/repo")
+    return parts[0], parts[1]
+
+
+def _resolve_github_slug(*, old: dict, override: str | None) -> str:
+    github_slug = (
+        (override or "").strip()
+        or str(old.get("githubSlug") or "").strip()
+        or str(old.get("repositorySlug") or "").strip()
+    )
+    if not github_slug:
+        raise ValueError(
+            "github slug missing in legacy config; pass --github-slug owner/repo"
+        )
+    _parse_github_slug(github_slug)
+    return github_slug
+
+
+def _resolve_milestone_chat_id(*, old: dict, override: str | None) -> str | None:
+    if override:
+        return override
+    schedules = old.get("schedules") or {}
+    milestone = schedules.get("milestone-notifier") or schedules.get("milestoneNotifier") or {}
+    delivery = milestone.get("delivery") or {}
+    for candidate in (
+        delivery.get("chat-id"),
+        delivery.get("chatId"),
+        old.get("milestoneNotifierChatId"),
+    ):
+        value = str(candidate or "").strip()
+        if value:
+            return value
+    return None
+
+
+def convert(
+    old: dict,
+    *,
+    new_path: Path,
+    github_slug_override: str | None = None,
+    milestone_chat_id: str | None = None,
+) -> dict:
     session = old.get("sessionPolicy", {}) or {}
     review = old.get("reviewPolicy", {}) or {}
     labels = old.get("agentLabels", {}) or {}
 
     engine_owner = old.get("engineOwner", "openclaw")
     repo_path = old.get("repoPath", "")
-    # Infer workspace name from paths (used as instance.name).
-    instance_name = Path(old.get("ledgerPath", "")).parent.parent.name or "default"
-
-    # Do not guess a repository slug from host-specific path conventions.
-    # Carry any explicit legacy field forward; otherwise require operator fixup.
-    github_slug = (
-        old.get("githubSlug")
-        or old.get("repositorySlug")
-        or "FIXME/FIXME"
+    github_slug = _resolve_github_slug(old=old, override=github_slug_override)
+    instance_name = _derive_instance_name(
+        github_slug=github_slug,
+        new_path=new_path,
+        old=old,
     )
+    resolved_milestone_chat_id = _resolve_milestone_chat_id(
+        old=old,
+        override=milestone_chat_id,
+    )
+
+    schedules = {
+        "watchdog-tick": {"interval-minutes": 5},
+    }
+    if resolved_milestone_chat_id:
+        schedules["milestone-notifier"] = {
+            "interval-hours": 1,
+            "delivery": {
+                "channel": "telegram",
+                "chat-id": resolved_milestone_chat_id,
+            },
+        }
 
     return {
         "workflow": "code-review",
@@ -148,16 +222,7 @@ def convert(old: dict) -> dict:
             "lane-counter-increment-min-seconds": int(session.get("laneCounterIncrementMinSeconds", 240)),
         },
 
-        "schedules": {
-            "watchdog-tick": {"interval-minutes": 5},
-            "milestone-notifier": {
-                "interval-hours": 1,
-                "delivery": {
-                    "channel": "telegram",
-                    "chat-id": "FIXME_CHAT_ID",
-                },
-            },
-        },
+        "schedules": schedules,
 
         "prompts": {
             "internal-review": "internal-review-strict",
@@ -182,12 +247,27 @@ def convert(old: dict) -> dict:
     }
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Migrate a legacy workflow JSON config into workflow.yaml.",
+    )
+    parser.add_argument("old_json_path", help="Path to the legacy JSON config.")
+    parser.add_argument("new_yaml_path", help="Destination workflow.yaml path.")
+    parser.add_argument(
+        "--github-slug",
+        help="Repository slug in owner/repo form. Required when the legacy JSON does not carry one.",
+    )
+    parser.add_argument(
+        "--milestone-chat-id",
+        help="Optional Telegram chat id for the milestone-notifier schedule. When omitted, that schedule is left out.",
+    )
+    return parser
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("usage: migrate_config.py <old-json-path> <new-yaml-path>", file=sys.stderr)
-        return 2
-    old_path = Path(argv[0]).expanduser().resolve()
-    new_path = Path(argv[1]).expanduser().resolve()
+    args = build_parser().parse_args(argv)
+    old_path = Path(args.old_json_path).expanduser().resolve()
+    new_path = Path(args.new_yaml_path).expanduser().resolve()
     if not old_path.exists():
         print(f"input JSON not found: {old_path}", file=sys.stderr)
         return 1
@@ -195,7 +275,16 @@ def main(argv: list[str]) -> int:
         print(f"refusing to overwrite existing file: {new_path}", file=sys.stderr)
         return 1
     old = json.loads(old_path.read_text(encoding="utf-8"))
-    new = convert(old)
+    try:
+        new = convert(
+            old,
+            new_path=new_path,
+            github_slug_override=args.github_slug,
+            milestone_chat_id=args.milestone_chat_id,
+        )
+    except ValueError as exc:
+        print(f"migration error: {exc}", file=sys.stderr)
+        return 2
     new_path.parent.mkdir(parents=True, exist_ok=True)
     new_path.write_text(yaml.safe_dump(new, sort_keys=False, default_flow_style=False), encoding="utf-8")
     print(f"wrote {new_path}")
