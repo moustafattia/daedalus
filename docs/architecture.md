@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Daedalus Architecture Diagram](assets/daedalus-architecture-diagram.html)
+![Daedalus Architecture Diagram](assets/daedalus-architecture-diagram.svg)
 
 > **Daedalus is a durable orchestration runtime that wraps an SDLC workflow brain with leases, canonical state, action queues, role handoffs, retries, and operator tooling so agentic lanes can run continuously without turning into invisible cron-driven chaos.**
 
