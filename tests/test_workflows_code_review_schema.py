@@ -89,6 +89,7 @@ def test_schema_accepts_codex_app_server_runtime_for_coder():
         "command": "codex app-server",
         "mode": "managed",
         "ephemeral": False,
+        "keep_alive": False,
         "approval_policy": "never",
         "thread_sandbox": "workspace-write",
         "turn_sandbox_policy": "workspace-write",

@@ -329,6 +329,10 @@ def test_issue_runner_tick_uses_codex_app_server_and_persists_metrics(tmp_path):
     assert status["metrics"]["tokens"]["total_tokens"] == 18
     assert status["metrics"]["rate_limits"]["requests_remaining"] == 99
     assert status["scheduler"]["codex_threads"]["ISSUE-1"]["thread_id"] == "thread-1"
+    assert status["runtimeDiagnostics"]["codex"]["kind"] == "codex-app-server"
+    assert status["runtimeDiagnostics"]["codex"]["mode"] == "managed"
+    assert status["runtimeDiagnostics"]["codex"]["transport"] == "stdio"
+    assert status["runtimeDiagnostics"]["codex"]["keep_alive"] is False
 
 
 def test_issue_runner_codex_thread_mapping_persists_and_resumes(tmp_path):
@@ -758,6 +762,8 @@ def test_issue_runner_run_loop_reconciles_completed_worker_before_bounded_exit(t
         run=fake_run,
         run_json=lambda *args, **kwargs: {},
     )
+    close_calls = []
+    workspace.runtimes["default"].close = lambda: close_calls.append("closed")
     original_supervise_once = workspace.supervise_once
 
     def supervise_and_wait():
@@ -778,6 +784,7 @@ def test_issue_runner_run_loop_reconciles_completed_worker_before_bounded_exit(t
     assert status["scheduler"]["retry_queue"][0]["error"] == "continuation"
     scheduler = json.loads((workflow_root / "memory" / "workflow-scheduler.json").read_text(encoding="utf-8"))
     assert scheduler["running"] == []
+    assert close_calls == ["closed"]
 
 
 def test_issue_runner_run_loop_reconciles_completed_worker_before_interrupt_exit(tmp_path):
@@ -1040,6 +1047,41 @@ def test_issue_runner_run_loop_keeps_last_known_good_on_invalid_reload(tmp_path)
     assert result["last_result"]["ok"] is True
     events = (workflow_root / "memory" / "workflow-audit.jsonl").read_text(encoding="utf-8")
     assert "daedalus.config_reload_failed" in events
+
+
+def test_issue_runner_reload_closes_old_runtimes_when_no_workers_are_running(tmp_path):
+    from workflows.issue_runner.workspace import load_workspace_from_config
+
+    cfg = _config(tmp_path)
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    _write_issue_runner_contract(
+        workflow_root=workflow_root,
+        cfg=cfg,
+        issues=[],
+        prompt_template="Issue: {{ issue.identifier }}",
+    )
+    workflow_file = workflow_root / "WORKFLOW.md"
+
+    workspace = load_workspace_from_config(
+        workspace_root=workflow_root,
+        run=lambda *args, **kwargs: None,
+        run_json=lambda *args, **kwargs: {},
+    )
+    close_calls = []
+    workspace.runtimes["default"].close = lambda: close_calls.append("closed")
+
+    updated_cfg = dict(cfg)
+    updated_cfg["polling"] = {"interval_seconds": 5}
+    time.sleep(0.01)
+    workflow_file.write_text(
+        render_workflow_markdown(config=updated_cfg, prompt_template="Issue: {{ issue.identifier }}"),
+        encoding="utf-8",
+    )
+
+    workspace.reload_contract()
+
+    assert close_calls == ["closed"]
 
 
 def test_issue_runner_rejects_workspace_symlink_escape(tmp_path):

@@ -121,6 +121,7 @@ def test_issue_runner_schema_accepts_external_codex_app_server_runtime():
                 "healthcheck_path": "/readyz",
                 "ws_token_env": "CODEX_APP_SERVER_TOKEN",
                 "ephemeral": False,
+                "keep_alive": True,
                 "approval_policy": "never",
                 "thread_sandbox": "workspace-write",
                 "turn_sandbox_policy": "workspace-write",

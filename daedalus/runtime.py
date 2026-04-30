@@ -1624,8 +1624,9 @@ def _run_workspace_action(
     workflow_root: Path,
     action_name: str,
     cancel_event: Any | None = None,
+    workspace: Any | None = None,
 ) -> dict[str, Any]:
-    workspace = _load_legacy_workflow_module(workflow_root)
+    workspace = workspace if workspace is not None else _load_legacy_workflow_module(workflow_root)
     set_cancel_event = getattr(workspace, "set_active_cancel_event", None)
     if callable(set_cancel_event):
         set_cancel_event(cancel_event)
@@ -1638,43 +1639,64 @@ def _run_workspace_action(
 
 
 def _default_active_action_runners(*, workflow_root: Path) -> dict[str, Any]:
+    workspace_holder: dict[str, Any] = {}
+
+    def _workspace():
+        if "workspace" not in workspace_holder:
+            workspace_holder["workspace"] = _load_legacy_workflow_module(workflow_root)
+        return workspace_holder["workspace"]
+
+    def _run(action_name: str, *, cancel_event: Any | None = None) -> dict[str, Any]:
+        return _run_workspace_action(
+            workflow_root=workflow_root,
+            action_name=action_name,
+            cancel_event=cancel_event,
+            workspace=_workspace(),
+        )
+
+    def _close() -> None:
+        workspace = workspace_holder.get("workspace")
+        close = getattr(workspace, "close", None)
+        if callable(close):
+            close()
+
     return {
-        "dispatch_implementation_turn": lambda cancel_event=None: _run_workspace_action(
-            workflow_root=workflow_root,
-            action_name="dispatch_implementation_turn",
+        "__close__": _close,
+        "dispatch_implementation_turn": lambda cancel_event=None: _run(
+            "dispatch_implementation_turn",
             cancel_event=cancel_event,
         ),
-        "dispatch_repair_handoff": lambda cancel_event=None: _run_workspace_action(
-            workflow_root=workflow_root,
-            action_name="dispatch_repair_handoff",
+        "dispatch_repair_handoff": lambda cancel_event=None: _run(
+            "dispatch_repair_handoff",
             cancel_event=cancel_event,
         ),
-        "restart_actor_session": lambda cancel_event=None: _run_workspace_action(
-            workflow_root=workflow_root,
-            action_name="restart_actor_session",
+        "restart_actor_session": lambda cancel_event=None: _run(
+            "restart_actor_session",
             cancel_event=cancel_event,
         ),
-        "push_pr_update": lambda cancel_event=None: _run_workspace_action(
-            workflow_root=workflow_root,
-            action_name="push_pr_update",
+        "push_pr_update": lambda cancel_event=None: _run(
+            "push_pr_update",
             cancel_event=cancel_event,
         ),
-        "publish_pr": lambda cancel_event=None: _run_workspace_action(
-            workflow_root=workflow_root,
-            action_name="publish_ready_pr",
+        "publish_pr": lambda cancel_event=None: _run(
+            "publish_ready_pr",
             cancel_event=cancel_event,
         ),
-        "request_internal_review": lambda cancel_event=None: _run_workspace_action(
-            workflow_root=workflow_root,
-            action_name="dispatch_inter_review_agent_review",
+        "request_internal_review": lambda cancel_event=None: _run(
+            "dispatch_inter_review_agent_review",
             cancel_event=cancel_event,
         ),
-        "merge_pr": lambda cancel_event=None: _run_workspace_action(
-            workflow_root=workflow_root,
-            action_name="merge_and_promote",
+        "merge_pr": lambda cancel_event=None: _run(
+            "merge_and_promote",
             cancel_event=cancel_event,
         ),
     }
+
+
+def _close_action_runners(action_runners: dict[str, Any] | None) -> None:
+    close = (action_runners or {}).get("__close__")
+    if callable(close):
+        close()
 
 
 def _invoke_action_runner(runner: Any, *, cancel_event: Any | None = None) -> dict[str, Any]:
@@ -3063,6 +3085,7 @@ def execute_requested_action(
 ) -> dict[str, Any]:
     now_iso = now_iso or _now_iso()
     runners = _default_active_action_runners(workflow_root=workflow_root)
+    owned_action_runners = runners if action_runners is None else None
     if action_runners:
         runners.update(action_runners)
     paths = _runtime_paths(workflow_root)
@@ -3394,6 +3417,7 @@ def execute_requested_action(
         return {"executed": False, "action_id": action_id, "reason": "execution-failed", "error": failure_summary}
     finally:
         conn.close()
+        _close_action_runners(owned_action_runners)
     append_daedalus_event(
         event_log_path=paths["event_log_path"],
         event={
@@ -3947,6 +3971,10 @@ def run_active_loop(
     last_result = None
     supervised_iteration: dict[str, Any] | None = None
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="daedalus-change-delivery")
+    owned_action_runners = None
+    if action_runners is None:
+        owned_action_runners = _default_active_action_runners(workflow_root=workflow_root)
+        action_runners = owned_action_runners
     loop_status = "completed"
     try:
         while True:
@@ -4041,6 +4069,12 @@ def run_active_loop(
         if completed:
             last_result = completed[-1]
         executor.shutdown(wait=False, cancel_futures=False)
+        if supervised_iteration is None:
+            _close_action_runners(owned_action_runners)
+        elif owned_action_runners is not None:
+            future = supervised_iteration.get("future")
+            if isinstance(future, concurrent.futures.Future):
+                future.add_done_callback(lambda _future, runners=owned_action_runners: _close_action_runners(runners))
     return {
         "loop_status": loop_status,
         "instance_id": instance_id,

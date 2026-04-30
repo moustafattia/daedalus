@@ -312,6 +312,8 @@ definitions:
       ws_token_env: {type: string}
       ws_token_file: {type: string}
       ephemeral: {type: boolean}
+      keep_alive: {type: boolean}
+      keep-alive: {type: boolean}
       approval_policy:
         oneOf:
           - type: string

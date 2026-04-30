@@ -54,6 +54,7 @@ runtimes:
     mode: external
     endpoint: ws://127.0.0.1:4500
     ephemeral: false
+    keep_alive: true
     approval_policy: never
     thread_sandbox: workspace-write
     turn_sandbox_policy: workspace-write

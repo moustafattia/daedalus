@@ -544,6 +544,87 @@ def test_run_active_loop_cancels_supervised_iteration_when_active_lane_disappear
     assert any(event.get("event_type") == "daedalus.active_action_canceled" for event in events)
 
 
+def test_default_active_action_runners_reuse_workspace_and_close(runtime_module, tmp_path, monkeypatch):
+    calls = {"load": 0, "close": 0, "actions": []}
+
+    class FakeWorkspace:
+        def set_active_cancel_event(self, event):
+            calls.setdefault("cancel_events", []).append(event)
+
+        def dispatch_implementation_turn(self):
+            calls["actions"].append("dispatch")
+            return {"dispatched": True}
+
+        def close(self):
+            calls["close"] += 1
+
+    def load_workspace(_workflow_root):
+        calls["load"] += 1
+        return FakeWorkspace()
+
+    monkeypatch.setattr(runtime_module, "_load_legacy_workflow_module", load_workspace)
+    runners = runtime_module._default_active_action_runners(workflow_root=tmp_path)
+    cancel_event = threading.Event()
+
+    assert runners["dispatch_implementation_turn"](cancel_event=cancel_event) == {"dispatched": True}
+    assert runners["dispatch_implementation_turn"]() == {"dispatched": True}
+    runners["__close__"]()
+
+    assert calls["load"] == 1
+    assert calls["close"] == 1
+    assert calls["actions"] == ["dispatch", "dispatch"]
+    assert calls["cancel_events"] == [cancel_event, None, None, None]
+
+
+def test_active_loop_closes_owned_workspace_after_bounded_exit_worker_finishes(runtime_module, tmp_path, monkeypatch):
+    workflow_root = tmp_path / "workflow"
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    legacy_status = _active_dispatch_legacy_status()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "derive_shadow_actions_for_lane",
+        lambda **_kwargs: [{"action_type": "dispatch_implementation_turn", "reason": "implementation-in-progress", "target_head_sha": "abc123"}],
+    )
+
+    started = threading.Event()
+    release = threading.Event()
+    closed = threading.Event()
+
+    class FakeWorkspace:
+        def build_status(self):
+            return legacy_status
+
+        def set_active_cancel_event(self, _event):
+            return None
+
+        def dispatch_implementation_turn(self):
+            started.set()
+            assert release.wait(timeout=2)
+            return {"dispatched": True, "after": legacy_status}
+
+        def close(self):
+            closed.set()
+
+    monkeypatch.setattr(runtime_module, "_load_legacy_workflow_module", lambda _workflow_root: FakeWorkspace())
+
+    result = runtime_module.run_active_loop(
+        workflow_root=workflow_root,
+        project_key="workflow-example",
+        instance_id="active-test",
+        interval_seconds=1,
+        max_iterations=1,
+        sleep_fn=lambda _seconds: None,
+    )
+
+    assert result["loop_status"] == "completed"
+    assert result["running_iteration"] is not None
+    assert started.wait(timeout=2)
+    assert not closed.is_set()
+    release.set()
+    assert closed.wait(timeout=2)
+
+
 
 def test_doctor_reports_stuck_dispatched_actions(tools_module, monkeypatch):
     relay_stub = SimpleNamespace(

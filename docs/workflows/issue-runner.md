@@ -38,6 +38,25 @@ For each eligible tracker issue:
 - `codex`: spec-shaped Codex runner settings; set `mode: external` and `endpoint: ws://127.0.0.1:<port>` to connect to an already-running app-server, and keep `ephemeral: false` if you want Codex threads to remain inspectable
 - `daedalus.runtimes`: shared runtime backend profiles used by the current implementation when you are not using the top-level `codex` block
 
+External Codex app-server example:
+
+```yaml
+agent:
+  model: gpt-5.5
+  runtime: codex
+
+runtimes:
+  codex:
+    kind: codex-app-server
+    mode: external
+    endpoint: ws://127.0.0.1:4500
+    ephemeral: false
+    keep_alive: true
+    approval_policy: never
+    thread_sandbox: workspace-write
+    turn_sandbox_policy: workspace-write
+```
+
 Supported tracker kinds today:
 
 - `github`
@@ -57,7 +76,9 @@ Scheduler state is persisted under `storage.scheduler` (default:
 running-worker recovery, aggregate Codex token totals, and Codex
 `issue_id -> thread_id` mappings survive loop restarts. When a mapped thread
 exists, the Codex app-server adapter resumes it with `thread/resume` before
-starting the next turn.
+starting the next turn. `status` also includes runtime diagnostics when the
+selected runtime exposes them, including Codex app-server transport mode and
+warm-client state.
 
 ## Operator path
 
@@ -112,7 +133,7 @@ tables.
 
 - The Linear adapter follows the Symphony baseline query shape, but still needs real Linear integration smoke coverage before claiming production-grade Linear support.
 - Managed service mode is `active` only. `shadow` remains specific to `change-delivery`.
-- The bundled Codex app-server adapter supports managed stdio and external WebSocket transports, durable thread resume across ticks, and cooperative in-flight cancellation in the supervised `run` loop.
+- The bundled Codex app-server adapter supports managed stdio, warm external WebSocket transports, durable thread resume across ticks, and cooperative in-flight cancellation in the supervised `run` loop.
 - Cancellation is cooperative. Codex app-server turns are interrupted when Daedalus requests cancellation; command-style runtimes may only observe cancellation before they start or after they exit.
 
 ## Related docs

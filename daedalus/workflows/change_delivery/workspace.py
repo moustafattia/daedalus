@@ -803,7 +803,14 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
             )
         return _runtimes[name]
 
+    def _close_runtimes() -> None:
+        for runtime in _runtimes.values():
+            close = getattr(runtime, "close", None)
+            if callable(close):
+                close()
+
     ns.runtime = _runtime_accessor
+    ns.close = _close_runtimes
 
     # YAML-shape cross-reference validation: every agent's runtime: field must
     # name a key in the top-level runtimes: mapping. The schema doesn't enforce

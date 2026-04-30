@@ -268,7 +268,11 @@ class _WebSocketAppServerClient(_AppServerClient):
         if self._closed:
             raise CodexAppServerError("codex-app-server websocket is closed", stderr=self.stderr_text)
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        self._send_frame(opcode=0x1, payload=data)
+        try:
+            self._send_frame(opcode=0x1, payload=data)
+        except OSError as exc:
+            self._closed = True
+            raise CodexAppServerError(f"codex-app-server websocket write failed: {exc}", stderr=self.stderr_text) from exc
         self._on_activity()
 
     def _connect(self, *, endpoint: str, auth_token: str | None, timeout_s: float) -> socket.socket:
@@ -433,11 +437,16 @@ class CodexAppServerRuntime:
         self._approval_policy = cfg.get("approval_policy")
         self._thread_sandbox = str(cfg.get("thread_sandbox") or "").strip() or None
         self._turn_sandbox_policy = cfg.get("turn_sandbox_policy")
+        self._keep_alive = self._bool_config(cfg.get("keep_alive", cfg.get("keep-alive")), default=(self._mode == "external"))
+        if self._keep_alive and self._mode != "external":
+            raise CodexAppServerError("codex-app-server keep_alive requires mode: external")
         self._last_activity: float | None = None
         self._last_result: PromptRunResult | None = None
         self._resume_thread_ids: dict[str, str] = {}
         self._cancel_event: threading.Event | None = None
         self._progress_callback: Callable[[PromptRunResult], None] | None = None
+        self._client_lock = threading.Lock()
+        self._warm_client: _AppServerClient | None = None
 
     def _record_activity(self) -> None:
         self._last_activity = time.monotonic()
@@ -474,6 +483,24 @@ class CodexAppServerRuntime:
             return True
         finally:
             client.close()
+
+    def close(self) -> None:
+        with self._client_lock:
+            self._drop_warm_client()
+
+    def diagnostics(self) -> dict[str, Any]:
+        with self._client_lock:
+            warm_client_present = self._warm_client is not None
+            warm_client_open = warm_client_present and not self._client_is_closed(self._warm_client)
+        return {
+            "kind": "codex-app-server",
+            "mode": self._mode,
+            "transport": "websocket" if self._mode == "external" else "stdio",
+            "endpoint": self._endpoint,
+            "keep_alive": self._keep_alive,
+            "warm_client_present": warm_client_present,
+            "warm_client_open": warm_client_open,
+        }
 
     def ensure_session(
         self,
@@ -532,51 +559,122 @@ class CodexAppServerRuntime:
                 else str(self._turn_sandbox_policy)
             )
 
-        self._record_activity()
-        client = self._build_client(worktree=worktree, env={**os.environ, **env})
         state = _RunState()
+        client: _AppServerClient | None = None
+        keep_client = False
         try:
-            self._initialize(client=client, state=state)
-            resume_thread_id = self._resume_thread_id(worktree=worktree, session_name=session_name)
-            if resume_thread_id:
-                state.thread_id = resume_thread_id
-                state.session_id = resume_thread_id
-                thread_result = client.request(
-                    "thread/resume",
-                    self._thread_resume_params(thread_id=resume_thread_id, worktree=worktree, model=model),
-                    timeout_s=self._read_timeout_s(),
-                    on_message=lambda message: self._consume_message(message, state=state),
-                )
+            self._record_activity()
+            if self._keep_alive:
+                with self._client_lock:
+                    result: PromptRunResult | None = None
+                    for attempt in range(2):
+                        state = _RunState()
+                        client = self._warm_client_for_run(worktree=worktree, env={**os.environ, **env}, state=state)
+                        keep_client = True
+                        try:
+                            result = self._run_prompt_result_on_client(
+                                client=client,
+                                state=state,
+                                worktree=worktree,
+                                session_name=session_name,
+                                prompt=prompt,
+                                model=model,
+                            )
+                            break
+                        except CodexAppServerError:
+                            if attempt == 0 and self._client_is_closed(client):
+                                self._drop_warm_client()
+                                client = None
+                                continue
+                            raise
+                    if result is None:
+                        raise CodexAppServerError("codex-app-server did not return a result")
             else:
-                thread_result = client.request(
-                    "thread/start",
-                    self._thread_start_params(worktree=worktree, model=model),
-                    timeout_s=self._read_timeout_s(),
-                    on_message=lambda message: self._consume_message(message, state=state),
+                client = self._build_client(worktree=worktree, env={**os.environ, **env})
+                self._initialize(client=client, state=state)
+                result = self._run_prompt_result_on_client(
+                    client=client,
+                    state=state,
+                    worktree=worktree,
+                    session_name=session_name,
+                    prompt=prompt,
+                    model=model,
                 )
-            self._consume_thread_start_response(thread_result, state=state)
-            self._notify_progress(state)
-            turn_result = client.request(
-                "turn/start",
-                self._turn_start_params(worktree=worktree, thread_id=state.thread_id, prompt=prompt, model=model),
-                timeout_s=self._read_timeout_s(),
-                on_message=lambda message: self._consume_message(message, state=state),
-            )
-            self._consume_turn_response(turn_result, state=state)
-            self._notify_progress(state)
-            result = self._read_turn_to_completion(client=client, state=state)
             self._last_result = result
             return result
         except CodexAppServerError as exc:
             result = exc.result or self._result_from_state(state)
             self._last_result = result
             exc.result = result
-            if exc.stderr is None:
+            if exc.stderr is None and client is not None:
                 exc.stderr = client.stderr_text
-            if exc.returncode is None:
+            if exc.returncode is None and client is not None:
                 exc.returncode = client.returncode
+            if keep_client and client is not None and self._client_is_closed(client):
+                self._drop_warm_client()
             raise
         finally:
+            if client is not None and not keep_client:
+                client.close()
+
+    def _run_prompt_result_on_client(
+        self,
+        *,
+        client: _AppServerClient,
+        state: _RunState,
+        worktree: Path,
+        session_name: str,
+        prompt: str,
+        model: str,
+    ) -> PromptRunResult:
+        resume_thread_id = self._resume_thread_id(worktree=worktree, session_name=session_name)
+        if resume_thread_id:
+            state.thread_id = resume_thread_id
+            state.session_id = resume_thread_id
+            thread_result = client.request(
+                "thread/resume",
+                self._thread_resume_params(thread_id=resume_thread_id, worktree=worktree, model=model),
+                timeout_s=self._read_timeout_s(),
+                on_message=lambda message: self._consume_message(message, state=state),
+            )
+        else:
+            thread_result = client.request(
+                "thread/start",
+                self._thread_start_params(worktree=worktree, model=model),
+                timeout_s=self._read_timeout_s(),
+                on_message=lambda message: self._consume_message(message, state=state),
+            )
+        self._consume_thread_start_response(thread_result, state=state)
+        self._notify_progress(state)
+        turn_result = client.request(
+            "turn/start",
+            self._turn_start_params(worktree=worktree, thread_id=state.thread_id, prompt=prompt, model=model),
+            timeout_s=self._read_timeout_s(),
+            on_message=lambda message: self._consume_message(message, state=state),
+        )
+        self._consume_turn_response(turn_result, state=state)
+        self._notify_progress(state)
+        return self._read_turn_to_completion(client=client, state=state)
+
+    def _warm_client_for_run(self, *, worktree: Path, env: dict[str, str], state: _RunState) -> _AppServerClient:
+        if self._warm_client is not None and self._client_is_closed(self._warm_client):
+            self._drop_warm_client()
+        if self._warm_client is None:
+            self._warm_client = self._build_client(worktree=worktree, env=env)
+            try:
+                self._initialize(client=self._warm_client, state=state)
+            except Exception:
+                self._drop_warm_client()
+                raise
+        return self._warm_client
+
+    def _client_is_closed(self, client: _AppServerClient) -> bool:
+        return client.returncode is not None
+
+    def _drop_warm_client(self) -> None:
+        client = self._warm_client
+        self._warm_client = None
+        if client is not None:
             client.close()
 
     def _command_argv(self) -> list[str]:

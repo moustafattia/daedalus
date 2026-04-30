@@ -218,6 +218,8 @@ def _runtime_profiles_from_config(config: dict[str, Any]) -> dict[str, dict[str,
             "turn_timeout_ms",
             "read_timeout_ms",
             "stall_timeout_ms",
+            "keep_alive",
+            "keep-alive",
         ):
             if profile.get(key) in (None, "", []):
                 value = codex_cfg.get(key)
@@ -294,6 +296,18 @@ class IssueRunnerWorkspace:
     def runtime(self, name: str) -> Runtime:
         return self.runtimes[name]
 
+    def close(self) -> None:
+        if self._supervisor_executor is not None:
+            self._supervisor_executor.shutdown(wait=False, cancel_futures=False)
+            self._supervisor_executor = None
+        self._close_runtimes()
+
+    def _close_runtimes(self) -> None:
+        for runtime in self.runtimes.values():
+            close = getattr(runtime, "close", None)
+            if callable(close):
+                close()
+
     def _agent_runtime_name(self) -> str:
         agent_cfg = self.config.get("agent") or {}
         runtime_name = str(agent_cfg.get("runtime") or "").strip()
@@ -361,6 +375,7 @@ class IssueRunnerWorkspace:
                 "codex_totals": dict(self.codex_totals or {}),
                 "codex_threads": self._codex_threads_snapshot(),
             },
+            "runtimeDiagnostics": self._runtime_diagnostics(),
             "selectedIssue": selected,
             "workspaceRoot": str(self.issue_workspace_root),
             "lastRun": (last_run or {}).get("lastRun"),
@@ -396,6 +411,20 @@ class IssueRunnerWorkspace:
             "checks": checks,
             "updatedAt": _now_iso(),
         }
+
+    def _runtime_diagnostics(self) -> dict[str, dict[str, Any]]:
+        diagnostics: dict[str, dict[str, Any]] = {}
+        for name, runtime in sorted(self.runtimes.items()):
+            provider = getattr(runtime, "diagnostics", None)
+            if not callable(provider):
+                continue
+            try:
+                payload = provider()
+            except Exception as exc:
+                payload = {"error": f"{type(exc).__name__}: {exc}"}
+            if isinstance(payload, dict):
+                diagnostics[name] = payload
+        return diagnostics
 
     def _load_scheduler_state(self) -> dict[str, Any]:
         return _load_optional_json(self.scheduler_path) or {}
@@ -835,6 +864,7 @@ class IssueRunnerWorkspace:
         env: dict[str, str] | None = None
         created_workspace = False
         attempt = self._issue_attempt(issue=issue, retry_entry=retry_entry)
+        set_cancel_event_fn = None
 
         try:
             if cancel_event is not None and cancel_event.is_set():
@@ -877,10 +907,13 @@ class IssueRunnerWorkspace:
             runtime_name = self._agent_runtime_name()
             runtime_profiles = _runtime_profiles_from_config(self.config)
             runtime_cfg = runtime_profiles.get(runtime_name) or {}
-            runtime = _build_runtimes_from_config(self.config, run=self._run, run_json=self._run_json)[runtime_name]
-            set_cancel_event = getattr(runtime, "set_cancel_event", None)
-            if callable(set_cancel_event) and cancel_event is not None:
-                set_cancel_event(cancel_event)
+            if self._supervisor_max_workers() == 1:
+                runtime = self.runtime(runtime_name)
+            else:
+                runtime = _build_runtimes_from_config(self.config, run=self._run, run_json=self._run_json)[runtime_name]
+            set_cancel_event_fn = getattr(runtime, "set_cancel_event", None)
+            if callable(set_cancel_event_fn) and cancel_event is not None:
+                set_cancel_event_fn(cancel_event)
             session_name = issue_session_name(issue)
             model = str(agent_cfg.get("model") or "")
             resume_thread_id = None
@@ -948,6 +981,9 @@ class IssueRunnerWorkspace:
                 "runtime": runtime_name if runtime is not None else None,
                 "runtimeKind": runtime_cfg.get("kind") if runtime is not None else None,
             }
+        finally:
+            if callable(set_cancel_event_fn):
+                set_cancel_event_fn(None)
 
     def _apply_issue_results(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         applied: list[dict[str, Any]] = []
@@ -1636,6 +1672,7 @@ class IssueRunnerWorkspace:
     ) -> dict[str, Any]:
         iterations = 0
         last_result = None
+        loop_status = "completed"
         try:
             while True:
                 self.reload_contract()
@@ -1645,15 +1682,12 @@ class IssueRunnerWorkspace:
                     break
                 sleep_fn(self._poll_interval_seconds(interval_seconds))
         except KeyboardInterrupt:
-            last_result = self._reconcile_before_loop_exit(last_result)
-            return {
-                "loop_status": "interrupted",
-                "iterations": iterations,
-                "last_result": last_result,
-            }
+            loop_status = "interrupted"
         last_result = self._reconcile_before_loop_exit(last_result)
+        if not self._supervisor_futures:
+            self.close()
         return {
-            "loop_status": "completed",
+            "loop_status": loop_status,
             "iterations": iterations,
             "last_result": last_result,
         }
@@ -1725,6 +1759,8 @@ class IssueRunnerWorkspace:
         self.health_path = _resolve_path(storage_cfg.get("health") or "memory/workflow-health.json", "memory/workflow-health.json")
         self.audit_log_path = _resolve_path(storage_cfg.get("audit-log") or "memory/workflow-audit.jsonl", "memory/workflow-audit.jsonl")
         self.scheduler_path = _resolve_path(storage_cfg.get("scheduler") or "memory/workflow-scheduler.json", "memory/workflow-scheduler.json")
+        if not self._supervisor_futures:
+            self._close_runtimes()
         self.runtimes = _build_runtimes_from_config(cfg, run=self._run, run_json=self._run_json)
         if self.scheduler_path != previous_scheduler_path:
             self._restore_scheduler_state()

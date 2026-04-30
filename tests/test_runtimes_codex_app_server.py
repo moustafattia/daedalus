@@ -191,6 +191,7 @@ def _write_fake_cancellable_app_server(path: Path, requests_path: Path) -> None:
 class _FakeWebSocketAppServer:
     def __init__(self):
         self.requests: list[dict] = []
+        self.websocket_connections = 0
         self._stop = threading.Event()
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -233,6 +234,7 @@ class _FakeWebSocketAppServer:
             if headers.get("upgrade", "").lower() != "websocket":
                 conn.sendall(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
                 return
+            self.websocket_connections += 1
             key = headers["sec-websocket-key"]
             accept = base64.b64encode(
                 hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
@@ -340,6 +342,56 @@ class _FakeWebSocketAppServer:
                 return b""
             data += chunk
         return data
+
+
+class _FakePersistentWebSocketAppServer(_FakeWebSocketAppServer):
+    def _run_jsonrpc(self, conn: socket.socket):
+        thread_id = "thread-warm"
+        turn_count = 0
+        while True:
+            payload = self._read_ws_text(conn)
+            if payload is None:
+                return
+            message = json.loads(payload)
+            self.requests.append(message)
+            method = message.get("method")
+            request_id = message.get("id")
+            if method == "initialize":
+                self._send_ws_json(conn, {"id": request_id, "result": {"userAgent": "fake-warm-codex"}})
+            elif method == "initialized":
+                continue
+            elif method == "thread/start":
+                thread = {"id": thread_id, "status": "running", "turns": []}
+                self._send_ws_json(conn, {"id": request_id, "result": {"thread": thread}})
+            elif method == "thread/resume":
+                thread_id = str((message.get("params") or {}).get("threadId") or thread_id)
+                thread = {"id": thread_id, "status": "running", "turns": []}
+                self._send_ws_json(conn, {"id": request_id, "result": {"thread": thread}})
+            elif method == "turn/start":
+                turn_count += 1
+                turn = {"id": f"turn-warm-{turn_count}", "status": "running", "items": []}
+                self._send_ws_json(conn, {"id": request_id, "result": {"turn": turn}})
+                self._send_ws_json(
+                    conn,
+                    {"method": "turn/started", "params": {"threadId": thread_id, "turn": turn}},
+                )
+                self._send_ws_json(
+                    conn,
+                    {
+                        "method": "agent/message_delta",
+                        "params": {
+                            "threadId": thread_id,
+                            "turnId": turn["id"],
+                            "itemId": f"item-{turn_count}",
+                            "delta": f"warm {turn_count}",
+                        },
+                    },
+                )
+                completed = {"id": turn["id"], "status": "completed", "items": []}
+                self._send_ws_json(
+                    conn,
+                    {"method": "turn/completed", "params": {"threadId": thread_id, "turn": completed}},
+                )
 
 
 def test_codex_app_server_runtime_speaks_jsonrpc_and_maps_metrics(tmp_path):
@@ -610,6 +662,20 @@ def test_codex_app_server_runtime_rejects_non_protocol_approval_policy(tmp_path)
         )
 
 
+def test_codex_app_server_runtime_rejects_keep_alive_in_managed_mode():
+    from runtimes.codex_app_server import CodexAppServerError, CodexAppServerRuntime
+
+    with pytest.raises(CodexAppServerError, match="keep_alive requires mode: external"):
+        CodexAppServerRuntime(
+            {
+                "mode": "managed",
+                "command": [sys.executable, "-c", ""],
+                "keep_alive": True,
+            },
+            run=None,
+        )
+
+
 def test_codex_app_server_runtime_connects_to_external_websocket(tmp_path):
     from runtimes.codex_app_server import CodexAppServerRuntime
 
@@ -653,3 +719,220 @@ def test_codex_app_server_runtime_connects_to_external_websocket(tmp_path):
         "type": "workspaceWrite",
         "writableRoots": [str(tmp_path)],
     }
+
+
+def test_codex_app_server_runtime_reuses_external_websocket_by_default(tmp_path):
+    from runtimes.codex_app_server import CodexAppServerRuntime
+
+    with _FakePersistentWebSocketAppServer() as server:
+        runtime = CodexAppServerRuntime(
+            {
+                "mode": "external",
+                "endpoint": server.endpoint,
+                "approval_policy": "never",
+                "turn_timeout_ms": 5000,
+                "read_timeout_ms": 1000,
+                "stall_timeout_ms": 5000,
+            },
+            run=None,
+        )
+        try:
+            assert runtime.diagnostics()["keep_alive"] is True
+            first = runtime.run_prompt_result(
+                worktree=tmp_path,
+                session_name="ISSUE-1",
+                prompt="First",
+                model="gpt-5.5",
+            )
+            runtime.ensure_session(
+                worktree=tmp_path,
+                session_name="ISSUE-1",
+                model="gpt-5.5",
+                resume_session_id=first.thread_id,
+            )
+            second = runtime.run_prompt_result(
+                worktree=tmp_path,
+                session_name="ISSUE-1",
+                prompt="Second",
+                model="gpt-5.5",
+            )
+        finally:
+            runtime.close()
+
+    methods = [item.get("method") for item in server.requests]
+    assert server.websocket_connections == 1
+    assert methods.count("initialize") == 1
+    assert methods.count("turn/start") == 2
+    assert second.output == "warm 2\n"
+
+
+def test_codex_app_server_runtime_reuses_external_websocket_when_keep_alive(tmp_path):
+    from runtimes.codex_app_server import CodexAppServerRuntime
+
+    with _FakePersistentWebSocketAppServer() as server:
+        runtime = CodexAppServerRuntime(
+            {
+                "mode": "external",
+                "endpoint": server.endpoint,
+                "approval_policy": "never",
+                "keep_alive": True,
+                "turn_timeout_ms": 5000,
+                "read_timeout_ms": 1000,
+                "stall_timeout_ms": 5000,
+            },
+            run=None,
+        )
+        try:
+            first = runtime.run_prompt_result(
+                worktree=tmp_path,
+                session_name="ISSUE-1",
+                prompt="First",
+                model="gpt-5.5",
+            )
+            runtime.ensure_session(
+                worktree=tmp_path,
+                session_name="ISSUE-1",
+                model="gpt-5.5",
+                resume_session_id=first.thread_id,
+            )
+            second = runtime.run_prompt_result(
+                worktree=tmp_path,
+                session_name="ISSUE-1",
+                prompt="Second",
+                model="gpt-5.5",
+            )
+        finally:
+            runtime.close()
+
+    methods = [item.get("method") for item in server.requests]
+    assert server.websocket_connections == 1
+    assert methods.count("initialize") == 1
+    assert methods.count("initialized") == 1
+    assert methods.count("thread/start") == 1
+    assert methods.count("thread/resume") == 1
+    assert methods.count("turn/start") == 2
+    assert first.output == "warm 1\n"
+    assert first.turn_id == "turn-warm-1"
+    assert second.output == "warm 2\n"
+    assert second.turn_id == "turn-warm-2"
+
+
+def test_codex_app_server_runtime_opens_fresh_external_websocket_when_keep_alive_false(tmp_path):
+    from runtimes.codex_app_server import CodexAppServerRuntime
+
+    with _FakePersistentWebSocketAppServer() as server:
+        runtime = CodexAppServerRuntime(
+            {
+                "mode": "external",
+                "endpoint": server.endpoint,
+                "approval_policy": "never",
+                "keep_alive": False,
+                "turn_timeout_ms": 5000,
+                "read_timeout_ms": 1000,
+                "stall_timeout_ms": 5000,
+            },
+            run=None,
+        )
+        first = runtime.run_prompt_result(
+            worktree=tmp_path,
+            session_name="ISSUE-1",
+            prompt="First",
+            model="gpt-5.5",
+        )
+        second = runtime.run_prompt_result(
+            worktree=tmp_path,
+            session_name="ISSUE-2",
+            prompt="Second",
+            model="gpt-5.5",
+        )
+
+    methods = [item.get("method") for item in server.requests]
+    assert server.websocket_connections == 2
+    assert methods.count("initialize") == 2
+    assert methods.count("thread/start") == 2
+    assert first.output == "warm 1\n"
+    assert second.output == "warm 1\n"
+
+
+def test_codex_app_server_runtime_close_drops_warm_external_websocket(tmp_path):
+    from runtimes.codex_app_server import CodexAppServerRuntime
+
+    with _FakePersistentWebSocketAppServer() as server:
+        runtime = CodexAppServerRuntime(
+            {
+                "mode": "external",
+                "endpoint": server.endpoint,
+                "approval_policy": "never",
+                "keep_alive": True,
+                "turn_timeout_ms": 5000,
+                "read_timeout_ms": 1000,
+                "stall_timeout_ms": 5000,
+            },
+            run=None,
+        )
+        first = runtime.run_prompt_result(
+            worktree=tmp_path,
+            session_name="ISSUE-1",
+            prompt="First",
+            model="gpt-5.5",
+        )
+        diagnostics = runtime.diagnostics()
+        assert diagnostics["warm_client_present"] is True
+        assert diagnostics["warm_client_open"] is True
+        runtime.close()
+        diagnostics = runtime.diagnostics()
+        assert diagnostics["warm_client_present"] is False
+        assert diagnostics["warm_client_open"] is False
+        second = runtime.run_prompt_result(
+            worktree=tmp_path,
+            session_name="ISSUE-2",
+            prompt="Second",
+            model="gpt-5.5",
+        )
+        runtime.close()
+
+    methods = [item.get("method") for item in server.requests]
+    assert server.websocket_connections == 2
+    assert methods.count("initialize") == 2
+    assert first.output == "warm 1\n"
+    assert second.output == "warm 1\n"
+
+
+def test_codex_app_server_runtime_reconnects_when_warm_websocket_closes(tmp_path):
+    from runtimes.codex_app_server import CodexAppServerRuntime
+
+    with _FakeWebSocketAppServer() as server:
+        runtime = CodexAppServerRuntime(
+            {
+                "mode": "external",
+                "endpoint": server.endpoint,
+                "approval_policy": "never",
+                "keep_alive": True,
+                "turn_timeout_ms": 5000,
+                "read_timeout_ms": 1000,
+                "stall_timeout_ms": 5000,
+            },
+            run=None,
+        )
+        try:
+            first = runtime.run_prompt_result(
+                worktree=tmp_path,
+                session_name="ISSUE-1",
+                prompt="First",
+                model="gpt-5.5",
+            )
+            second = runtime.run_prompt_result(
+                worktree=tmp_path,
+                session_name="ISSUE-2",
+                prompt="Second",
+                model="gpt-5.5",
+            )
+        finally:
+            runtime.close()
+
+    methods = [item.get("method") for item in server.requests]
+    assert server.websocket_connections == 2
+    assert methods.count("initialize") == 2
+    assert methods.count("turn/start") == 2
+    assert first.output == "ws ok\n"
+    assert second.output == "ws ok\n"

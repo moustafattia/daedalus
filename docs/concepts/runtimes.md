@@ -137,14 +137,19 @@ runtimes:
     endpoint: ws://127.0.0.1:4500
     healthcheck_path: /readyz
     ephemeral: false
+    keep_alive: true
     ws_token_env: CODEX_APP_SERVER_TOKEN  # only if the listener requires auth
 ```
 
-External mode checks `GET /readyz` before connecting, then opens one JSON-RPC
-WebSocket connection for the run. `ephemeral: false` keeps Codex threads visible
-through app-server thread APIs. The default stdio transport cannot be shared:
-Daedalus can only attach to an already-started app-server when it exposes a
-socket transport.
+External mode checks `GET /readyz` before connecting. By default it keeps the
+WebSocket transport warm for the lifetime of the runtime object
+(`keep_alive: true`), so supervised services can reuse one initialized JSON-RPC
+connection across turns. If the socket is closed or the app-server restarts,
+the next turn reconnects and initializes a fresh connection. `ephemeral: false`
+keeps Codex threads visible through app-server thread APIs. The default stdio
+transport cannot be shared: Daedalus can only attach to an already-started
+app-server when it exposes a socket transport. Setting `keep_alive: true` with
+managed stdio mode is invalid and fails config loading.
 
 It maps `thread/tokenUsage/updated` into Daedalus token totals and
 `account/rateLimits/updated` into the latest rate-limit snapshot. It rejects
@@ -159,6 +164,11 @@ requests cancellation when a running issue reaches a terminal tracker state.
 changes, the runtime lease is lost, or the service is interrupted. The Codex
 adapter sends `turn/interrupt` for the active turn and records the cancellation
 state in scheduler metadata.
+
+Runtimes may expose lightweight diagnostics. The Codex app-server adapter
+reports its mode, transport, `keep_alive` setting, endpoint, and whether a warm
+client is currently open; workflows can include that payload in their status
+surfaces without changing the shared runtime protocol.
 
 ## Adding a new runtime
 
