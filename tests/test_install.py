@@ -24,6 +24,8 @@ def test_install_into_default_hermes_home_copies_plugin_tree(tmp_path):
     assert result == plugin_dir
     assert (plugin_dir / "plugin.yaml").exists()
     assert (plugin_dir / "engine" / "__init__.py").exists()
+    assert (plugin_dir / "engine" / "store.py").exists()
+    assert (plugin_dir / "engine" / "leases.py").exists()
     assert (plugin_dir / "runtimes" / "__init__.py").exists()
     assert (plugin_dir / "runtime.py").exists()
     assert (plugin_dir / "alerts.py").exists()
@@ -45,6 +47,8 @@ def test_install_into_explicit_destination_uses_given_path(tmp_path):
 
     assert result == target
     assert (target / "engine" / "scheduler.py").exists()
+    assert (target / "engine" / "store.py").exists()
+    assert (target / "engine" / "leases.py").exists()
     assert (target / "runtimes" / "codex_app_server.py").exists()
     assert (target / "plugin.yaml").exists()
     assert (target / "trackers" / "linear.py").exists()

@@ -37,13 +37,16 @@ the plugin-local `engine` package:
 | `engine.lifecycle` | Shared running, retry, clear, and restart-recovery mutation helpers. |
 | `engine.sqlite` | Daedalus SQLite connection setup with WAL, foreign keys, and busy timeout. |
 | `engine.state` | Shared SQLite tables and read/write projections for scheduler state. |
+| `engine.leases` | Shared lease acquire/release/status helpers for ownership and heartbeat checks. |
+| `engine.store` | Workflow-scoped `EngineStore` API for transactions, scheduler state, leases, and doctor checks. |
 | `engine.scheduler` | Scheduler snapshot/restore helpers for running work, retry queues, and Codex thread mappings. |
 
 `issue-runner` now consumes the shared scheduler, lifecycle, work-item, and
-SQLite state primitives directly, then writes `memory/workflow-scheduler.json`
+`EngineStore` primitives directly, then writes `memory/workflow-scheduler.json`
 as a generated operator snapshot. `change-delivery` keeps its lane/action
-tables for workflow-specific policy, but shares the engine runtime-session and
-token accounting tables used by watch, status, and doctor surfaces.
+tables for workflow-specific policy, but shares the engine runtime-session,
+token accounting, and lease primitives used by watch, status, and doctor
+surfaces.
 
 ## Boundary
 

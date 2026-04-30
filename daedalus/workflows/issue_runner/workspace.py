@@ -30,7 +30,7 @@ from engine.lifecycle import (
     recover_running_as_retry,
     schedule_retry_entry,
 )
-from engine.state import load_engine_scheduler_state, save_engine_scheduler_state
+from engine.store import EngineStore
 from engine.storage import append_jsonl as _append_jsonl
 from engine.storage import load_optional_json as _load_optional_json
 from engine.storage import write_json_atomic as _write_json
@@ -292,6 +292,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
     audit_log_path: Path
     scheduler_path: Path
     db_path: Path
+    engine_store: EngineStore
     prompt_template: str
     runtimes: dict[str, Runtime]
     _run: Callable[..., Any]
@@ -420,6 +421,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
         except Exception as exc:
             checks.append({"name": "agent-runtime", "status": "fail", "detail": str(exc)})
 
+        checks.extend(self.engine_store.doctor())
         ok = all(check["status"] == "pass" for check in checks)
         return {
             "ok": ok,
@@ -494,19 +496,12 @@ class IssueRunnerWorkspace(WorkflowDriver):
         return diagnostics
 
     def _load_scheduler_state(self) -> dict[str, Any]:
-        return load_engine_scheduler_state(
-            self.db_path,
-            workflow="issue-runner",
-            now_iso=_now_iso(),
-            now_epoch=_now_epoch(),
-        )
+        return self.engine_store.load_scheduler()
 
     def _persist_scheduler_state(self) -> None:
         now_iso = _now_iso()
         now_epoch = _now_epoch()
-        save_engine_scheduler_state(
-            self.db_path,
-            workflow="issue-runner",
+        self.engine_store.save_scheduler(
             retry_entries=self.retry_entries,
             running_entries=self.running_entries,
             codex_totals=self.codex_totals,
@@ -1710,6 +1705,12 @@ class IssueRunnerWorkspace(WorkflowDriver):
         self.audit_log_path = _resolve_path(storage_cfg.get("audit-log") or "memory/workflow-audit.jsonl", "memory/workflow-audit.jsonl")
         self.scheduler_path = _resolve_path(storage_cfg.get("scheduler") or "memory/workflow-scheduler.json", "memory/workflow-scheduler.json")
         self.db_path = runtime_paths(self.path)["db_path"]
+        self.engine_store = EngineStore(
+            db_path=self.db_path,
+            workflow="issue-runner",
+            now_iso=_now_iso,
+            now_epoch=_now_epoch,
+        )
         if not self._supervisor_futures:
             self._close_runtimes()
         self.runtimes = _build_runtimes_from_config(cfg, run=self._run, run_json=self._run_json)
@@ -1765,6 +1766,12 @@ def load_workspace_from_config(
     audit_log_path = _resolve_path(storage_cfg.get("audit-log") or "memory/workflow-audit.jsonl", "memory/workflow-audit.jsonl")
     scheduler_path = _resolve_path(storage_cfg.get("scheduler") or "memory/workflow-scheduler.json", "memory/workflow-scheduler.json")
     db_path = runtime_paths(root)["db_path"]
+    engine_store = EngineStore(
+        db_path=db_path,
+        workflow="issue-runner",
+        now_iso=_now_iso,
+        now_epoch=_now_epoch,
+    )
 
     runner = run or _subprocess_run
     runner_json = run_json or _subprocess_run_json
@@ -1783,6 +1790,7 @@ def load_workspace_from_config(
         audit_log_path=audit_log_path,
         scheduler_path=scheduler_path,
         db_path=db_path,
+        engine_store=engine_store,
         prompt_template=contract.prompt_template,
         runtimes=runtimes,
         _run=runner,

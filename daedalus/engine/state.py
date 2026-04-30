@@ -207,6 +207,156 @@ def _upsert_work_item(
     )
 
 
+def save_engine_scheduler_state_to_connection(
+    conn: sqlite3.Connection,
+    *,
+    workflow: str,
+    retry_entries: dict[str, dict[str, Any]],
+    running_entries: dict[str, dict[str, Any]],
+    codex_totals: dict[str, Any] | None,
+    codex_threads: dict[str, dict[str, Any]],
+    now_iso: str,
+    now_epoch: float,
+) -> None:
+    init_engine_state(conn)
+    conn.execute("DELETE FROM engine_running_work WHERE workflow=?", (workflow,))
+    conn.execute("DELETE FROM engine_retry_queue WHERE workflow=?", (workflow,))
+    conn.execute("DELETE FROM engine_runtime_sessions WHERE workflow=?", (workflow,))
+
+    for work_id, entry in sorted(running_entries.items(), key=lambda item: str(item[0])):
+        work_id = str(entry.get("issue_id") or work_id or "").strip()
+        if not work_id:
+            continue
+        _upsert_work_item(conn, workflow=workflow, work_id=work_id, entry=entry, now_iso=now_iso, now_epoch=now_epoch)
+        conn.execute(
+            """
+            INSERT INTO engine_running_work (
+              workflow, work_id, worker_id, attempt, worker_status, started_at_epoch, heartbeat_at_epoch,
+              cancel_requested, cancel_reason, thread_id, turn_id, updated_at, updated_at_epoch
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workflow,
+                work_id,
+                entry.get("worker_id"),
+                int(entry.get("attempt") or 0),
+                entry.get("worker_status") or "running",
+                float(entry.get("started_at_epoch") or now_epoch),
+                float(entry.get("heartbeat_at_epoch") or entry.get("started_at_epoch") or now_epoch),
+                1 if entry.get("cancel_requested") else 0,
+                entry.get("cancel_reason"),
+                entry.get("thread_id"),
+                entry.get("turn_id"),
+                now_iso,
+                now_epoch,
+            ),
+        )
+
+    for work_id, entry in sorted(retry_entries.items(), key=lambda item: str(item[0])):
+        work_id = str(entry.get("issue_id") or work_id or "").strip()
+        if not work_id:
+            continue
+        _upsert_work_item(conn, workflow=workflow, work_id=work_id, entry=entry, now_iso=now_iso, now_epoch=now_epoch)
+        conn.execute(
+            """
+            INSERT INTO engine_retry_queue (
+              workflow, work_id, attempt, due_at_epoch, error, current_attempt, delay_type, updated_at, updated_at_epoch
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workflow,
+                work_id,
+                int(entry.get("attempt") or 0),
+                float(entry.get("due_at_epoch") or now_epoch),
+                entry.get("error"),
+                entry.get("current_attempt"),
+                entry.get("delay_type") or "failure",
+                now_iso,
+                now_epoch,
+            ),
+        )
+
+    for work_id, entry in sorted(codex_threads.items(), key=lambda item: str(item[0])):
+        if not isinstance(entry, dict):
+            continue
+        work_id = str(entry.get("issue_id") or work_id or "").strip()
+        thread_id = str(entry.get("thread_id") or "").strip()
+        if not work_id or not thread_id:
+            continue
+        _upsert_work_item(conn, workflow=workflow, work_id=work_id, entry=entry, now_iso=now_iso, now_epoch=now_epoch)
+        metadata = {
+            key: value
+            for key, value in entry.items()
+            if key
+            not in {
+                "issue_id",
+                "identifier",
+                "session_name",
+                "runtime_name",
+                "runtime_kind",
+                "session_id",
+                "thread_id",
+                "turn_id",
+                "status",
+                "cancel_requested",
+                "cancel_reason",
+                "updated_at",
+                "updatedAt",
+            }
+        }
+        conn.execute(
+            """
+            INSERT INTO engine_runtime_sessions (
+              workflow, work_id, session_name, runtime_name, runtime_kind, session_id, thread_id, turn_id,
+              status, cancel_requested, cancel_reason, metadata_json, updated_at, updated_at_epoch
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workflow,
+                work_id,
+                entry.get("session_name") or entry.get("sessionName"),
+                entry.get("runtime_name") or entry.get("runtimeName"),
+                entry.get("runtime_kind") or entry.get("runtimeKind"),
+                entry.get("session_id") or entry.get("sessionId"),
+                thread_id,
+                entry.get("turn_id") or entry.get("turnId"),
+                entry.get("status"),
+                1 if (entry.get("cancel_requested") or entry.get("cancelRequested")) else 0,
+                entry.get("cancel_reason") or entry.get("cancelReason"),
+                _json_dumps(metadata),
+                entry.get("updated_at") or entry.get("updatedAt") or now_iso,
+                now_epoch,
+            ),
+        )
+
+    totals = dict(codex_totals or {})
+    conn.execute(
+        """
+        INSERT INTO engine_runtime_totals (
+          workflow, input_tokens, output_tokens, total_tokens, turn_count, rate_limits_json, updated_at, updated_at_epoch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(workflow) DO UPDATE SET
+          input_tokens=excluded.input_tokens,
+          output_tokens=excluded.output_tokens,
+          total_tokens=excluded.total_tokens,
+          turn_count=excluded.turn_count,
+          rate_limits_json=excluded.rate_limits_json,
+          updated_at=excluded.updated_at,
+          updated_at_epoch=excluded.updated_at_epoch
+        """,
+        (
+            workflow,
+            int(totals.get("input_tokens") or 0),
+            int(totals.get("output_tokens") or 0),
+            int(totals.get("total_tokens") or 0),
+            int(totals.get("turn_count") or 0),
+            _json_dumps(totals.get("rate_limits")),
+            now_iso,
+            now_epoch,
+        ),
+    )
+
+
 def save_engine_scheduler_state(
     db_path: Path,
     *,
@@ -220,141 +370,15 @@ def save_engine_scheduler_state(
 ) -> None:
     conn = _open_engine_state_db(db_path)
     try:
-        conn.execute("DELETE FROM engine_running_work WHERE workflow=?", (workflow,))
-        conn.execute("DELETE FROM engine_retry_queue WHERE workflow=?", (workflow,))
-        conn.execute("DELETE FROM engine_runtime_sessions WHERE workflow=?", (workflow,))
-
-        for work_id, entry in sorted(running_entries.items(), key=lambda item: str(item[0])):
-            work_id = str(entry.get("issue_id") or work_id or "").strip()
-            if not work_id:
-                continue
-            _upsert_work_item(conn, workflow=workflow, work_id=work_id, entry=entry, now_iso=now_iso, now_epoch=now_epoch)
-            conn.execute(
-                """
-                INSERT INTO engine_running_work (
-                  workflow, work_id, worker_id, attempt, worker_status, started_at_epoch, heartbeat_at_epoch,
-                  cancel_requested, cancel_reason, thread_id, turn_id, updated_at, updated_at_epoch
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    workflow,
-                    work_id,
-                    entry.get("worker_id"),
-                    int(entry.get("attempt") or 0),
-                    entry.get("worker_status") or "running",
-                    float(entry.get("started_at_epoch") or now_epoch),
-                    float(entry.get("heartbeat_at_epoch") or entry.get("started_at_epoch") or now_epoch),
-                    1 if entry.get("cancel_requested") else 0,
-                    entry.get("cancel_reason"),
-                    entry.get("thread_id"),
-                    entry.get("turn_id"),
-                    now_iso,
-                    now_epoch,
-                ),
-            )
-
-        for work_id, entry in sorted(retry_entries.items(), key=lambda item: str(item[0])):
-            work_id = str(entry.get("issue_id") or work_id or "").strip()
-            if not work_id:
-                continue
-            _upsert_work_item(conn, workflow=workflow, work_id=work_id, entry=entry, now_iso=now_iso, now_epoch=now_epoch)
-            conn.execute(
-                """
-                INSERT INTO engine_retry_queue (
-                  workflow, work_id, attempt, due_at_epoch, error, current_attempt, delay_type, updated_at, updated_at_epoch
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    workflow,
-                    work_id,
-                    int(entry.get("attempt") or 0),
-                    float(entry.get("due_at_epoch") or now_epoch),
-                    entry.get("error"),
-                    entry.get("current_attempt"),
-                    entry.get("delay_type") or "failure",
-                    now_iso,
-                    now_epoch,
-                ),
-            )
-
-        for work_id, entry in sorted(codex_threads.items(), key=lambda item: str(item[0])):
-            if not isinstance(entry, dict):
-                continue
-            work_id = str(entry.get("issue_id") or work_id or "").strip()
-            thread_id = str(entry.get("thread_id") or "").strip()
-            if not work_id or not thread_id:
-                continue
-            _upsert_work_item(conn, workflow=workflow, work_id=work_id, entry=entry, now_iso=now_iso, now_epoch=now_epoch)
-            metadata = {
-                key: value
-                for key, value in entry.items()
-                if key
-                not in {
-                    "issue_id",
-                    "identifier",
-                    "session_name",
-                    "runtime_name",
-                    "runtime_kind",
-                    "session_id",
-                    "thread_id",
-                    "turn_id",
-                    "status",
-                    "cancel_requested",
-                    "cancel_reason",
-                    "updated_at",
-                    "updatedAt",
-                }
-            }
-            conn.execute(
-                """
-                INSERT INTO engine_runtime_sessions (
-                  workflow, work_id, session_name, runtime_name, runtime_kind, session_id, thread_id, turn_id,
-                  status, cancel_requested, cancel_reason, metadata_json, updated_at, updated_at_epoch
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    workflow,
-                    work_id,
-                    entry.get("session_name") or entry.get("sessionName"),
-                    entry.get("runtime_name") or entry.get("runtimeName"),
-                    entry.get("runtime_kind") or entry.get("runtimeKind"),
-                    entry.get("session_id") or entry.get("sessionId"),
-                    thread_id,
-                    entry.get("turn_id") or entry.get("turnId"),
-                    entry.get("status"),
-                    1 if (entry.get("cancel_requested") or entry.get("cancelRequested")) else 0,
-                    entry.get("cancel_reason") or entry.get("cancelReason"),
-                    _json_dumps(metadata),
-                    entry.get("updated_at") or entry.get("updatedAt") or now_iso,
-                    now_epoch,
-                ),
-            )
-
-        totals = dict(codex_totals or {})
-        conn.execute(
-            """
-            INSERT INTO engine_runtime_totals (
-              workflow, input_tokens, output_tokens, total_tokens, turn_count, rate_limits_json, updated_at, updated_at_epoch
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(workflow) DO UPDATE SET
-              input_tokens=excluded.input_tokens,
-              output_tokens=excluded.output_tokens,
-              total_tokens=excluded.total_tokens,
-              turn_count=excluded.turn_count,
-              rate_limits_json=excluded.rate_limits_json,
-              updated_at=excluded.updated_at,
-              updated_at_epoch=excluded.updated_at_epoch
-            """,
-            (
-                workflow,
-                int(totals.get("input_tokens") or 0),
-                int(totals.get("output_tokens") or 0),
-                int(totals.get("total_tokens") or 0),
-                int(totals.get("turn_count") or 0),
-                _json_dumps(totals.get("rate_limits")),
-                now_iso,
-                now_epoch,
-            ),
+        save_engine_scheduler_state_to_connection(
+            conn,
+            workflow=workflow,
+            retry_entries=retry_entries,
+            running_entries=running_entries,
+            codex_totals=codex_totals,
+            codex_threads=codex_threads,
+            now_iso=now_iso,
+            now_epoch=now_epoch,
         )
         conn.commit()
     finally:
@@ -518,6 +542,17 @@ def load_engine_scheduler_state(
         return _scheduler_state_from_connection(conn, workflow=workflow, now_iso=now_iso, now_epoch=now_epoch)
     finally:
         conn.close()
+
+
+def load_engine_scheduler_state_from_connection(
+    conn: sqlite3.Connection,
+    *,
+    workflow: str,
+    now_iso: str,
+    now_epoch: float,
+) -> dict[str, Any]:
+    init_engine_state(conn)
+    return _scheduler_state_from_connection(conn, workflow=workflow, now_iso=now_iso, now_epoch=now_epoch)
 
 
 def read_engine_scheduler_state(

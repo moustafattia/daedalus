@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 import yaml
 
 from engine.state import read_engine_scheduler_state
+from engine.store import EngineStore
 from workflows.contract import (
     WorkflowContractError,
     find_repo_workflow_contract_path,
@@ -1570,70 +1571,26 @@ def build_shadow_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
         owner_summary["service_healthy"] = None
 
     paths = daedalus._runtime_paths(workflow_root)
+    engine_store = EngineStore(
+        db_path=paths["db_path"],
+        workflow="change-delivery",
+        now_iso=lambda: now_iso,
+        now_epoch=lambda: float(now_epoch or time.time()),
+    )
+    lease_info = engine_store.lease_status(
+        lease_scope=daedalus.RUNTIME_LEASE_SCOPE,
+        lease_key=daedalus.RUNTIME_LEASE_KEY,
+        heartbeat_at=runtime_status.get("latest_heartbeat_at"),
+        active_owner_instance_id=runtime_status.get("active_orchestrator_instance_id"),
+    )
+    if lease_info.get("stale"):
+        warnings.append(
+            "stale runtime heartbeat/lease: " + ", ".join(lease_info.get("stale_reasons") or [])
+        )
+
     conn = sqlite3.connect(paths["db_path"])
     conn.row_factory = sqlite3.Row
     try:
-        lease_row = conn.execute(
-            """
-            SELECT lease_scope, lease_key, owner_instance_id, owner_role, acquired_at, expires_at, released_at, release_reason
-            FROM leases
-            WHERE lease_scope=? AND lease_key=?
-            """,
-            (daedalus.RUNTIME_LEASE_SCOPE, daedalus.RUNTIME_LEASE_KEY),
-        ).fetchone()
-        if lease_row:
-            lease = dict(lease_row)
-            expires_epoch = daedalus._iso_to_epoch(lease.get("expires_at"))
-            heartbeat_epoch = daedalus._iso_to_epoch(runtime_status.get("latest_heartbeat_at"))
-            heartbeat_age_seconds = (
-                max(0, now_epoch - heartbeat_epoch)
-                if now_epoch is not None and heartbeat_epoch is not None
-                else None
-            )
-            expired = bool(
-                lease.get("released_at")
-                or (expires_epoch is not None and now_epoch is not None and now_epoch > expires_epoch)
-            )
-            stale_reasons = []
-            if lease.get("released_at"):
-                stale_reasons.append("lease-released")
-            if expires_epoch is not None and now_epoch is not None and now_epoch > expires_epoch:
-                stale_reasons.append("lease-expired")
-            if heartbeat_age_seconds is not None and heartbeat_age_seconds > 120:
-                stale_reasons.append("heartbeat-old")
-            if runtime_status.get("active_orchestrator_instance_id") and lease.get("owner_instance_id") != runtime_status.get("active_orchestrator_instance_id"):
-                stale_reasons.append("owner-mismatch")
-            lease_info = {
-                "owner_instance_id": lease.get("owner_instance_id"),
-                "owner_role": lease.get("owner_role"),
-                "acquired_at": lease.get("acquired_at"),
-                "expires_at": lease.get("expires_at"),
-                "released_at": lease.get("released_at"),
-                "release_reason": lease.get("release_reason"),
-                "heartbeat_age_seconds": heartbeat_age_seconds,
-                "expired": expired,
-                "stale": bool(stale_reasons),
-                "stale_reasons": stale_reasons,
-            }
-            if stale_reasons:
-                warnings.append(
-                    "stale runtime heartbeat/lease: " + ", ".join(stale_reasons)
-                )
-        else:
-            lease_info = {
-                "owner_instance_id": None,
-                "owner_role": None,
-                "acquired_at": None,
-                "expires_at": None,
-                "released_at": None,
-                "release_reason": None,
-                "heartbeat_age_seconds": None,
-                "expired": False,
-                "stale": True,
-                "stale_reasons": ["lease-missing"],
-            }
-            warnings.append("stale runtime heartbeat/lease: lease-missing")
-
         if lane_id:
             lane_row = conn.execute("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)).fetchone()
             if lane_row:

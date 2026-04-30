@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from engine.audit import make_audit_fn as _engine_make_audit_fn
-from engine.state import load_engine_scheduler_state, save_engine_scheduler_state
+from engine.store import EngineStore
 from engine.storage import append_jsonl as _append_jsonl
 from engine.storage import load_optional_json as _load_optional_json
 from engine.storage import write_json_atomic as _write_json
@@ -424,6 +424,12 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     audit_log_path = Path(config["auditLogPath"])
     scheduler_path = Path(config.get("schedulerPath") or (workspace_root / "memory/workflow-scheduler.json"))
     db_path = runtime_paths(workspace_root)["db_path"]
+    engine_store = EngineStore(
+        db_path=db_path,
+        workflow="change-delivery",
+        now_iso=_now_iso,
+        now_epoch=time.time,
+    )
     sessions_state_path = workspace_root / "state/sessions"
 
     # -- config constants ------------------------------------------------
@@ -524,17 +530,10 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         _write_json(ledger_path, payload)
 
     def load_scheduler() -> dict[str, Any]:
-        return load_engine_scheduler_state(
-            db_path,
-            workflow="change-delivery",
-            now_iso=_now_iso(),
-            now_epoch=time.time(),
-        )
+        return engine_store.load_scheduler()
 
     def save_scheduler(payload: dict[str, Any]) -> None:
-        save_engine_scheduler_state(
-            db_path,
-            workflow="change-delivery",
+        engine_store.save_scheduler(
             retry_entries={},
             running_entries={},
             codex_totals=payload.get("codex_totals") or payload.get("codexTotals") or {},
@@ -611,6 +610,7 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         CONFIG=config,
         WORKFLOW_YAML=yaml_cfg or {},
         WORKFLOW_POLICY=workflow_policy,
+        ENGINE_STORE=engine_store,
         ACTIVE_CANCEL_EVENT=None,
         DEFAULT_CONFIG_PATH=workspace_root / DEFAULT_WORKFLOW_MARKDOWN_FILENAME,
         SESSIONS_STATE_PATH=sessions_state_path,
@@ -2073,15 +2073,18 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         after = before
         if before["health"] != "healthy" or fix_watchers:
             after = ns.reconcile(fix_watchers=fix_watchers)
+        engine_checks = ns.ENGINE_STORE.doctor()
         ns.audit(
             "doctor",
             f"Doctor checked workflow: {before['health']} -> {after['health']}",
             before=before["health"],
             after=after["health"],
+            engineChecks=engine_checks,
         )
         return {
             "before": before,
             "after": after,
+            "engineChecks": engine_checks,
             "fixed": before["health"] != after["health"] or bool(after.get("actionsTaken", {}).get("jobs")),
         }
 

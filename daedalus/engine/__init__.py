@@ -13,6 +13,12 @@ from .lifecycle import (
     retry_delay,
     schedule_retry_entry,
 )
+from .leases import (
+    acquire_engine_lease,
+    init_engine_leases,
+    read_engine_lease,
+    release_engine_lease,
+)
 from .scheduler import (
     RestoredSchedulerState,
     build_scheduler_payload,
@@ -29,7 +35,9 @@ from .state import (
     load_engine_scheduler_state,
     read_engine_scheduler_state,
     save_engine_scheduler_state,
+    save_engine_scheduler_state_to_connection,
 )
+from .store import EngineStore
 from .storage import append_jsonl, load_optional_json, write_json_atomic, write_text_atomic
 from .work_items import (
     RetryEntry,
@@ -43,10 +51,12 @@ from .work_items import (
 __all__ = [
     "RestoredSchedulerState",
     "WorkflowDriver",
+    "EngineStore",
     "RetryEntry",
     "RunningWork",
     "WorkItemRef",
     "WorkResult",
+    "acquire_engine_lease",
     "append_jsonl",
     "build_scheduler_payload",
     "clear_work_entries",
@@ -54,10 +64,12 @@ __all__ = [
     "connect_daedalus_db",
     "engine_state_tables_exist",
     "init_engine_state",
+    "init_engine_leases",
     "load_engine_scheduler_state",
     "load_optional_json",
     "mark_running_work",
     "make_audit_fn",
+    "read_engine_lease",
     "read_engine_scheduler_state",
     "recover_running_as_retry",
     "restore_scheduler_state",
@@ -67,6 +79,8 @@ __all__ = [
     "running_snapshot",
     "schedule_retry_entry",
     "save_engine_scheduler_state",
+    "save_engine_scheduler_state_to_connection",
+    "release_engine_lease",
     "work_item_from_change_delivery_lane",
     "work_item_from_issue",
     "write_json_atomic",

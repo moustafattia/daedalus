@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from engine.leases import acquire_engine_lease, init_engine_leases, release_engine_lease
 from engine.state import init_engine_state
 from engine.sqlite import connect_daedalus_db
 from workflows.shared.paths import (
@@ -534,6 +535,7 @@ def init_daedalus_db(*, workflow_root: Path, project_key: str) -> dict[str, Any]
             """
         )
         init_engine_state(conn)
+        init_engine_leases(conn)
         now_iso = _now_iso()
         runtime_row = conn.execute(
             "SELECT schema_version FROM daedalus_runtime WHERE runtime_id='daedalus'"
@@ -625,41 +627,19 @@ def acquire_lease(
     ttl_seconds: int = 60,
 ) -> dict[str, Any]:
     now_iso = now_iso or _now_iso()
-    now_epoch = _iso_to_epoch(now_iso)
-    expires_epoch = (now_epoch or int(time.time())) + ttl_seconds
-    expires_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires_epoch))
-    lease_id = f"lease:{lease_scope}:{lease_key}"
     conn = _connect(db_path)
     try:
-        row = conn.execute(
-            "SELECT owner_instance_id, expires_at, released_at FROM leases WHERE lease_scope=? AND lease_key=?",
-            (lease_scope, lease_key),
-        ).fetchone()
-        if row:
-            current_owner, expires_at, released_at = row
-            expires_at_epoch = _iso_to_epoch(expires_at)
-            if not released_at and expires_at_epoch and expires_at_epoch > (now_epoch or 0) and current_owner != owner_instance_id:
-                return {"acquired": False, "lease_id": lease_id, "owner_instance_id": current_owner}
-            conn.execute(
-                """
-                UPDATE leases
-                SET owner_instance_id=?, owner_role=?, acquired_at=?, expires_at=?, released_at=NULL, release_reason=NULL
-                WHERE lease_scope=? AND lease_key=?
-                """,
-                (owner_instance_id, owner_role, now_iso, expires_iso, lease_scope, lease_key),
-            )
-        else:
-            conn.execute(
-                """
-                INSERT INTO leases (
-                  lease_id, lease_scope, lease_key, owner_instance_id, owner_role,
-                  acquired_at, expires_at, released_at, release_reason, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
-                """,
-                (lease_id, lease_scope, lease_key, owner_instance_id, owner_role, now_iso, expires_iso),
-            )
+        result = acquire_engine_lease(
+            conn,
+            lease_scope=lease_scope,
+            lease_key=lease_key,
+            owner_instance_id=owner_instance_id,
+            owner_role=owner_role,
+            now_iso=now_iso,
+            ttl_seconds=ttl_seconds,
+        )
         conn.commit()
-        return {"acquired": True, "lease_id": lease_id, "owner_instance_id": owner_instance_id, "expires_at": expires_iso}
+        return result
     finally:
         conn.close()
 
@@ -676,22 +656,16 @@ def release_lease(
     now_iso = now_iso or _now_iso()
     conn = _connect(db_path)
     try:
-        row = conn.execute(
-            "SELECT owner_instance_id FROM leases WHERE lease_scope=? AND lease_key=?",
-            (lease_scope, lease_key),
-        ).fetchone()
-        if not row or row[0] != owner_instance_id:
-            return {"released": False, "reason": "not-owner"}
-        conn.execute(
-            """
-            UPDATE leases
-            SET released_at=?, release_reason=?
-            WHERE lease_scope=? AND lease_key=?
-            """,
-            (now_iso, release_reason, lease_scope, lease_key),
+        result = release_engine_lease(
+            conn,
+            lease_scope=lease_scope,
+            lease_key=lease_key,
+            owner_instance_id=owner_instance_id,
+            now_iso=now_iso,
+            release_reason=release_reason,
         )
         conn.commit()
-        return {"released": True, "lease_id": f"lease:{lease_scope}:{lease_key}", "owner_instance_id": owner_instance_id}
+        return result
     finally:
         conn.close()
 
