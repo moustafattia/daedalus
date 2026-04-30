@@ -125,16 +125,6 @@ how to use it. See the full [WORKFLOW.md guide](docs/workflows/workflow-contract
 
 ## Bundled Workflows
 
-<div align="center">
-
-| | |
-|:---:|:---:|
-| **issue-runner** | **change-delivery** |
-| 🎯 | 🚀 |
-| `single-turn` | `full-lifecycle` |
-
-</div>
-
 ---
 
 ### `issue-runner`
