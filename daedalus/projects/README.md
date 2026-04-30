@@ -1,48 +1,36 @@
 # Daedalus projects
 
-Each subdirectory under `projects/` is source-repo **playground material** for
-one specific repository or operator environment.
+`projects/` is placeholder-only in the public repository.
 
-This tree is **not** part of the public plugin contract and is **not shipped**
-in the install payload. The public engine is configured from
-`<workflow-root>/WORKFLOW.md`, and the canonical repo checkout is the one the
+This tree is **not** part of the public plugin contract and is **not shipped** in
+the install payload. The public engine is configured from the repo-owned
+`WORKFLOW*.md` contract; the canonical product checkout is the repository the
 operator bootstraps from.
 
-That means:
+## Rules
 
-- agents should work against the user's real repo checkout recorded in
-  `repository.local-path`
-- workflow instance state lives under
-  `~/.hermes/workflows/<owner>-<repo>-<workflow-type>/`
-- `projects/` is only for source-controlled notes, legacy skills, and local
-  playground reference material
+- Keep public repository examples generic.
+- Do not commit customer, product, or operator-specific files here.
+- Do not put runtime data, cloned repositories, secrets, logs, or generated
+  scheduler state under `projects/`.
+- Agents should work against the user's real repo checkout recorded in
+  `repository.local-path`.
+- Workflow instance state lives under
+  `~/.hermes/workflows/<owner>-<repo>-<workflow-type>/`.
 
-The repo currently keeps `yoyopod_core/` here as historical/example material.
-Treat it as archived playground content, not as a recommended deployment model.
+## Placeholder
 
-## What belongs here
+The repository keeps only [PLACE_HOLDER.md](PLACE_HOLDER.md) here so the
+directory's role is visible without shipping project-specific material.
 
-Keep only source-controlled reference material:
+If a private project pack is useful for a deployment, keep it outside this public
+repo or publish it as a separate plugin/package with its own contract.
 
-- project-specific docs or migration notes
-- local-only skills that should not appear in the public plugin root
-- archived example metadata if it helps explain older layouts
+## Supported Model
 
-Do not treat `projects/` as:
+The public setup flow is:
 
-- the canonical product checkout
-- the default place where agents edit code
-- a packaged plugin runtime surface
-- a loader contract the engine resolves at runtime
-
-## Current model
-
-The supported public model is:
-
-1. clone or open the real product repo
+1. clone or open the real target repo
 2. run `hermes daedalus bootstrap` from that checkout
-3. edit the generated workflow root's `WORKFLOW.md`
+3. edit the generated `WORKFLOW.md`
 4. run `hermes daedalus service-up`
-
-If a project pack is useful, it should help humans understand or migrate that
-project. It should not replace the workflow root or the user checkout.

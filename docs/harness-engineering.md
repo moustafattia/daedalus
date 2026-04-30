@@ -22,7 +22,7 @@ The harness tests should catch these regressions before review:
 - bundled workflow templates must match their public docs copies
 - bootstrap must safely promote `WORKFLOW.md` to `WORKFLOW-<workflow>.md`
   without overwriting existing named contracts
-- project-specific playground names must not leak outside `daedalus/projects/**`
+- `daedalus/projects/` must stay placeholder-only in the public repository
 - installation docs must keep the landing-page quick start short and link to
   detailed operator docs
 - Codex app-server tests must cover fake protocol behavior in CI and keep the

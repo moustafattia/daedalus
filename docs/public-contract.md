@@ -33,8 +33,8 @@ These are not public compatibility promises yet:
 
 - SQLite schema details in `runtime/state/daedalus/daedalus.db`
 - event payload internals beyond documented operator output
-- source-repo playground material under `daedalus/projects/**` (not shipped in
-  the public plugin payload)
+- placeholder-only source tree under `daedalus/projects/**` (not shipped in the
+  public plugin payload)
 - experimental skills and local migration helpers
 
 We can refactor those freely as long as the stable surfaces above keep working.

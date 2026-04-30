@@ -32,16 +32,11 @@ def _is_skipped_path(path: Path) -> bool:
     return bool(set(rel_parts) & SKIPPED_DIRS)
 
 
-def _is_allowed_project_playground(path: Path) -> bool:
-    rel_parts = path.relative_to(REPO_ROOT).parts
-    return len(rel_parts) >= 2 and rel_parts[:2] == ("daedalus", "projects")
-
-
-def test_project_specific_terms_do_not_leak_outside_playground():
+def test_project_specific_terms_do_not_leak_into_public_repo():
     leaks: list[str] = []
 
     for path in REPO_ROOT.rglob("*"):
-        if not path.is_file() or _is_skipped_path(path) or _is_allowed_project_playground(path):
+        if not path.is_file() or _is_skipped_path(path):
             continue
         if path.suffix.lower() not in PUBLIC_TEXT_EXTENSIONS:
             continue
@@ -52,6 +47,20 @@ def test_project_specific_terms_do_not_leak_outside_playground():
             leaks.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert leaks == []
+
+
+def test_projects_tree_is_placeholder_only():
+    projects_root = REPO_ROOT / "daedalus" / "projects"
+    files = sorted(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in projects_root.rglob("*")
+        if path.is_file()
+    )
+
+    assert files == [
+        "daedalus/projects/PLACE_HOLDER.md",
+        "daedalus/projects/README.md",
+    ]
 
 
 def test_public_docs_present_github_first_path():

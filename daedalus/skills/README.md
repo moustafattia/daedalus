@@ -6,8 +6,8 @@ is installed (``./scripts/install.sh``), this directory is copied to
 ``HERMES_ENABLE_PROJECT_PLUGINS=true`` set, Hermes discovers these skills
 automatically.
 
-Project-specific skills belong under ``projects/<project>/skills/`` instead of
-the plugin root.
+Project-specific skills belong in private project packs instead of the public
+plugin root.
 
 Each skill is self-contained: one directory per skill, each with a single
 ``SKILL.md`` file whose YAML frontmatter declares the skill's name and
@@ -43,8 +43,8 @@ skills/
 
 ## Project-specific skills
 
-Project playground skills are kept with the project pack that owns them, for
-example under ``projects/<project>/skills/``.
+Project-specific skills should stay in the private project pack or plugin that
+owns them. Do not commit deployment-only skills to this public plugin tree.
 
 ## Adding a new skill
 
