@@ -47,6 +47,7 @@ Day-2 commands and observability.
 ## Workflow docs
 
 - [Bundled workflows](workflows/README.md) — overview of `change-delivery` and `issue-runner`
+- [WORKFLOW.md guide](workflows/workflow-contract.md) — repo-owned contract location, front matter, and Markdown body
 - [change-delivery](workflows/change-delivery.md) — opinionated GitHub SDLC workflow
 - [issue-runner](workflows/issue-runner.md) — generic tracker-driven reference workflow
 - [examples/change-delivery.workflow.md](examples/change-delivery.workflow.md) — copyable default contract
