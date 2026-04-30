@@ -2,99 +2,62 @@
 
 **GitHub-first SDLC automation engine for Hermes Agent.**
 
-Daedalus is a stateful workflow runtime for agent-driven software delivery. It
-turns tracker issues into supervised agent work, records durable state, retries
-and reconciles failures, and exposes operator surfaces for running the loop
-without treating prompts or Markdown files as the scheduler.
+Daedalus is a durable control plane for agentic software work. It turns tracker
+issues into supervised workflow runs, dispatches agents through runtime
+adapters, persists state, reconciles failures, and gives operators a live
+surface for the loop.
 
-`WORKFLOW.md` is the repo-owned contract. The engine is the plugin, database,
-state files, leases, service loop, workflow packages, runtime adapters, tracker
-clients, and observability around that contract.
+`WORKFLOW.md` is the repo-owned workflow contract. It is not the scheduler.
+The scheduler is the Daedalus plugin, service loop, workflow package, state
+store, leases, tracker clients, runtime adapters, and observability around that
+contract.
 
-## What Runs
+## Mental Model
 
 ```mermaid
 flowchart LR
-  Repo["target repo<br/>WORKFLOW*.md"] --> Root["workflow instance root<br/>~/.hermes/workflows/&lt;owner&gt;-&lt;repo&gt;-&lt;workflow&gt;"]
-  Plugin["plugin code<br/>~/.hermes/plugins/daedalus"] --> Service["systemd --user<br/>daedalus-active@&lt;instance&gt;"]
+  Repo["target repo<br/>WORKFLOW*.md"] --> Root["workflow root<br/>~/.hermes/workflows/&lt;owner&gt;-&lt;repo&gt;-&lt;workflow&gt;"]
+  Plugin["plugin<br/>~/.hermes/plugins/daedalus"] --> Service["systemd user service"]
   Root --> Service
-  Service --> Engine["Daedalus runtime<br/>preflight · tick · reconcile"]
-  Engine --> Workflow["workflow package<br/>change-delivery or issue-runner"]
-  Workflow --> Tracker["tracker client<br/>GitHub · local-json · Linear experimental"]
-  Workflow --> Runtime["agent runtime<br/>codex-app-server · acpx-codex · claude-cli · hermes-agent"]
-  Runtime --> Workspace["per-issue workspace"]
-  Engine --> State["durable state<br/>SQLite · JSON · JSONL"]
+  Service --> Workflow["workflow package"]
+  Workflow --> Tracker["tracker<br/>GitHub first"]
+  Workflow --> Runtime["runtime adapter<br/>Codex · Claude · Hermes"]
+  Runtime --> Workspace["isolated workspace"]
+  Service --> State["durable state<br/>SQLite · JSON · JSONL"]
   Workspace --> State
 ```
 
-The important separation:
+The separation is intentional:
 
-- **Plugin code** lives under `~/.hermes/plugins/daedalus`.
-- **Workflow instance data** lives under `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`.
-- **Repo policy** lives in `WORKFLOW.md` or `WORKFLOW-<workflow>.md`.
-- **Agent work** happens in the configured repo/workspace paths, not inside the public `daedalus/projects/` tree.
+- Plugin code lives in `~/.hermes/plugins/daedalus`.
+- Workflow instance data lives in `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`.
+- Repo policy and operator config live in `WORKFLOW.md` or `WORKFLOW-<workflow>.md`.
+- Agent work happens in configured workspaces, not in `daedalus/projects/`.
 
 ## Bundled Workflows
 
-Daedalus does not assume one universal lifecycle. The engine is shared; each
-workflow package owns its own policy, schema, prompts, gates, and commands.
-
-| Workflow | Purpose | Best fit |
+| Workflow | What it automates | Use it when |
 |---|---|---|
-| `change-delivery` | GitHub issue -> code -> internal review -> PR -> external review -> merge | Opinionated SDLC automation with review and merge gates |
-| `issue-runner` | tracker issue -> isolated workspace -> hooks -> prompt -> one agent run | Generic Symphony-shaped issue execution |
+| `change-delivery` | GitHub issue -> implementation -> internal review -> PR -> external review -> merge | You want the opinionated SDLC workflow with review and merge gates. |
+| `issue-runner` | tracker issue -> workspace -> hooks -> prompt -> one agent run | You want a smaller generic tracker-driven workflow. |
 
-`change-delivery` is the default public bootstrap path. `issue-runner` is the
-cleaner reference workflow for generic tracker-driven automation and future
-Symphony compatibility.
+`change-delivery` is the default bootstrap path. `issue-runner` is the cleaner
+generic reference workflow and the closest surface to Symphony-style issue
+execution.
 
-## Control Loop
+## What Is Stateful
 
-```mermaid
-sequenceDiagram
-  participant T as Tracker
-  participant D as Daedalus service
-  participant W as Workflow package
-  participant R as Runtime adapter
-  participant S as Durable state
+Daedalus is not controlled by Markdown files alone. The workflow contract is
+configuration; runtime truth is persisted separately.
 
-  D->>W: load WORKFLOW*.md + last good config
-  W->>T: list/refresh candidate and terminal issues
-  W->>S: read lanes, scheduler, retries, threads
-  W->>D: select, reconcile, or clean up
-  D->>R: dispatch prompt/command when eligible
-  R-->>D: result, thread id, tokens, rate limits
-  D->>S: record status, events, retry, cleanup, metrics
-```
-
-Daedalus is intentionally stateful. These paths are relative to the workflow
-root unless noted otherwise:
-
-| State surface | Used for |
+| Surface | Purpose |
 |---|---|
-| `runtime/state/daedalus/daedalus.db` | `change-delivery` runtime rows, leases, lanes, actions, reviews, failures |
-| `memory/workflow-scheduler.json` | running workers, retry queue, Codex thread mappings, token/rate-limit totals |
-| `memory/workflow-audit.jsonl` | append-only workflow audit events |
+| `runtime/state/daedalus/daedalus.db` | `change-delivery` leases, lanes, actions, reviews, failures |
+| `memory/workflow-scheduler.json` | running workers, retries, Codex thread mappings, token/rate-limit totals |
+| `memory/workflow-audit.jsonl` | workflow audit history |
 | `memory/workflow-status.json` / `workflow-health.json` | operator and HTTP status projections |
-| `.lane-state.json` / `.lane-memo.md` | lane-local handoff artifacts for `change-delivery` |
 
-## Supported Public Path
-
-- **Platform:** Linux
-- **Plugin install:** `hermes plugins install attmous/daedalus --enable`
-- **Plugin source of truth:** `~/.hermes/plugins/daedalus`
-- **Workflow root:** `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`
-- **Workflow contract:** repo-owned `WORKFLOW.md` or `WORKFLOW-<workflow>.md`
-- **First-class tracker:** GitHub issues through authenticated `gh`
-- **Experimental tracker:** Linear
-- **Supervision:** `systemd --user`
-- **Runtime adapters:** `codex-app-server`, `acpx-codex`, `claude-cli`, `hermes-agent`
-
-The current release posture is **public beta candidate**. See
-[docs/release-readiness.md](docs/release-readiness.md) and
-[docs/public-contract.md](docs/public-contract.md) for the supported boundary.
-
-## Install And Start
+## Quick Start
 
 ```bash
 sudo apt install python3-yaml python3-jsonschema
@@ -107,32 +70,39 @@ hermes daedalus service-up
 hermes
 ```
 
+Bootstrap creates the workflow root, writes the repo-owned contract, commits it
+on a bootstrap branch, and stores a repo-local pointer so later commands can
+resolve the workflow instance.
+
 Use the generic workflow instead:
 
 ```bash
 hermes daedalus bootstrap --workflow issue-runner
 ```
 
-`bootstrap` detects the repo, derives the GitHub slug, creates the workflow
-root, writes the repo-owned workflow contract, commits it on a bootstrap branch,
-and writes `./.hermes/daedalus/workflow-root` so later commands can resolve the
-instance from the repo checkout.
-
-`service-up` validates the contract, runs workflow preflight, installs the
-systemd user unit, enables it, and starts the supervised loop.
-
-If your workflow uses an external Codex app-server, start the shared listener:
-
-```bash
-hermes daedalus codex-app-server up
-hermes daedalus codex-app-server doctor
-```
-
-For manual scaffold paths, service modes, pip installs, lower-level command
-details, and troubleshooting, read
+For manual scaffold paths, service modes, pip installs, and every lower-level command,
+use the full install guide:
 [docs/operator/installation.md](docs/operator/installation.md).
 
-## Operator Surface
+## Configure The Workflow
+
+Edit the generated repo contract:
+
+- `WORKFLOW.md` when the repo carries one workflow
+- `WORKFLOW-change-delivery.md` / `WORKFLOW-issue-runner.md` when it carries more than one
+
+Common knobs live in the YAML front matter:
+
+- `repository` / `tracker`: repo checkout, GitHub slug, labels, issue states
+- `runtimes`: `codex-app-server`, `acpx-codex`, `claude-cli`, `hermes-agent`
+- `agents`: model/runtime bindings for workflow roles
+- `gates` / `hooks`: workflow-specific policy
+- `observability` / `server`: comments, webhooks, HTTP status
+
+The Markdown body is the workflow policy prompt. The workflow package decides
+how to use it.
+
+## Operate It
 
 ```text
 /daedalus status
@@ -145,48 +115,36 @@ details, and troubleshooting, read
 /workflow issue-runner run --max-iterations 1 --json
 ```
 
-The operator surfaces read state; they do not require you to inspect SQLite,
-JSONL, scheduler files, or systemd logs by hand. The optional HTTP status server
-exposes workflow-scoped JSON and HTML snapshots for dashboards.
+The operator surfaces read the persisted state for you. You should not need to
+inspect SQLite, scheduler JSON, JSONL logs, or systemd journals by hand during
+normal operation.
 
-## Recovery Model
+## Public Posture
 
-```mermaid
-flowchart TD
-  A["worker dispatched"] --> B{"completed?"}
-  B -- yes --> C["record result<br/>update metrics"]
-  B -- no --> D{"stalled, failed, or process restarted?"}
-  D -- retryable --> E["persist retry<br/>backoff or continuation delay"]
-  D -- terminal issue --> F["cancel or suppress retry<br/>run cleanup hooks"]
-  E --> G["next tick reselects eligible work"]
-  F --> H["workspace cleanup<br/>thread mapping cleared"]
-  C --> G
-```
+- **First-class tracker:** GitHub issues through authenticated `gh`
+- **Experimental tracker:** Linear
+- **Supervision:** `systemd --user`
+- **Runtime adapters:** `codex-app-server`, `acpx-codex`, `claude-cli`, `hermes-agent`
+- **Release posture:** public beta candidate
 
-The engine keeps running on bad config reloads, tracker errors, worker failures,
-and restarts. The exact behavior depends on the workflow:
-
-- `issue-runner` has bounded async workers, retry queue persistence, terminal
-  workspace cleanup, lifecycle hooks, and Codex `issue_id -> thread_id` resume.
-- `change-delivery` adds active-lane state, leases, action idempotency, review
-  gates, PR publishing, merge promotion, and SQLite-backed runtime state.
+Stable public boundaries are tracked in [docs/public-contract.md](docs/public-contract.md).
+Readiness and generic-surface guardrails are tracked in
+[docs/harness-engineering.md](docs/harness-engineering.md).
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) — durable runtime model and engine/workflow boundary.
-- [docs/workflows/README.md](docs/workflows/README.md) — how `change-delivery` and `issue-runner` differ.
-- [docs/operator/installation.md](docs/operator/installation.md) — install, bootstrap, service, and troubleshooting.
-- [docs/operator/cheat-sheet.md](docs/operator/cheat-sheet.md) — day-2 commands.
+- [docs/operator/installation.md](docs/operator/installation.md) — full install, bootstrap, service, and troubleshooting path.
+- [docs/workflows/README.md](docs/workflows/README.md) — workflow comparison and templates.
+- [docs/architecture.md](docs/architecture.md) — engine/workflow boundary and durable runtime model.
+- [docs/operator/cheat-sheet.md](docs/operator/cheat-sheet.md) — day-2 commands and debugging.
 - [docs/symphony-conformance.md](docs/symphony-conformance.md) — Symphony alignment and remaining gaps.
-- [docs/harness-engineering.md](docs/harness-engineering.md) — public-readiness checks and guardrails.
 - [docs/security.md](docs/security.md) — trust model, shell/runtime posture, and secrets.
 
 ## Name
 
-In the myth, Daedalus built the labyrinth, gave Theseus the thread, and warned
-Icarus about unsafe flight. The name is a reminder of the same engineering
-shape here: build the maze, keep the recovery thread, and put limits around
-autonomy.
+Daedalus built the labyrinth, kept the thread, and understood the risk of
+unchecked flight. The project uses the name as a reminder: build the workflow
+maze, keep recovery paths visible, and put limits around autonomy.
 
 ## License
 
