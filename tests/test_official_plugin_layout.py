@@ -23,7 +23,7 @@ def test_repo_root_exposes_official_hermes_plugin_layout():
         REPO_ROOT / "__init__.py",
         REPO_ROOT / "runtimes" / "__init__.py",
         REPO_ROOT / "schemas.py",
-        REPO_ROOT / "tools.py",
+        REPO_ROOT / "daedalus_cli.py",
         REPO_ROOT / "trackers" / "__init__.py",
         REPO_ROOT / "runtime.py",
         REPO_ROOT / "workflows" / "__init__.py",
@@ -35,6 +35,7 @@ def test_repo_root_exposes_official_hermes_plugin_layout():
     ]
     missing = [str(path.relative_to(REPO_ROOT)) for path in expected if not path.exists()]
     assert not missing, f"missing repo-root plugin files: {missing}"
+    assert not (REPO_ROOT / "tools.py").exists()
 
 
 def test_repo_root_manifest_matches_installed_payload_manifest():
@@ -71,8 +72,8 @@ def test_repo_root_plugin_entrypoint_registers_same_commands_and_skill():
 
 
 def test_repo_root_tools_wrapper_dispatches_scaffold(tmp_path):
-    tools = _load_module("daedalus_repo_root_tools_test", REPO_ROOT / "tools.py")
-    workflow_root = tmp_path / "attmous-daedalus-change-delivery"
+    tools = _load_module("daedalus_repo_root_tools_test", REPO_ROOT / "daedalus_cli.py")
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
@@ -85,7 +86,7 @@ def test_repo_root_tools_wrapper_dispatches_scaffold(tmp_path):
     )
 
     out = tools.execute_raw_args(
-        f"scaffold-workflow --workflow-root {workflow_root} --repo-path {repo} --github-slug attmous/daedalus"
+        f"scaffold-workflow --workflow-root {workflow_root} --repo-path {repo} --repo-slug attmous/daedalus"
     )
 
     assert "daedalus error:" not in out, out

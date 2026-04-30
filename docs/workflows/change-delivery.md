@@ -1,7 +1,7 @@
 # `change-delivery`
 
-`change-delivery` is the opinionated bundled SDLC workflow. It is the current
-managed/default Daedalus path.
+`change-delivery` is the opinionated bundled SDLC workflow for GitHub-backed
+issue-to-PR delivery.
 
 ## What it does
 
@@ -14,8 +14,8 @@ It takes a GitHub issue through:
 5. external review
 6. merge and promotion
 
-This is the workflow behind the default `bootstrap` and `service-up` operator
-flow.
+Use `bootstrap --workflow change-delivery` when you want this lifecycle instead
+of the default generic `issue-runner` workflow.
 
 ## Use it when
 
@@ -30,7 +30,8 @@ flow.
 
 ## Key config blocks
 
-- `repository`: repo checkout, GitHub slug, active-lane label
+- `repository`: repo checkout, repo slug, GitHub slug, active-lane label
+- `tracker`: GitHub-backed issue source and issue state mapping
 - `runtimes`: shared runtime backend profiles used by the workflow roles
 - `agents`: the workflow roles and their runtime/model bindings
 - `gates`: publish/merge policy
@@ -78,11 +79,11 @@ watch` and the HTTP state payload under `codex_turns`.
 
 ## Operator path
 
-Default onboarding:
+Onboarding:
 
 ```bash
 cd /path/to/repo
-hermes daedalus bootstrap
+hermes daedalus bootstrap --workflow change-delivery
 $EDITOR /path/to/repo/WORKFLOW.md
 hermes daedalus service-up
 ```

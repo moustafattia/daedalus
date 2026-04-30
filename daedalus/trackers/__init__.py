@@ -43,6 +43,23 @@ def register(kind: str):
     return _register
 
 
+def _ensure_builtin_tracker_kinds() -> None:
+    """Register built-ins even if submodules were imported before this package reloaded.
+
+    Hermes plugin tests load repo and installed-plugin copies in the same Python
+    process. In that situation ``trackers`` can be re-execed while
+    ``trackers.local_json`` remains cached, so decorators do not run again.
+    Explicitly binding the built-in classes keeps the registry deterministic.
+    """
+    from .github import GithubTrackerClient
+    from .linear import LinearTrackerClient
+    from .local_json import LocalJsonTrackerClient
+
+    _TRACKER_KINDS.setdefault("github", GithubTrackerClient)
+    _TRACKER_KINDS.setdefault("linear", LinearTrackerClient)
+    _TRACKER_KINDS.setdefault("local-json", LocalJsonTrackerClient)
+
+
 def resolve_tracker_path(*, workflow_root: Path, tracker_cfg: dict[str, Any]) -> Path:
     path_value = str(tracker_cfg.get("path") or "").strip()
     if not path_value:
@@ -82,9 +99,7 @@ def build_tracker_client(
     run_json: Callable[..., Any] | None = None,
 ) -> TrackerClient:
     kind = tracker_kind(tracker_cfg)
-    from . import github  # noqa: F401
-    from . import linear  # noqa: F401
-    from . import local_json  # noqa: F401
+    _ensure_builtin_tracker_kinds()
 
     if kind not in _TRACKER_KINDS:
         raise TrackerConfigError(

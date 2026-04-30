@@ -23,19 +23,19 @@ DEFAULT_WORKFLOW_ROOT = resolve_default_workflow_root()
 DEFAULT_STATE_PATH = workflow_runtime_paths(DEFAULT_WORKFLOW_ROOT)["alert_state_path"]
 
 
-def _load_tools_module():
-    module_path = PLUGIN_DIR / "tools.py"
-    spec = importlib.util.spec_from_file_location("daedalus_tools_for_alerts", module_path)
+def _load_cli_module():
+    module_path = PLUGIN_DIR / "daedalus_cli.py"
+    spec = importlib.util.spec_from_file_location("daedalus_cli_for_alerts", module_path)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"unable to load Daedalus plugin tools from {module_path}")
+        raise RuntimeError(f"unable to load Daedalus plugin CLI from {module_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
 def _execute_plugin_command(command: str) -> str:
-    tools_module = _load_tools_module()
-    result = tools_module.execute_raw_args(command)
+    cli_module = _load_cli_module()
+    result = cli_module.execute_raw_args(command)
     if result.startswith("daedalus error:"):
         raise RuntimeError(result)
     return result

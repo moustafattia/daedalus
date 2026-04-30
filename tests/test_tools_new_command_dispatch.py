@@ -28,7 +28,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def _tools():
-    return load_module("daedalus_tools_new_command_dispatch_test", "tools.py")
+    return load_module("daedalus_tools_new_command_dispatch_test", "daedalus_cli.py")
 
 
 def test_set_observability_dispatched_not_falling_through_to_unknown(tmp_path):
@@ -81,7 +81,7 @@ def test_watch_dispatched_not_falling_through_to_unknown(tmp_path):
 
 def test_scaffold_workflow_dispatched_not_falling_through_to_unknown(tmp_path):
     tools = _tools()
-    root = tmp_path / "attmous-daedalus-change-delivery"
+    root = tmp_path / "attmous-daedalus-issue-runner"
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
@@ -93,7 +93,7 @@ def test_scaffold_workflow_dispatched_not_falling_through_to_unknown(tmp_path):
         text=True,
     )
     out = tools.execute_raw_args(
-        f"scaffold-workflow --workflow-root {root} --repo-path {repo} --github-slug attmous/daedalus"
+        f"scaffold-workflow --workflow-root {root} --repo-path {repo} --repo-slug attmous/daedalus"
     )
     assert "unknown daedalus command" not in out, out
     assert "scaffolded workflow root" in out

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 
-TOOLS_PATH = Path(__file__).resolve().parents[1] / "daedalus" / "tools.py"
+TOOLS_PATH = Path(__file__).resolve().parents[1] / "daedalus" / "daedalus_cli.py"
 
 
 def load_tools():

@@ -36,10 +36,10 @@ def normalize_workflow_instance_segment(value: str | None) -> str:
     return text.strip("-")
 
 
-def derive_workflow_instance_name(*, github_slug: str, workflow_name: str) -> str:
-    slug = str(github_slug or "").strip()
+def derive_workflow_instance_name(*, repo_slug: str, workflow_name: str) -> str:
+    slug = str(repo_slug or "").strip()
     if slug.count("/") != 1:
-        raise ValueError("github slug must use owner/repo format")
+        raise ValueError("repo slug must use owner/repo format")
     owner_raw, repo_raw = slug.split("/", 1)
     owner = normalize_workflow_instance_segment(owner_raw)
     repo = normalize_workflow_instance_segment(repo_raw)
@@ -211,4 +211,3 @@ def resolve_default_workflow_root(
     if workflow_config_path(repo_parent).exists():
         return repo_parent
     return cwd_path
-

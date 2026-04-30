@@ -26,7 +26,7 @@ def _make_workflow_root(tmp_path):
 
 
 def test_set_observability_writes_override(tmp_path):
-    tools = load_module("daedalus_tools_set_obs_test", "tools.py")
+    tools = load_module("daedalus_tools_set_obs_test", "daedalus_cli.py")
     root = _make_workflow_root(tmp_path)
 
     args = mock.Mock()
@@ -45,7 +45,7 @@ def test_set_observability_writes_override(tmp_path):
 
 
 def test_set_observability_unset_removes_block(tmp_path):
-    tools = load_module("daedalus_tools_set_obs_test", "tools.py")
+    tools = load_module("daedalus_tools_set_obs_test", "daedalus_cli.py")
     root = _make_workflow_root(tmp_path)
 
     # First set
@@ -69,7 +69,7 @@ def test_set_observability_unset_removes_block(tmp_path):
 
 
 def test_get_observability_shows_default_source_when_no_yaml_no_override(tmp_path):
-    tools = load_module("daedalus_tools_get_obs_test", "tools.py")
+    tools = load_module("daedalus_tools_get_obs_test", "daedalus_cli.py")
     root = _make_workflow_root(tmp_path)
 
     # Create a workflow.yaml without an observability block
@@ -101,7 +101,7 @@ storage: {ledger: l, health: h, audit-log: a}
 
 
 def test_get_observability_shows_override_source_when_overridden(tmp_path):
-    tools = load_module("daedalus_tools_get_obs_test", "tools.py")
+    tools = load_module("daedalus_tools_get_obs_test", "daedalus_cli.py")
     root = _make_workflow_root(tmp_path)
 
     (root / "config" / "workflow.yaml").write_text("""\

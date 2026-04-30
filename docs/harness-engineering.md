@@ -5,10 +5,13 @@ the implementation continues to move quickly.
 
 ## Public Posture
 
-The public release is GitHub-first:
+The public release is tracker-neutral in shape and GitHub-first in production
+coverage:
 
-- `change-delivery` is the supported managed SDLC workflow.
-- `issue-runner` supports GitHub as the first-class tracker path.
+- `issue-runner` is the default managed workflow and uses the shared tracker
+  boundary.
+- `change-delivery` is the opinionated GitHub-backed SDLC workflow.
+- GitHub is the first-class production tracker adapter.
 - `local-json` exists for local development and deterministic tests.
 - Linear remains an experimental adapter until the GitHub path has real
   integration coverage and stronger operator docs.
@@ -17,7 +20,8 @@ The public release is GitHub-first:
 
 The harness tests should catch these regressions before review:
 
-- public docs must describe the GitHub-first path clearly
+- public docs must keep the workflow story tracker-neutral while documenting
+  GitHub as the first-class adapter
 - release readiness must keep the public-beta posture and launch gates explicit
 - public examples must use generic placeholders like `your-org/your-repo`
 - bundled workflow templates must match their public docs copies

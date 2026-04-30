@@ -16,7 +16,7 @@ Use this when continuing Daedalus reliability work around stalled dispatches, re
 
 2. **Locate the real implementation points**
    - `runtime.py` for schema, lane actions, recovery, reaping, and runtime status.
-   - `tools.py` for doctor/report exposure.
+   - `daedalus_cli.py` for doctor/report exposure.
    - `alerts.py` for alert decisioning and state persistence.
    - Tests in `tests/test_runtime_tools_alerts.py` or adjacent files.
 

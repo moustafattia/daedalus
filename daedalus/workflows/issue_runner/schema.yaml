@@ -28,9 +28,10 @@ properties:
 
   repository:
     type: object
-    required: [local-path, github-slug]
+    required: [local-path]
     properties:
       local-path: {type: string}
+      slug: {type: string}
       github-slug: {type: string}
 
   tracker:
@@ -41,6 +42,8 @@ properties:
         type: string
         enum: [local-json, linear, github]
       path: {type: string}
+      github_slug: {type: string}
+      github-slug: {type: string}
       endpoint: {type: string}
       api_key: {type: string}
       project_slug: {type: string}

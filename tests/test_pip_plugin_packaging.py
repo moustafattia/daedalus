@@ -106,7 +106,7 @@ def test_wheel_extracts_to_working_plugin_package(tmp_path):
 
     plugin_dir = site_packages / "daedalus"
     plugin = _load_module("daedalus_packaged_plugin_test", plugin_dir / "__init__.py")
-    tools = _load_module("daedalus_packaged_tools_test", plugin_dir / "tools.py")
+    tools = _load_module("daedalus_packaged_tools_test", plugin_dir / "daedalus_cli.py")
     assert (plugin_dir / "runtimes" / "__init__.py").exists()
     assert (plugin_dir / "trackers" / "__init__.py").exists()
 
@@ -133,7 +133,7 @@ def test_wheel_extracts_to_working_plugin_package(tmp_path):
     assert any(item["name"] == "daedalus" for item in calls["cli_commands"])
     assert any(name == "operator" and path.exists() for name, path, _desc in calls["skills"])
 
-    workflow_root = tmp_path / "attmous-daedalus-change-delivery"
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
@@ -145,7 +145,7 @@ def test_wheel_extracts_to_working_plugin_package(tmp_path):
         text=True,
     )
     out = tools.execute_raw_args(
-        f"scaffold-workflow --workflow-root {workflow_root} --repo-path {repo} --github-slug attmous/daedalus"
+        f"scaffold-workflow --workflow-root {workflow_root} --repo-path {repo} --repo-slug attmous/daedalus"
     )
     assert "daedalus error:" not in out, out
     assert (repo / "WORKFLOW.md").exists()

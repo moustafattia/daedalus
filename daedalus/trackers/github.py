@@ -21,7 +21,7 @@ def _github_slug_match(raw: str) -> re.Match[str] | None:
 
 def _github_slug_config_error() -> TrackerConfigError:
     return TrackerConfigError(
-        "repository.github-slug must be in owner/repo or host/owner/repo form for tracker.kind='github'"
+        "tracker.github_slug or repository.github-slug must be in owner/repo or host/owner/repo form for tracker.kind='github'"
     )
 
 
@@ -218,7 +218,7 @@ def _resolve_repo_path(
         if not required:
             return None
         raise TrackerConfigError(
-            "tracker.kind='github' requires repository.github-slug or repository.local-path"
+            "tracker.kind='github' requires tracker.github_slug, repository.github-slug, or repository.local-path"
         )
     path = Path(raw).expanduser()
     if not path.is_absolute():

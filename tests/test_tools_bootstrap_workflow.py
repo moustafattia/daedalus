@@ -20,7 +20,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def _tools():
-    return load_module("daedalus_tools_bootstrap_workflow_test", "tools.py")
+    return load_module("daedalus_tools_bootstrap_workflow_test", "daedalus_cli.py")
 
 
 def _init_git_repo(path: Path, *, remote_url: str) -> None:
@@ -44,7 +44,7 @@ def test_bootstrap_workflow_infers_repo_root_slug_and_default_root(tmp_path, mon
         repo_path=nested,
         workflow_name="change-delivery",
         workflow_root=None,
-        github_slug=None,
+        repo_slug=None,
         active_lane_label="active-lane",
         engine_owner="hermes",
         force=False,
@@ -59,7 +59,7 @@ def test_bootstrap_workflow_infers_repo_root_slug_and_default_root(tmp_path, mon
     assert Path(result["workflow_root"]) == expected_root
     assert result["detected_repo_root"] == str(repo_root.resolve())
     assert result["repo_path"] == str(repo_root.resolve())
-    assert result["github_slug"] == "attmous/daedalus"
+    assert result["repo_slug"] == "attmous/daedalus"
     assert result["remote_url"] == "git@github.com:attmous/daedalus.git"
     assert result["repo_pointer_path"] == str(pointer_path)
     assert result["next_edit_path"] == str(contract_path)
@@ -81,17 +81,45 @@ def test_bootstrap_workflow_accepts_explicit_slug_for_non_github_remote(tmp_path
         repo_path=repo_root,
         workflow_name="change-delivery",
         workflow_root=workflow_root,
-        github_slug="acme/widget",
+        repo_slug="acme/widget",
         active_lane_label="active-lane",
         engine_owner="hermes",
         force=False,
     )
 
     cfg = load_workflow_contract_file(repo_root / "WORKFLOW.md").config
-    assert result["github_slug"] == "acme/widget"
+    assert result["repo_slug"] == "acme/widget"
+    assert cfg["repository"]["slug"] == "acme/widget"
     assert cfg["repository"]["github-slug"] == "acme/widget"
     assert cfg["repository"]["local-path"] == str(repo_root.resolve())
     assert (repo_root / ".hermes" / "daedalus" / "workflow-root").read_text(encoding="utf-8").strip() == str(workflow_root.resolve())
+
+
+def test_bootstrap_issue_runner_infers_repo_slug_from_non_github_remote(tmp_path, monkeypatch):
+    tools = _tools()
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+    repo_root = tmp_path / "repo"
+    _init_git_repo(repo_root, remote_url="git@example.com:team/project.git")
+
+    result = tools.bootstrap_workflow_root(
+        repo_path=repo_root,
+        workflow_name="issue-runner",
+        workflow_root=None,
+        repo_slug=None,
+        active_lane_label="active-lane",
+        engine_owner="hermes",
+        force=False,
+    )
+
+    cfg = load_workflow_contract_file(repo_root / "WORKFLOW.md").config
+    assert result["repo_slug"] == "team/project"
+    assert Path(result["workflow_root"]) == home / ".hermes" / "workflows" / "team-project-issue-runner"
+    assert cfg["workflow"] == "issue-runner"
+    assert cfg["repository"]["slug"] == "team/project"
+    assert "github-slug" not in cfg["repository"]
 
 
 def test_bootstrap_issue_runner_recommends_service_up(tmp_path, monkeypatch):
@@ -107,7 +135,7 @@ def test_bootstrap_issue_runner_recommends_service_up(tmp_path, monkeypatch):
         repo_path=repo_root,
         workflow_name="issue-runner",
         workflow_root=None,
-        github_slug=None,
+        repo_slug=None,
         active_lane_label="active-lane",
         engine_owner="hermes",
         force=False,
@@ -130,7 +158,7 @@ def test_bootstrap_second_workflow_promotes_default_contract_without_clobbering(
         repo_path=repo_root,
         workflow_name="change-delivery",
         workflow_root=None,
-        github_slug=None,
+        repo_slug=None,
         active_lane_label="active-lane",
         engine_owner="hermes",
         force=False,
@@ -141,7 +169,7 @@ def test_bootstrap_second_workflow_promotes_default_contract_without_clobbering(
         repo_path=repo_root,
         workflow_name="issue-runner",
         workflow_root=None,
-        github_slug=None,
+        repo_slug=None,
         active_lane_label="active-lane",
         engine_owner="hermes",
         force=False,
@@ -196,7 +224,7 @@ def test_bootstrap_rejects_non_daedalus_workflow_md_without_changes(tmp_path, mo
             repo_path=repo_root,
             workflow_name="issue-runner",
             workflow_root=None,
-            github_slug=None,
+            repo_slug=None,
             active_lane_label="active-lane",
             engine_owner="hermes",
             force=False,
@@ -229,7 +257,7 @@ def test_bootstrap_promotion_refuses_existing_named_target_even_with_force(tmp_p
             repo_path=repo_root,
             workflow_name="issue-runner",
             workflow_root=None,
-            github_slug=None,
+            repo_slug=None,
             active_lane_label="active-lane",
             engine_owner="hermes",
             force=True,
@@ -251,7 +279,7 @@ def test_bootstrap_workflow_requires_git_repo(tmp_path):
             repo_path=non_repo,
             workflow_name="change-delivery",
             workflow_root=None,
-            github_slug=None,
+            repo_slug=None,
             active_lane_label="active-lane",
             engine_owner="hermes",
             force=False,

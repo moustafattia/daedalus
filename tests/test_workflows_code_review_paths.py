@@ -98,7 +98,7 @@ def test_derive_workflow_instance_name_uses_owner_repo_workflow_convention(tmp_p
     paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
 
     name = paths_module.derive_workflow_instance_name(
-        github_slug="Attmous/Daedalus_Core",
+        repo_slug="Attmous/Daedalus_Core",
         workflow_name="change-delivery",
     )
 

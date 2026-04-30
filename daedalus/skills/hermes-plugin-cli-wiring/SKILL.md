@@ -125,7 +125,7 @@ For project-local operator plugins, keep the real implementation inside the plug
 Preferred shape:
 - `.hermes/plugins/<plugin>/__init__.py`
 - `.hermes/plugins/<plugin>/schemas.py`
-- `.hermes/plugins/<plugin>/tools.py`
+- `.hermes/plugins/<plugin>/cli.py`
 - `.hermes/plugins/<plugin>/runtime.py` (or `core/runtime.py`)
 - optional `.hermes/plugins/<plugin>/alerts.py`
 - `scripts/<entrypoint>.py` wrappers that import the plugin module and call `main()`

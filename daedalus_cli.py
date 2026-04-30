@@ -1,11 +1,11 @@
 """Repo-root wrapper for the official Hermes plugin layout."""
 
 try:
-    from .daedalus.tools import *  # noqa: F401,F403
-    from .daedalus.tools import execute_raw_args as _execute_raw_args
+    from .daedalus.daedalus_cli import *  # noqa: F401,F403
+    from .daedalus.daedalus_cli import execute_raw_args as _execute_raw_args
 except ImportError:
-    from daedalus.tools import *  # noqa: F401,F403
-    from daedalus.tools import execute_raw_args as _execute_raw_args
+    from daedalus.daedalus_cli import *  # noqa: F401,F403
+    from daedalus.daedalus_cli import execute_raw_args as _execute_raw_args
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ instance:
 
 repository:
   local-path: /home/you/src/acme-repo
-  github-slug: your-org/your-repo
+  slug: your-org/your-repo
 
 tracker:
   kind: local-json

@@ -12,7 +12,7 @@ def _config() -> dict:
         "workflow": "issue-runner",
         "schema-version": 1,
         "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
-        "repository": {"local-path": "/tmp/repo", "github-slug": "attmous/daedalus"},
+        "repository": {"local-path": "/tmp/repo", "slug": "attmous/daedalus"},
         "tracker": {
             "kind": "local-json",
             "path": "config/issues.json",
@@ -60,6 +60,16 @@ def test_issue_runner_schema_accepts_minimal_valid_config():
         (REPO_ROOT / "daedalus" / "workflows" / "issue_runner" / "schema.yaml").read_text(encoding="utf-8")
     )
     jsonschema.validate(_config(), schema)
+
+
+def test_issue_runner_schema_does_not_require_github_slug_for_local_json():
+    schema = yaml.safe_load(
+        (REPO_ROOT / "daedalus" / "workflows" / "issue_runner" / "schema.yaml").read_text(encoding="utf-8")
+    )
+    cfg = _config()
+    cfg["repository"].pop("slug")
+
+    jsonschema.validate(cfg, schema)
 
 
 def test_issue_runner_schema_rejects_wrong_workflow_name():
@@ -138,6 +148,7 @@ def test_issue_runner_schema_accepts_github_tracker():
     cfg = _config()
     cfg["tracker"] = {
         "kind": "github",
+        "github_slug": "attmous/daedalus",
         "active_states": ["open"],
         "terminal_states": ["closed"],
         "required_labels": ["ready"],

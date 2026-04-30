@@ -44,7 +44,7 @@ Steps
      - if neither exists, create `execution_controls`
    - Do not leave compatibility shims around once the migration exists.
 
-4. Update operator surface in `tools.py`.
+4. Update operator surface in `daedalus_cli.py`.
    - Replace cutover commands with:
      - `/daedalus active-gate-status`
      - `/daedalus set-active-execution --enabled true|false`

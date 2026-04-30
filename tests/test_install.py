@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 
@@ -26,6 +27,7 @@ def test_install_into_default_hermes_home_copies_plugin_tree(tmp_path):
     assert (plugin_dir / "runtime.py").exists()
     assert (plugin_dir / "alerts.py").exists()
     assert (plugin_dir / "trackers" / "__init__.py").exists()
+    assert not (plugin_dir / "tools.py").exists()
     assert (plugin_dir / "workflows" / "change_delivery" / "status.py").exists()
     assert (plugin_dir / "workflows" / "change_delivery" / "workflow.template.md").exists()
     assert (plugin_dir / "workflows" / "issue_runner" / "workflow.template.md").exists()
@@ -44,10 +46,27 @@ def test_install_into_explicit_destination_uses_given_path(tmp_path):
     assert (target / "runtimes" / "codex_app_server.py").exists()
     assert (target / "plugin.yaml").exists()
     assert (target / "trackers" / "linear.py").exists()
-    assert (target / "tools.py").exists()
+    assert (target / "daedalus_cli.py").exists()
+    assert not (target / "tools.py").exists()
     assert (target / "workflows" / "change_delivery" / "workflow.py").exists()
     assert (target / "workflows" / "issue_runner" / "workspace.py").exists()
     assert not (target / "projects").exists()
+
+
+def test_installed_plugin_does_not_shadow_hermes_tools_package(tmp_path):
+    install = load_install_module()
+    repo_root = Path(__file__).resolve().parents[1]
+    hermes_home = tmp_path / ".hermes"
+    plugin_dir = install.install_plugin(repo_root=repo_root, hermes_home=hermes_home)
+
+    before = list(sys.path)
+    try:
+        sys.path.insert(0, str(plugin_dir))
+        spec = importlib.util.find_spec("tools")
+    finally:
+        sys.path[:] = before
+
+    assert spec is None or not str(spec.origin or "").startswith(str(plugin_dir))
 
 
 def test_install_replaces_legacy_symlink_destination_with_real_directory(tmp_path):

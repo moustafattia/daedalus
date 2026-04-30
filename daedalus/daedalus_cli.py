@@ -263,7 +263,7 @@ def _render_template_unit(*, mode: str) -> str:
             # pyyaml/jsonschema deps the installer's _check_runtime_deps verified
             # against. /usr/bin/env python3 with a non-empty PATH may resolve
             # to homebrew python or a node-managed python that lacks pyyaml.
-            f"ExecStart=/usr/bin/python3 %h/.hermes/plugins/daedalus/tools.py "
+            f"ExecStart=/usr/bin/python3 %h/.hermes/plugins/daedalus/daedalus_cli.py "
             f"service-loop --workflow-root %h/.hermes/workflows/%i "
             f"--project-key %i --instance-id daedalus-{mode}-%i "
             f"--interval-seconds 30 --service-mode {mode} --json"
@@ -2020,7 +2020,7 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
 
 
 def _lazy_cmd_watch(args, parser):
-    """Lazy import so importing tools.py doesn't pull rich into every CLI invocation."""
+    """Lazy import so importing the CLI doesn't pull rich into every invocation."""
     try:
         from watch import cmd_watch
     except ImportError:
@@ -2045,9 +2045,11 @@ def _workflow_template_path(workflow_name: str) -> Path:
     return path
 
 
-_GITHUB_REMOTE_RE = re.compile(
-    r"^(?:git@github\.com:|ssh://git@github\.com/|https?://(?:www\.)?github\.com/)"
-    r"(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
+_REMOTE_OWNER_REPO_RE = re.compile(
+    r"(?P<owner>[^/:]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
+)
+_REMOTE_SCP_RE = re.compile(
+    r"^[^@]+@[^:]+:(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
 )
 
 
@@ -2079,17 +2081,18 @@ def _discover_git_repo_root(start_path: Path | None) -> Path:
     return Path(repo_root).expanduser().resolve()
 
 
-def _github_slug_from_remote_url(remote_url: str) -> str:
-    match = _GITHUB_REMOTE_RE.match(remote_url.strip())
+def _repo_slug_from_remote_url(remote_url: str) -> str:
+    raw = remote_url.strip()
+    match = _REMOTE_SCP_RE.match(raw) or _REMOTE_OWNER_REPO_RE.search(raw)
     if not match:
         raise DaedalusCommandError(
-            "unable to derive --github-slug from git origin; use a GitHub remote or pass --github-slug explicitly"
+            "unable to derive --repo-slug from git origin; pass --repo-slug owner/repo explicitly"
         )
     owner = match.group("owner").strip()
     repo = match.group("repo").strip()
     if not owner or not repo:
         raise DaedalusCommandError(
-            "unable to derive --github-slug from git origin; use a GitHub remote or pass --github-slug explicitly"
+            "unable to derive --repo-slug from git origin; pass --repo-slug owner/repo explicitly"
         )
     return f"{owner}/{repo}"
 
@@ -2281,25 +2284,25 @@ def bootstrap_workflow_root(
     repo_path: Path | None,
     workflow_name: str,
     workflow_root: Path | None,
-    github_slug: str | None,
+    repo_slug: str | None,
     active_lane_label: str,
     engine_owner: str,
     force: bool,
 ) -> dict[str, Any]:
     repo_root = _discover_git_repo_root(repo_path)
     remote_url = None
-    resolved_github_slug = (github_slug or "").strip()
-    if not resolved_github_slug:
+    resolved_repo_slug = (repo_slug or "").strip()
+    if not resolved_repo_slug:
         remote_url = _git_stdout("remote", "get-url", "origin", cwd=repo_root)
-        resolved_github_slug = _github_slug_from_remote_url(remote_url)
+        resolved_repo_slug = _repo_slug_from_remote_url(remote_url)
 
     try:
         instance_name = derive_workflow_instance_name(
-            github_slug=resolved_github_slug,
+            repo_slug=resolved_repo_slug,
             workflow_name=workflow_name,
         )
     except ValueError as exc:
-        raise DaedalusCommandError(f"--github-slug {resolved_github_slug!r} is invalid: {exc}") from exc
+        raise DaedalusCommandError(f"--repo-slug {resolved_repo_slug!r} is invalid: {exc}") from exc
 
     resolved_workflow_root = (
         workflow_root.expanduser().resolve()
@@ -2311,7 +2314,7 @@ def bootstrap_workflow_root(
         workflow_root=resolved_workflow_root,
         workflow_name=workflow_name,
         repo_path=repo_root,
-        github_slug=resolved_github_slug,
+        repo_slug=resolved_repo_slug,
         active_lane_label=active_lane_label,
         engine_owner=engine_owner,
         force=force,
@@ -2352,7 +2355,7 @@ def scaffold_workflow_root(
     workflow_root: Path,
     workflow_name: str,
     repo_path: Path | None,
-    github_slug: str,
+    repo_slug: str,
     active_lane_label: str,
     engine_owner: str,
     force: bool,
@@ -2380,21 +2383,21 @@ def scaffold_workflow_root(
     config = dict(template_contract.config)
     workflow_policy = template_contract.prompt_template
 
-    resolved_github_slug = github_slug.strip()
-    if not resolved_github_slug:
-        raise DaedalusCommandError("--github-slug cannot be blank")
+    resolved_repo_slug = repo_slug.strip()
+    if not resolved_repo_slug:
+        raise DaedalusCommandError("--repo-slug cannot be blank")
     try:
         resolved_instance_name = derive_workflow_instance_name(
-            github_slug=resolved_github_slug,
+            repo_slug=resolved_repo_slug,
             workflow_name=workflow_name,
         )
     except ValueError as exc:
-        raise DaedalusCommandError(f"--github-slug {resolved_github_slug!r} is invalid: {exc}") from exc
+        raise DaedalusCommandError(f"--repo-slug {resolved_repo_slug!r} is invalid: {exc}") from exc
     if root.name != resolved_instance_name:
         expected_root = root.parent / resolved_instance_name
         raise DaedalusCommandError(
             "workflow root directory name must follow <owner>-<repo>-<workflow-type>: "
-            f"expected {expected_root} for github-slug={resolved_github_slug!r} "
+            f"expected {expected_root} for repo-slug={resolved_repo_slug!r} "
             f"and workflow={workflow_name!r}"
         )
 
@@ -2403,15 +2406,19 @@ def scaffold_workflow_root(
     config["workflow"] = workflow_name
     instance_cfg = config.setdefault("instance", {})
     repository_cfg = config.setdefault("repository", {})
-    triggers_cfg = config.setdefault("triggers", {})
-    lane_selector_cfg = triggers_cfg.setdefault("lane-selector", {})
 
     instance_cfg["name"] = resolved_instance_name
     instance_cfg["engine-owner"] = engine_owner
     repository_cfg["local-path"] = str(resolved_repo_path)
-    repository_cfg["github-slug"] = resolved_github_slug
-    repository_cfg["active-lane-label"] = active_lane_label
-    lane_selector_cfg["label"] = active_lane_label
+    repository_cfg["slug"] = resolved_repo_slug
+    if workflow_name == "change-delivery":
+        repository_cfg["github-slug"] = resolved_repo_slug
+        repository_cfg["active-lane-label"] = active_lane_label
+    triggers_cfg = config.get("triggers")
+    if isinstance(triggers_cfg, dict):
+        lane_selector_cfg = triggers_cfg.get("lane-selector")
+        if isinstance(lane_selector_cfg, dict):
+            lane_selector_cfg["label"] = active_lane_label
 
     created_dirs = [
         root / "config",
@@ -2453,7 +2460,7 @@ def scaffold_workflow_root(
         "instance_name": resolved_instance_name,
         "engine_owner": engine_owner,
         "repo_path": str(resolved_repo_path),
-        "github_slug": resolved_github_slug,
+        "repo_slug": resolved_repo_slug,
         "active_lane_label": active_lane_label,
         "force": force,
         "workflow_contract_pointer_path": str(workflow_contract_pointer_path(root)),
@@ -2467,7 +2474,7 @@ def cmd_scaffold_workflow(args, parser) -> str:
         workflow_root=Path(args.workflow_root),
         workflow_name=args.workflow,
         repo_path=Path(args.repo_path) if args.repo_path else None,
-        github_slug=args.github_slug,
+        repo_slug=args.repo_slug,
         active_lane_label=args.active_lane_label,
         engine_owner=args.engine_owner,
         force=args.force,
@@ -2480,7 +2487,7 @@ def cmd_scaffold_workflow(args, parser) -> str:
         f"workflow: {result['workflow']}",
         f"instance: {result['instance_name']}",
         f"repo-path: {result['repo_path']}",
-        f"github-slug: {result['github_slug']}",
+        f"repo-slug: {result['repo_slug']}",
     ]
     return "\n".join(lines)
 
@@ -2490,7 +2497,7 @@ def cmd_bootstrap_workflow(args, parser) -> str:
         repo_path=Path(args.repo_path) if args.repo_path else None,
         workflow_name=args.workflow,
         workflow_root=Path(args.workflow_root) if args.workflow_root else None,
-        github_slug=args.github_slug,
+        repo_slug=args.repo_slug,
         active_lane_label=args.active_lane_label,
         engine_owner=args.engine_owner,
         force=args.force,
@@ -2501,7 +2508,7 @@ def cmd_bootstrap_workflow(args, parser) -> str:
         f"bootstrapped workflow root: {result['workflow_root']}",
         f"contract: {result['contract_path']}",
         f"repo-path: {result['repo_path']}",
-        f"github-slug: {result['github_slug']}",
+        f"repo-slug: {result['repo_slug']}",
         f"git branch: {result['git_branch']}",
         f"repo pointer: {result['repo_pointer_path']}",
         f"edit next: {result['next_edit_path']}",
@@ -2965,9 +2972,9 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         required=True,
         help="Workflow root to create. Directory name must be <owner>-<repo>-<workflow-type>.",
     )
-    scaffold_cmd.add_argument("--workflow", default="change-delivery", choices=["change-delivery", "issue-runner"])
+    scaffold_cmd.add_argument("--workflow", default="issue-runner", choices=["change-delivery", "issue-runner"])
     scaffold_cmd.add_argument("--repo-path", type=Path)
-    scaffold_cmd.add_argument("--github-slug", required=True)
+    scaffold_cmd.add_argument("--repo-slug", required=True, help="Repository identity in owner/repo form for workflow instance naming.")
     scaffold_cmd.add_argument("--active-lane-label", default="active-lane")
     scaffold_cmd.add_argument("--engine-owner", default="hermes", choices=["hermes", "openclaw"])
     scaffold_cmd.add_argument("--force", action="store_true")
@@ -2980,8 +2987,8 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     bootstrap_cmd.add_argument("--repo-path", type=Path, help="Git checkout to inspect (defaults to current working directory).")
     bootstrap_cmd.add_argument("--workflow-root", type=Path, help="Optional explicit workflow root override.")
-    bootstrap_cmd.add_argument("--workflow", default="change-delivery", choices=["change-delivery", "issue-runner"])
-    bootstrap_cmd.add_argument("--github-slug", help="Override the inferred GitHub slug from git origin.")
+    bootstrap_cmd.add_argument("--workflow", default="issue-runner", choices=["change-delivery", "issue-runner"])
+    bootstrap_cmd.add_argument("--repo-slug", help="Override the inferred repository slug from git origin.")
     bootstrap_cmd.add_argument("--active-lane-label", default="active-lane")
     bootstrap_cmd.add_argument("--engine-owner", default="hermes", choices=["hermes", "openclaw"])
     bootstrap_cmd.add_argument("--force", action="store_true")

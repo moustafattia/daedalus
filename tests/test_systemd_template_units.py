@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 
-TOOLS_PATH = Path(__file__).resolve().parents[1] / "daedalus" / "tools.py"
+TOOLS_PATH = Path(__file__).resolve().parents[1] / "daedalus" / "daedalus_cli.py"
 
 
 def load_tools():
@@ -25,7 +25,7 @@ def test_render_template_unit_active_mode():
     assert "%i" in rendered
     assert "service-loop" in rendered
     assert "--service-mode active" in rendered
-    assert "/.hermes/plugins/daedalus/tools.py" in rendered
+    assert "/.hermes/plugins/daedalus/daedalus_cli.py" in rendered
 
 
 def test_render_template_unit_shadow_mode():

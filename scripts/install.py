@@ -23,7 +23,7 @@ PAYLOAD_ITEMS = [
     "runtimes",
     "schemas.py",
     "trackers",
-    "tools.py",
+    "daedalus_cli.py",
     "watch.py",
     "watch_sources.py",
     "workflows",

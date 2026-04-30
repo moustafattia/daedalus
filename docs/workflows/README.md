@@ -8,8 +8,8 @@ its own lifecycle, prompts, gates, and operator commands.
 
 | Workflow | Use it when... | Default template | Managed path |
 |---|---|---|---|
-| [`issue-runner`](issue-runner.md) | you want a generic issue workflow that creates workspaces, runs hooks, and invokes one agent | [`docs/examples/issue-runner.workflow.md`](../examples/issue-runner.workflow.md) | yes — `bootstrap --workflow issue-runner` or explicit `scaffold-workflow` + `service-up` |
-| [`change-delivery`](change-delivery.md) | you want the opinionated SDLC workflow: issue -> code -> review -> PR -> merge | [`docs/examples/change-delivery.workflow.md`](../examples/change-delivery.workflow.md) | yes — `bootstrap --workflow change-delivery` + `service-up` |
+| [`issue-runner`](issue-runner.md) | you want a generic tracker-driven workflow that selects issues, creates workspaces, runs hooks, and invokes one agent | [`docs/examples/issue-runner.workflow.md`](../examples/issue-runner.workflow.md) | yes — default `bootstrap` + `service-up` |
+| [`change-delivery`](change-delivery.md) | you want the opinionated GitHub-backed SDLC workflow: issue -> code -> review -> PR -> merge | [`docs/examples/change-delivery.workflow.md`](../examples/change-delivery.workflow.md) | yes — `bootstrap --workflow change-delivery` + `service-up` |
 
 For the contract file itself, see the [`WORKFLOW.md` guide](workflow-contract.md).
 

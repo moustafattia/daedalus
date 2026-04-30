@@ -21,7 +21,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def _tools():
-    return load_module("daedalus_tools_scaffold_workflow_test", "tools.py")
+    return load_module("daedalus_tools_scaffold_workflow_test", "daedalus_cli.py")
 
 
 def _init_git_repo(path: Path, *, remote_url: str = "git@github.com:attmous/daedalus.git") -> None:
@@ -40,7 +40,7 @@ def test_scaffold_workflow_writes_config_and_layout(tmp_path):
         workflow_root=root,
         workflow_name="change-delivery",
         repo_path=repo,
-        github_slug="attmous/daedalus",
+        repo_slug="attmous/daedalus",
         active_lane_label="ready-for-daedalus",
         engine_owner="hermes",
         force=False,
@@ -52,7 +52,9 @@ def test_scaffold_workflow_writes_config_and_layout(tmp_path):
     assert result["contract_path"] == str(contract_path)
     assert cfg["instance"]["name"] == "attmous-daedalus-change-delivery"
     assert cfg["instance"]["engine-owner"] == "hermes"
+    assert cfg["repository"]["slug"] == "attmous/daedalus"
     assert cfg["repository"]["github-slug"] == "attmous/daedalus"
+    assert cfg["tracker"]["kind"] == "github"
     assert cfg["repository"]["active-lane-label"] == "ready-for-daedalus"
     assert cfg["triggers"]["lane-selector"]["label"] == "ready-for-daedalus"
     assert cfg["repository"]["local-path"] == str(repo.resolve())
@@ -78,7 +80,7 @@ def test_scaffold_workflow_refuses_to_overwrite_without_force(tmp_path):
             workflow_root=root,
             workflow_name="change-delivery",
             repo_path=repo,
-            github_slug="attmous/daedalus",
+            repo_slug="attmous/daedalus",
             active_lane_label="active-lane",
             engine_owner="hermes",
             force=False,
@@ -101,7 +103,7 @@ def test_scaffold_workflow_force_replaces_existing_config(tmp_path):
         workflow_root=root,
         workflow_name="change-delivery",
         repo_path=repo,
-        github_slug="attmous/daedalus",
+        repo_slug="attmous/daedalus",
         active_lane_label="active-lane",
         engine_owner="openclaw",
         force=True,
@@ -128,7 +130,7 @@ def test_scaffold_workflow_force_retires_legacy_yaml_when_present(tmp_path):
         workflow_root=root,
         workflow_name="change-delivery",
         repo_path=repo,
-        github_slug="attmous/daedalus",
+        repo_slug="attmous/daedalus",
         active_lane_label="active-lane",
         engine_owner="hermes",
         force=True,
@@ -149,7 +151,7 @@ def test_scaffold_workflow_requires_owner_repo_workflow_root_name(tmp_path):
             workflow_root=root,
             workflow_name="change-delivery",
             repo_path=repo,
-            github_slug="attmous/daedalus",
+            repo_slug="attmous/daedalus",
             active_lane_label="active-lane",
             engine_owner="hermes",
             force=False,
@@ -168,7 +170,7 @@ def test_scaffold_issue_runner_seeds_sample_tracker_file(tmp_path):
         workflow_root=root,
         workflow_name="issue-runner",
         repo_path=repo,
-        github_slug="attmous/daedalus",
+        repo_slug="attmous/daedalus",
         active_lane_label="ignored-for-issue-runner",
         engine_owner="hermes",
         force=False,
@@ -179,6 +181,9 @@ def test_scaffold_issue_runner_seeds_sample_tracker_file(tmp_path):
 
     assert result["workflow"] == "issue-runner"
     assert cfg["workflow"] == "issue-runner"
+    assert cfg["repository"]["slug"] == "attmous/daedalus"
+    assert "github-slug" not in cfg["repository"]
+    assert "triggers" not in cfg
     assert issues_path.exists()
     payload = json.loads(issues_path.read_text(encoding="utf-8"))
     assert payload["issues"][0]["id"] == "ISSUE-1"

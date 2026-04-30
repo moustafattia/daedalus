@@ -40,7 +40,7 @@ import sys
 def _load_migration_module():
     """Load the sibling migration.py module via file path.
 
-    Mirrors tools.py::_load_daedalus_module / alerts.py::_load_tools_module
+    Mirrors daedalus_cli.py::_load_daedalus_module / alerts.py::_load_cli_module
     so runtime.py works whether loaded as part of the hermes_relay package
     or directly via spec_from_file_location.
     """

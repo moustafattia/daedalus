@@ -17,7 +17,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def _tools():
-    return load_module("daedalus_tools_format_flag_test", "tools.py")
+    return load_module("daedalus_tools_format_flag_test", "daedalus_cli.py")
 
 
 def test_resolve_format_default_is_text():

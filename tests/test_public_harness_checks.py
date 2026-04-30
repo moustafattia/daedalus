@@ -63,13 +63,14 @@ def test_projects_tree_is_placeholder_only():
     ]
 
 
-def test_public_docs_present_github_first_path():
+def test_public_docs_present_tracker_neutral_path():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     install = (REPO_ROOT / "docs" / "operator" / "installation.md").read_text(encoding="utf-8")
     issue_runner = (REPO_ROOT / "docs" / "workflows" / "issue-runner.md").read_text(encoding="utf-8")
     conformance = (REPO_ROOT / "docs" / "symphony-conformance.md").read_text(encoding="utf-8")
 
     assert "Durable SDLC automation engine" in readme
+    assert "issue-runner` is the default public bootstrap path" in readme
     assert "GitHub-first SDLC automation engine" not in readme
     assert "First-class tracker" in readme
     assert "docs/harness-engineering.md" in readme
@@ -78,6 +79,7 @@ def test_public_docs_present_github_first_path():
     assert "`github` — first-class public tracker path" in issue_runner
     assert "`local-json` — local development and test fixture path" in issue_runner
     assert "`linear` — experimental adapter" in issue_runner
+    assert "tracker-neutral in contract shape" in conformance
     assert "skipped-by-default live smoke" in conformance
     assert ("Linear integration" + " smoke tests") not in conformance
 

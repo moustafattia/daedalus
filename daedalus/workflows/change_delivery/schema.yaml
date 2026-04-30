@@ -32,8 +32,29 @@ properties:
     required: [local-path, github-slug, active-lane-label]
     properties:
       local-path: {type: string}
+      slug: {type: string}
       github-slug: {type: string}
       active-lane-label: {type: string}
+
+  tracker:
+    type: object
+    required: [kind]
+    properties:
+      kind:
+        type: string
+        enum: [github]
+      active_states:
+        type: array
+        items: {type: string}
+      terminal_states:
+        type: array
+        items: {type: string}
+      active-states:
+        type: array
+        items: {type: string}
+      terminal-states:
+        type: array
+        items: {type: string}
 
   runtimes:
     type: object

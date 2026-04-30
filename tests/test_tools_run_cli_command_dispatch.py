@@ -4,7 +4,7 @@ the argparse ``func=run_cli_command`` path.
 Codex Cloud follow-up to a3ea328: the previous fix only routed
 ``watch`` / ``set-observability`` / ``get-observability`` through
 ``execute_raw_args`` (the slash-command path). The argparse CLI path
-(``python3 tools.py <cmd> ...`` and any ``setup_cli``-registered command)
+(``python3 daedalus_cli.py <cmd> ...`` and any ``setup_cli``-registered command)
 still calls ``run_cli_command`` which previously hard-coded
 ``execute_namespace`` -- raising ``unknown daedalus command`` for the new
 string-returning subcommands.
@@ -31,7 +31,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def _tools():
-    return load_module("daedalus_tools_run_cli_command_dispatch_test", "tools.py")
+    return load_module("daedalus_tools_run_cli_command_dispatch_test", "daedalus_cli.py")
 
 
 def _parse(tools, argv):
@@ -99,7 +99,7 @@ def test_run_cli_command_dispatches_watch(tmp_path, capsys):
 
 def test_run_cli_command_dispatches_scaffold_workflow(tmp_path, capsys):
     tools = _tools()
-    root = tmp_path / "attmous-daedalus-change-delivery"
+    root = tmp_path / "attmous-daedalus-issue-runner"
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
@@ -118,7 +118,7 @@ def test_run_cli_command_dispatches_scaffold_workflow(tmp_path, capsys):
             str(root),
             "--repo-path",
             str(repo),
-            "--github-slug",
+            "--repo-slug",
             "attmous/daedalus",
         ],
     )

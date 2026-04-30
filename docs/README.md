@@ -9,14 +9,14 @@ Entry point for everything that won't fit on the [project landing page](../READM
 - **[workflows/README.md](workflows/README.md)** — the two bundled workflows, when to use each, and where their templates live.
 - **[public-contract.md](public-contract.md)** — the stability boundary for the first public release.
 - **[symphony-conformance.md](symphony-conformance.md)** — where Daedalus matches the current Symphony draft, and where it still differs.
-- **[harness-engineering.md](harness-engineering.md)** — repo-level checks that keep the public surface generic, GitHub-first, and template-safe.
+- **[harness-engineering.md](harness-engineering.md)** — repo-level checks that keep the public surface generic, tracker-neutral, and template-safe.
 - **[release-readiness.md](release-readiness.md)** — public-beta scorecard, launch gates, and next hardening slice.
 - **[security.md](security.md)** — the trust model, shell/network posture, and secret-handling expectations.
 
 ## How to read these docs
 
 - Generic docs describe the plugin engine: contracts, state stores, runtimes, trackers, service supervision, and observability.
-- Workflow docs describe lifecycle policy. `change-delivery` is the opinionated GitHub issue-to-merge path; `issue-runner` is the smaller generic tracker-driven path.
+- Workflow docs describe lifecycle policy. `issue-runner` is the generic tracker-driven path; `change-delivery` is the opinionated GitHub-backed issue-to-merge path.
 - Operator docs describe installed deployments. SQL examples usually apply to `change-delivery`; `issue-runner` uses persisted status, scheduler, and audit files instead.
 
 ## Concepts
@@ -50,8 +50,8 @@ Day-2 commands and observability.
 - [WORKFLOW.md guide](workflows/workflow-contract.md) — repo-owned contract location, front matter, and Markdown body
 - [change-delivery](workflows/change-delivery.md) — opinionated GitHub SDLC workflow
 - [issue-runner](workflows/issue-runner.md) — generic tracker-driven reference workflow
-- [examples/change-delivery.workflow.md](examples/change-delivery.workflow.md) — copyable default contract
-- [examples/issue-runner.workflow.md](examples/issue-runner.workflow.md) — copyable generic tracker-driven contract
+- [examples/issue-runner.workflow.md](examples/issue-runner.workflow.md) — copyable default generic tracker-driven contract
+- [examples/change-delivery.workflow.md](examples/change-delivery.workflow.md) — copyable GitHub-backed SDLC contract
 
 ## History & decisions
 

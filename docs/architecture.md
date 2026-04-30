@@ -292,7 +292,7 @@ daedalus/
 ├── __init__.py              # Plugin registration
 ├── plugin.yaml              # Plugin manifest
 ├── schemas.py               # CLI/slash parser schema
-├── tools.py                 # Operator surface + systemd helpers
+├── daedalus_cli.py          # Operator surface + systemd helpers
 ├── runtime.py               # Durable engine (the heart)
 │   ├── database schema
 │   ├── leases + heartbeats

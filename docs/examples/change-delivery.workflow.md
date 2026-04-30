@@ -8,8 +8,16 @@ instance:
 
 repository:
   local-path: /home/you/src/acme-repo
+  slug: your-org/your-repo
   github-slug: your-org/your-repo
   active-lane-label: active-lane
+
+tracker:
+  kind: github
+  active_states:
+    - open
+  terminal_states:
+    - closed
 
 runtimes:
   coder-runtime:

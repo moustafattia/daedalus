@@ -61,7 +61,7 @@ Supported tracker kinds today:
 
 - `github` — first-class public tracker path, backed by authenticated `gh`
 - `local-json` — local development and test fixture path
-- `linear` — experimental adapter, deferred until after the GitHub-first path is hardened
+- `linear` — experimental adapter, deferred until after the GitHub adapter is hardened
 
 `issue-runner` composes the shared `trackers/` clients with workflow-specific
 eligibility, ordering, retry, and workspace policy.
@@ -89,7 +89,7 @@ Use either:
 
 ```bash
 cd /path/to/repo
-hermes daedalus bootstrap --workflow issue-runner
+hermes daedalus bootstrap
 ```
 
 or the explicit scaffold path:
@@ -98,13 +98,13 @@ or the explicit scaffold path:
 hermes daedalus scaffold-workflow \
   --workflow issue-runner \
   --workflow-root ~/.hermes/workflows/<owner>-<repo>-issue-runner \
-  --github-slug <owner>/<repo>
+  --repo-slug <owner>/<repo>
 ```
 
 Then edit:
 
 - `WORKFLOW.md` or `WORKFLOW-issue-runner.md` in the repo checkout
-- `tracker.active_states: [open]`, `tracker.terminal_states: [closed]`, and `gh` auth if you are using `tracker.kind: github`
+- `tracker.github_slug`, `tracker.active_states: [open]`, `tracker.terminal_states: [closed]`, and `gh` auth if you are using `tracker.kind: github`
 - `config/issues.json` if you are using `tracker.kind: local-json`
 - `tracker.endpoint`, `tracker.api_key`, and `tracker.project_slug` only if you are deliberately testing the experimental Linear adapter
 

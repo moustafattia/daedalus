@@ -12,7 +12,7 @@ def _config(tmp_path: Path) -> dict:
         "workflow": "issue-runner",
         "schema-version": 1,
         "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
-        "repository": {"local-path": str(tmp_path / "repo"), "github-slug": "attmous/daedalus"},
+        "repository": {"local-path": str(tmp_path / "repo"), "slug": "attmous/daedalus"},
         "tracker": {
             "kind": "local-json",
             "path": "config/issues.json",

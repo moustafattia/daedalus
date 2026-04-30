@@ -29,7 +29,7 @@ def runtime_module():
 
 @pytest.fixture()
 def tools_module():
-    return load_module("daedalus_tools_test", "tools.py")
+    return load_module("daedalus_tools_test", "daedalus_cli.py")
 
 
 @pytest.fixture()

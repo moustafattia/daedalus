@@ -5,19 +5,20 @@ from pathlib import Path
 PLUGIN_DIR = Path(__file__).resolve().parent
 
 # Put the plugin dir on sys.path so absolute imports of sibling top-level
-# packages (workflows/, etc.) resolve when Hermes loads us as a package.
-# Hermes' plugin loader puts ~/.hermes/plugins/ on sys.path so this package
-# (`daedalus`) is importable, but doesn't add this directory itself — so
-# tools.py's `from workflows.change_delivery.paths import ...` fails without
-# this bootstrap. Same self-bootstrap pattern as workflows/__main__.py.
+# packages (workflows/, runtimes/, trackers/) resolve when Hermes loads us as a
+# package. Append instead of prepending: Hermes has its own top-level packages,
+# and plugin modules must never shadow them during agent startup.
 _PLUGIN_DIR_STR = str(PLUGIN_DIR)
 if _PLUGIN_DIR_STR not in sys.path:
-    sys.path.insert(0, _PLUGIN_DIR_STR)
+    sys.path.append(_PLUGIN_DIR_STR)
 
 
 try:
     from .schemas import setup_cli
-    from .tools import execute_raw_args, execute_workflow_command
+    from . import daedalus_cli as _cli
+    execute_raw_args = _cli.execute_raw_args
+    execute_workflow_command = _cli.execute_workflow_command
+    sys.modules.setdefault(f"{__name__}.tools", _cli)
 except ImportError:
     def _load_local_module(module_name: str):
         module_path = PLUGIN_DIR / f"{module_name}.py"
@@ -29,9 +30,9 @@ except ImportError:
         return module
 
     setup_cli = _load_local_module("schemas").setup_cli
-    _tools_module = _load_local_module("tools")
-    execute_raw_args = _tools_module.execute_raw_args
-    execute_workflow_command = _tools_module.execute_workflow_command
+    _cli_module = _load_local_module("daedalus_cli")
+    execute_raw_args = _cli_module.execute_raw_args
+    execute_workflow_command = _cli_module.execute_workflow_command
 
 
 def register(ctx):

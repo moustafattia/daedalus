@@ -160,5 +160,5 @@ group by lane_id;
 - Failure tracking: `daedalus/runtime.py` (look for `record_failure`, `resolve_failure`, `retry_eligible`)
 - Action queue: `daedalus/runtime.py` (look for `request_active_action`, `action_idempotency_key`)
 - Retry logic: `daedalus/workflows/change_delivery/dispatch.py`
-- Operator surface: `daedalus/tools.py` (`analyze-failure` command)
+- Operator surface: `daedalus/daedalus_cli.py` (`analyze-failure` command)
 - Tests: `tests/test_workflows_change_delivery_actions.py`, `tests/test_stall_detection.py`

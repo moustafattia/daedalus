@@ -1,8 +1,8 @@
 # Daedalus installation
 
 This is the supported community install path for the first public release.
-The default managed path is for the bundled `change-delivery` workflow, but
-`issue-runner` now uses the same repo-owned contract and `service-up` surface.
+The default managed path is for the bundled `issue-runner` workflow. Use
+`change-delivery` when you want the opinionated GitHub-backed SDLC workflow.
 
 ## Requirements
 
@@ -24,18 +24,18 @@ The bundled `issue-runner` template defaults to `tracker.kind: local-json` so
 it is runnable without an external tracker. For first-class tracker operation,
 switch it to `tracker.kind: github` and keep `gh` authenticated in the repo
 checkout before running `service-up`. Linear exists as an experimental adapter,
-but it is deferred for the public GitHub-first path.
+but it is deferred until the GitHub adapter is hardened further.
 
 ## Bundled workflows
 
 Daedalus currently ships two workflow packages:
 
 - `change-delivery`
-  This is the supported managed workflow behind `bootstrap` and `service-up`.
+  This is the opinionated GitHub-backed SDLC workflow. Use
+  `bootstrap --workflow change-delivery`, then bring it up with `service-up`.
 - `issue-runner`
-  This is the bundled generic tracker-driven workflow. Use
-  `bootstrap --workflow issue-runner` or `scaffold-workflow --workflow issue-runner`,
-  then bring it up with `service-up` in `active` mode.
+  This is the bundled generic tracker-driven workflow behind the default
+  `bootstrap` and `service-up` path.
 
 ## Install the plugin
 
@@ -66,13 +66,14 @@ cd /path/to/your/repo
 hermes daedalus bootstrap
 ```
 
-This is the preferred path for `change-delivery`. To bootstrap the generic
-workflow instead, run `hermes daedalus bootstrap --workflow issue-runner`.
+This bootstraps the generic `issue-runner` workflow by default. To bootstrap
+the opinionated SDLC workflow instead, run
+`hermes daedalus bootstrap --workflow change-delivery`.
 
 `bootstrap`:
 
 - detects the git repo root from the current checkout
-- derives `github-slug` from `origin`
+- derives `repo-slug` from `origin`
 - creates the supported instance layout below
 - writes or promotes the repo-owned workflow contract
 - creates a dedicated bootstrap branch
@@ -90,8 +91,8 @@ If you want explicit control over the target root or slug:
 
 ```bash
 hermes daedalus scaffold-workflow \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-change-delivery \
-  --github-slug your-org/your-repo
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-issue-runner \
+  --repo-slug your-org/your-repo
 ```
 
 That creates the same supported instance layout:
@@ -100,13 +101,13 @@ That creates the same supported instance layout:
 ~/.hermes/workflows/<owner>-<repo>-<workflow-type>/
 ```
 
-If you want the bundled generic workflow instead of the managed default:
+If you want the opinionated change-delivery workflow instead:
 
 ```bash
 hermes daedalus scaffold-workflow \
-  --workflow issue-runner \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-issue-runner \
-  --github-slug your-org/your-repo
+  --workflow change-delivery \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-change-delivery \
+  --repo-slug your-org/your-repo
 ```
 
 The first workflow in a repo is written to:

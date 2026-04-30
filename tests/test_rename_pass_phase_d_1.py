@@ -180,7 +180,7 @@ def test_parity_gate_accepts_run_internal_review():
     from pathlib import Path
     repo_root = Path(__file__).resolve().parent.parent / "daedalus"
     runtime_src = (repo_root / "runtime.py").read_text()
-    tools_src = (repo_root / "tools.py").read_text()
+    tools_src = (repo_root / "daedalus_cli.py").read_text()
     for src in (runtime_src, tools_src):
         assert "run_internal_review" in src
         assert (

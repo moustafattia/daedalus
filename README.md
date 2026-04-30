@@ -41,12 +41,13 @@ sudo apt install python3-yaml python3-jsonschema
 hermes plugins install attmous/daedalus --enable
 
 cd /path/to/your/repo
-hermes daedalus bootstrap --workflow issue-runner
+hermes daedalus bootstrap
 $EDITOR WORKFLOW.md
 hermes daedalus service-up
 hermes
 ```
 
+`issue-runner` is the default public bootstrap path.
 Bootstrap creates the workflow root, writes the workflow contract into your
 repo, commits it on a bootstrap branch, and stores a repo-local pointer so later
 commands can resolve the workflow instance.
@@ -193,6 +194,8 @@ flowchart LR
 
 </div>
 
+`issue-runner` is the default public bootstrap path and generic reference
+workflow. `change-delivery` is richer, more opinionated, and GitHub-backed.
 | Stage | Action | Guarantees |
 |---|---|---|
 | Select | GitHub issue → label filter → lane assignment | SQLite lease, exactly-once |
