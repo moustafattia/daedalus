@@ -54,7 +54,7 @@ sequenceDiagram
 
 - `daedalus/runtime.py active-gate-status` — what's blocking promotion
 - `daedalus/runtime.py iterate-shadow` / `iterate-active` — single tick in either mode
-- `daedalus/runtime.py run-shadow` / `run-active` — long-running supervised loop
+- `daedalus/runtime.py run-shadow` / `run-active` — long-running loop; active mode supervises its worker iteration and keeps the lease fresh while actions run
 - `/daedalus shadow-report` — diff between shadow plan and active reality
 
 ## Where this lives in code

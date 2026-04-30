@@ -129,7 +129,7 @@ Daedalus service
 | Command | What it does |
 |---|---|
 | `/daedalus start` | Bootstrap runtime row + emit start event |
-| `/daedalus run-active` | Active loop (use systemd; not this directly) |
+| `/daedalus run-active` | Supervised active service loop (use systemd; not this directly) |
 | `/daedalus run-shadow` | Shadow loop (use systemd; not this directly) |
 | `/daedalus iterate-active` | One tick of the active loop |
 | `/daedalus iterate-shadow` | One tick of the shadow loop |

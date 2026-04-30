@@ -2,6 +2,8 @@ import argparse
 import importlib.util
 import json
 import sqlite3
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -343,6 +345,137 @@ def test_reap_stuck_dispatched_actions_marks_dispatcher_lost_and_queues_recovery
     assert recovery[1] == "requested"
     assert recovery[2] == 1
     assert recovery[3] == 1
+
+
+def _active_dispatch_legacy_status() -> dict:
+    return {
+        "activeLane": {"number": 221, "url": "https://example.com/issues/221", "title": "Issue 221", "labels": []},
+        "repo": "/tmp/repo",
+        "implementation": {
+            "worktree": "/tmp/issue-221",
+            "branch": "codex/issue-221-test",
+            "localHeadSha": "abc123",
+            "laneState": {
+                "implementation": {
+                    "lastMeaningfulProgressAt": "2026-04-22T00:00:00Z",
+                    "lastMeaningfulProgressKind": "implementing_local",
+                },
+                "pr": {"lastPublishedHeadSha": None},
+            },
+            "activeSessionHealth": {"healthy": False, "lastUsedAt": None},
+            "sessionActionRecommendation": {"action": "restart-session"},
+        },
+        "reviews": {},
+        "ledger": {"workflowState": "implementing_local", "reviewState": "implementing_local", "repairBrief": None},
+        "derivedReviewLoopState": "awaiting_reviews",
+        "derivedMergeBlocked": False,
+        "derivedMergeBlockers": [],
+        "openPr": None,
+        "activeLaneError": None,
+        "staleLaneReasons": [],
+        "nextAction": {"type": "dispatch_codex_turn", "reason": "implementation-in-progress"},
+    }
+
+
+def test_run_active_loop_reconciles_fast_supervised_iteration_before_bounded_exit(runtime_module, tmp_path, monkeypatch):
+    workflow_root = tmp_path / "workflow"
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    legacy_status = _active_dispatch_legacy_status()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "derive_shadow_actions_for_lane",
+        lambda **_kwargs: [{"action_type": "dispatch_implementation_turn", "reason": "implementation-in-progress", "target_head_sha": "abc123"}],
+    )
+
+    calls = []
+
+    def run_action():
+        calls.append("dispatch")
+        return {"dispatched": True, "after": legacy_status}
+
+    result = runtime_module.run_active_loop(
+        workflow_root=workflow_root,
+        project_key="workflow-example",
+        instance_id="active-test",
+        interval_seconds=1,
+        max_iterations=1,
+        legacy_status_provider=lambda: legacy_status,
+        sleep_fn=lambda _seconds: None,
+        action_runners={"dispatch_implementation_turn": run_action},
+    )
+
+    assert result["loop_status"] == "completed"
+    assert result["running_iteration"] is None
+    assert result["last_result"]["supervised"] is True
+    assert result["last_result"]["iteration_status"] == "executed"
+    assert calls == ["dispatch"]
+
+    conn = sqlite3.connect(runtime_module._runtime_paths(workflow_root)["db_path"])
+    try:
+        action_status = conn.execute(
+            """
+            SELECT status
+            FROM lane_actions
+            WHERE action_type=? AND action_mode='active'
+            ORDER BY requested_at DESC
+            """,
+            ("dispatch_implementation_turn",),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert action_status == "completed"
+
+
+def test_run_active_loop_heartbeats_while_supervised_iteration_is_running(runtime_module, tmp_path, monkeypatch):
+    workflow_root = tmp_path / "workflow"
+    paths = runtime_module._runtime_paths(workflow_root)
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    legacy_status = _active_dispatch_legacy_status()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "derive_shadow_actions_for_lane",
+        lambda **_kwargs: [{"action_type": "dispatch_implementation_turn", "reason": "implementation-in-progress", "target_head_sha": "abc123"}],
+    )
+
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+    sleeps = {"count": 0}
+
+    def run_action():
+        calls.append("dispatch")
+        started.set()
+        assert release.wait(timeout=2)
+        return {"dispatched": True, "after": legacy_status}
+
+    def sleep_fn(_seconds):
+        sleeps["count"] += 1
+        assert started.wait(timeout=2)
+        if sleeps["count"] >= 2:
+            release.set()
+        time.sleep(0.01)
+
+    result = runtime_module.run_active_loop(
+        workflow_root=workflow_root,
+        project_key="workflow-example",
+        instance_id="active-test",
+        interval_seconds=1,
+        max_iterations=3,
+        legacy_status_provider=lambda: legacy_status,
+        sleep_fn=sleep_fn,
+        action_runners={"dispatch_implementation_turn": run_action},
+    )
+
+    assert result["loop_status"] == "completed"
+    assert result["running_iteration"] is None
+    assert result["last_result"]["iteration_status"] == "executed"
+    assert calls == ["dispatch"]
+
+    events = [json.loads(line) for line in paths["event_log_path"].read_text(encoding="utf-8").splitlines()]
+    heartbeats = [event for event in events if event.get("event_type") == "daedalus.runtime_heartbeat"]
+    assert len(heartbeats) >= 2
 
 
 

@@ -1,5 +1,6 @@
 import argparse
 import calendar
+import concurrent.futures
 import importlib.util
 import json
 import sqlite3
@@ -1557,6 +1558,7 @@ def request_active_actions_for_lane(*, workflow_root: Path, lane_id: str, now_is
                         actor=actor_dict,
                         review=internal_review,
                         now_iso=now_iso,
+                        project_key=_project_key_for(workflow_root),
                     )
                 )
         conn.commit()
@@ -2077,6 +2079,7 @@ def _target_actor_id_for_active_action(*, action_type: str | None, lane: dict[st
 def _make_relay_event(
     *,
     event_type: str,
+    project_key: str,
     now_iso: str,
     lane_id: str | None,
     issue_number: int | None,
@@ -2092,7 +2095,7 @@ def _make_relay_event(
         "event_version": 1,
         "created_at": now_iso,
         "producer": "Workflow_Orchestrator",
-        "project_key": _project_key_for(workflow_root),
+        "project_key": project_key,
         "lane_id": lane_id,
         "issue_number": issue_number,
         "head_sha": head_sha,
@@ -2133,6 +2136,7 @@ def _semantic_request_events_for_action(
     actor: dict[str, Any] | None,
     review: dict[str, Any] | None,
     now_iso: str,
+    project_key: str,
 ) -> list[dict[str, Any]]:
     lane = lane or {}
     actor = actor or {}
@@ -2146,6 +2150,7 @@ def _semantic_request_events_for_action(
         return [
             _make_relay_event(
                 event_type="implementation_requested",
+                project_key=project_key,
                 now_iso=now_iso,
                 lane_id=lane_id,
                 issue_number=issue_number,
@@ -2170,6 +2175,7 @@ def _semantic_request_events_for_action(
         return [
             _make_relay_event(
                 event_type="internal_review_requested",
+                project_key=project_key,
                 now_iso=now_iso,
                 lane_id=lane_id,
                 issue_number=issue_number,
@@ -2188,6 +2194,7 @@ def _semantic_request_events_for_action(
         return [
             _make_relay_event(
                 event_type="merge_requested",
+                project_key=project_key,
                 now_iso=now_iso,
                 lane_id=lane_id,
                 issue_number=issue_number,
@@ -2213,6 +2220,7 @@ def _semantic_completion_events_for_action(
     result: dict[str, Any],
     post_legacy_status: dict[str, Any] | None,
     now_iso: str,
+    project_key: str,
 ) -> list[dict[str, Any]]:
     lane_before = lane_before or {}
     lane_after = lane_after or lane_before
@@ -2232,6 +2240,7 @@ def _semantic_completion_events_for_action(
         events.append(
             _make_relay_event(
                 event_type="implementation_completed",
+                project_key=project_key,
                 now_iso=now_iso,
                 lane_id=lane_id,
                 issue_number=issue_number,
@@ -2254,6 +2263,7 @@ def _semantic_completion_events_for_action(
         events.append(
             _make_relay_event(
                 event_type="internal_review_completed",
+                project_key=project_key,
                 now_iso=now_iso,
                 lane_id=lane_id,
                 issue_number=issue_number,
@@ -2278,6 +2288,7 @@ def _semantic_completion_events_for_action(
         events.append(
             _make_relay_event(
                 event_type="pr_published",
+                project_key=project_key,
                 now_iso=now_iso,
                 lane_id=lane_id,
                 issue_number=issue_number,
@@ -2299,6 +2310,7 @@ def _semantic_completion_events_for_action(
         events.append(
             _make_relay_event(
                 event_type="pr_updated",
+                project_key=project_key,
                 now_iso=now_iso,
                 lane_id=lane_id,
                 issue_number=issue_number,
@@ -2318,6 +2330,7 @@ def _semantic_completion_events_for_action(
         events.append(
             _make_relay_event(
                 event_type="merge_completed",
+                project_key=project_key,
                 now_iso=now_iso,
                 lane_id=lane_id,
                 issue_number=issue_number,
@@ -2343,6 +2356,7 @@ def _semantic_completion_events_for_action(
             events.append(
                 _make_relay_event(
                     event_type="next_lane_promoted",
+                    project_key=project_key,
                     now_iso=now_iso,
                     lane_id=f"lane:{next_issue_number}",
                     issue_number=next_issue_number,
@@ -2355,7 +2369,7 @@ def _semantic_completion_events_for_action(
     return events
 
 
-def _semantic_failure_events_for_action(*, action: dict[str, Any] | None, failure_class: str, failure_summary: str, now_iso: str) -> list[dict[str, Any]]:
+def _semantic_failure_events_for_action(*, action: dict[str, Any] | None, failure_class: str, failure_summary: str, now_iso: str, project_key: str) -> list[dict[str, Any]]:
     action = action or {}
     action_type = action.get("action_type")
     if action_type not in {"dispatch_implementation_turn", "dispatch_repair_handoff", "restart_actor_session"}:
@@ -2363,6 +2377,7 @@ def _semantic_failure_events_for_action(*, action: dict[str, Any] | None, failur
     return [
         _make_relay_event(
             event_type="implementation_failed",
+            project_key=project_key,
             now_iso=now_iso,
             lane_id=action.get("lane_id"),
             issue_number=None,
@@ -3223,6 +3238,7 @@ def execute_requested_action(
             failure_class=failure_class,
             failure_summary=failure_summary,
             now_iso=now_iso,
+            project_key=_project_key_for(workflow_root),
         ):
             append_daedalus_event(event_log_path=paths["event_log_path"], event=event)
         for event in analysis_events:
@@ -3302,6 +3318,7 @@ def execute_requested_action(
         result=result,
         post_legacy_status=post_action_status,
         now_iso=now_iso,
+        project_key=_project_key_for(workflow_root),
     ):
         append_daedalus_event(event_log_path=paths["event_log_path"], event=event)
     return {"executed": True, "action_id": action_id, "action_type": action.get("action_type"), "result": result}
@@ -3643,6 +3660,64 @@ def run_active_iteration(*, workflow_root: Path, instance_id: str, legacy_status
     }
 
 
+def _active_loop_running_snapshot(supervised_iteration: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not supervised_iteration:
+        return None
+    started_at = supervised_iteration.get("started_at")
+    started_epoch = _iso_to_epoch(started_at)
+    now_epoch = int(time.time())
+    return {
+        "worker_id": supervised_iteration.get("worker_id"),
+        "started_at": started_at,
+        "running_for_seconds": max(now_epoch - started_epoch, 0) if started_epoch is not None else None,
+    }
+
+
+def _reconcile_active_loop_iteration(
+    supervised_iteration: dict[str, Any] | None,
+    *,
+    settle_timeout_seconds: float = 0.0,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if not supervised_iteration:
+        return [], None
+    future = supervised_iteration.get("future")
+    if not isinstance(future, concurrent.futures.Future):
+        return [], None
+    if not future.done() and settle_timeout_seconds > 0:
+        concurrent.futures.wait([future], timeout=settle_timeout_seconds, return_when=concurrent.futures.FIRST_COMPLETED)
+    if not future.done():
+        return [], supervised_iteration
+    try:
+        result = future.result()
+        if isinstance(result, dict):
+            result = {
+                **result,
+                "supervised": True,
+                "worker_id": supervised_iteration.get("worker_id"),
+                "started_at": supervised_iteration.get("started_at"),
+                "completed_at": _now_iso(),
+            }
+        else:
+            result = {
+                "iteration_status": "completed",
+                "supervised": True,
+                "worker_id": supervised_iteration.get("worker_id"),
+                "started_at": supervised_iteration.get("started_at"),
+                "completed_at": _now_iso(),
+                "result": result,
+            }
+    except BaseException as exc:
+        result = {
+            "iteration_status": "failed",
+            "supervised": True,
+            "worker_id": supervised_iteration.get("worker_id"),
+            "started_at": supervised_iteration.get("started_at"),
+            "completed_at": _now_iso(),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    return [result], None
+
+
 def run_active_loop(
     *,
     workflow_root: Path,
@@ -3672,32 +3747,71 @@ def run_active_loop(
             }
     iterations = 0
     last_result = None
+    supervised_iteration: dict[str, Any] | None = None
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="daedalus-change-delivery")
+    loop_status = "completed"
     try:
         while True:
-            legacy_status = legacy_status_provider() if legacy_status_provider else None
-            last_result = run_active_iteration(
-                workflow_root=workflow_root,
-                instance_id=instance_id,
-                legacy_status=legacy_status,
-                now_iso=_now_iso(),
-                action_runners=action_runners,
-            )
+            completed, supervised_iteration = _reconcile_active_loop_iteration(supervised_iteration)
+            completed_this_cycle = bool(completed)
+            if completed:
+                last_result = completed[-1]
+            if supervised_iteration is not None:
+                heartbeat = refresh_runtime_lease(workflow_root=workflow_root, instance_id=instance_id, now_iso=_now_iso())
+                if not heartbeat.get("refreshed"):
+                    last_result = {
+                        "iteration_status": "blocked",
+                        "reason": heartbeat.get("reason"),
+                        "owner_instance_id": heartbeat.get("owner_instance_id"),
+                        "running_iteration": _active_loop_running_snapshot(supervised_iteration),
+                    }
+                else:
+                    last_result = {
+                        "iteration_status": "waiting",
+                        "supervised": True,
+                        "heartbeat": heartbeat,
+                        "running_iteration": _active_loop_running_snapshot(supervised_iteration),
+                    }
+            elif completed_this_cycle:
+                # Let the service loop publish and sleep after reconciliation
+                # instead of immediately dispatching a second active iteration.
+                pass
+            else:
+                legacy_status = legacy_status_provider() if legacy_status_provider else None
+                started_at = _now_iso()
+                supervised_iteration = {
+                    "worker_id": f"active-worker:{instance_id}:{iterations + 1}:{started_at}",
+                    "started_at": started_at,
+                    "future": executor.submit(
+                        run_active_iteration,
+                        workflow_root=workflow_root,
+                        instance_id=instance_id,
+                        legacy_status=legacy_status,
+                        action_runners=action_runners,
+                    ),
+                }
+                last_result = {
+                    "iteration_status": "dispatched",
+                    "supervised": True,
+                    "running_iteration": _active_loop_running_snapshot(supervised_iteration),
+                }
             iterations += 1
             if max_iterations is not None and iterations >= max_iterations:
                 break
             sleep_fn(interval_seconds)
     except KeyboardInterrupt:
-        return {
-            "loop_status": "interrupted",
-            "instance_id": instance_id,
-            "iterations": iterations,
-            "last_result": last_result,
-        }
+        loop_status = "interrupted"
+    finally:
+        completed, supervised_iteration = _reconcile_active_loop_iteration(supervised_iteration, settle_timeout_seconds=0.25)
+        if completed:
+            last_result = completed[-1]
+        executor.shutdown(wait=False, cancel_futures=False)
     return {
-        "loop_status": "completed",
+        "loop_status": loop_status,
         "instance_id": instance_id,
         "iterations": iterations,
         "last_result": last_result,
+        "running_iteration": _active_loop_running_snapshot(supervised_iteration),
     }
 
 

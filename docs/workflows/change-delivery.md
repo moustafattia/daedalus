@@ -61,6 +61,18 @@ Common workflow commands:
 - `/workflow change-delivery publish-ready-pr`
 - `/workflow change-delivery merge-and-promote`
 
+## Runtime behavior
+
+Manual ticks remain synchronous: `/workflow change-delivery tick` and
+`/daedalus iterate-active` run one action inline and return the final result.
+
+The long-running active service path is supervised. `/daedalus run-active`
+dispatches one active iteration into an in-process worker, keeps the Daedalus
+lease fresh while the worker runs, reconciles completed workers before shutdown,
+and persists action completion/failure in the runtime DB. This prevents a fast
+completed action from being marked as synthetic restart failure after a bounded
+or interrupted service run.
+
 ## Related docs
 
 - [Architecture](../architecture.md)
