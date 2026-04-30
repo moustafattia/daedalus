@@ -17,9 +17,9 @@ def load_module(module_name, relative_path):
 
 def test_lane_selection_cfg_synthesized_when_block_absent():
     """A workspace built from a yaml without lane-selection still gets a parsed config attached."""
-    workspace = load_module("daedalus_workspace_lane_selection_test_a", "workflows/code_review/workspace.py")
+    workspace = load_module("daedalus_workspace_lane_selection_test_a", "workflows/change_delivery/workspace.py")
     yaml_cfg = {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "x", "engine-owner": "hermes"},
         "repository": {"local-path": "/tmp", "github-slug": "o/r", "active-lane-label": "active-lane"},
@@ -36,7 +36,7 @@ def test_lane_selection_cfg_synthesized_when_block_absent():
 
 
 def test_lane_selection_cfg_picked_up_when_block_present():
-    workspace = load_module("daedalus_workspace_lane_selection_test_b", "workflows/code_review/workspace.py")
+    workspace = load_module("daedalus_workspace_lane_selection_test_b", "workflows/change_delivery/workspace.py")
     yaml_cfg = {
         "lane-selection": {
             "require-labels": ["needs-review"],

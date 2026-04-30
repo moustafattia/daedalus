@@ -7,7 +7,7 @@ import pytest
 
 
 def test_webhook_module_exposes_protocol_registry_and_compose():
-    from workflows.code_review.webhooks import (
+    from workflows.change_delivery.webhooks import (
         Webhook, WebhookContext, register, build_webhooks,
         compose_audit_subscribers, _WEBHOOK_KINDS,
     )
@@ -18,18 +18,18 @@ def test_webhook_module_exposes_protocol_registry_and_compose():
 
 
 def test_build_webhooks_empty_list_returns_empty():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
     assert build_webhooks([], run_fn=None) == []
 
 
 def test_build_webhooks_unknown_kind_raises():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
     with pytest.raises(ValueError, match="unknown"):
         build_webhooks([{"name": "x", "kind": "made-up", "url": "https://example.com"}], run_fn=None)
 
 
 def test_compose_audit_subscribers_fans_out():
-    from workflows.code_review.webhooks import compose_audit_subscribers
+    from workflows.change_delivery.webhooks import compose_audit_subscribers
 
     sub1 = MagicMock()
     sub2 = MagicMock()
@@ -45,7 +45,7 @@ def test_compose_audit_subscribers_fans_out():
 
 
 def test_compose_audit_subscribers_isolates_exceptions():
-    from workflows.code_review.webhooks import compose_audit_subscribers
+    from workflows.change_delivery.webhooks import compose_audit_subscribers
 
     sub1 = MagicMock(side_effect=RuntimeError("boom"))
     sub2 = MagicMock()
@@ -58,19 +58,19 @@ def test_compose_audit_subscribers_isolates_exceptions():
 
 
 def test_compose_audit_subscribers_empty_list_is_noop():
-    from workflows.code_review.webhooks import compose_audit_subscribers
+    from workflows.change_delivery.webhooks import compose_audit_subscribers
     pub = compose_audit_subscribers([])
     pub(action="X", summary="Y", extra={})  # no-op, no error
 
 
 def test_http_json_webhook_registered():
-    from workflows.code_review.webhooks import _WEBHOOK_KINDS
-    from workflows.code_review.webhooks import http_json  # noqa: F401
+    from workflows.change_delivery.webhooks import _WEBHOOK_KINDS
+    from workflows.change_delivery.webhooks import http_json  # noqa: F401
     assert "http-json" in _WEBHOOK_KINDS
 
 
 def test_http_json_webhook_posts_payload_to_url():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{"name": "wh1", "kind": "http-json", "url": "https://example.com/hook"}]
     webhooks = build_webhooks(cfg, run_fn=None)
@@ -95,7 +95,7 @@ def test_http_json_webhook_posts_payload_to_url():
 
 
 def test_http_json_webhook_includes_custom_headers():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{
         "name": "wh1", "kind": "http-json",
@@ -117,7 +117,7 @@ def test_http_json_webhook_includes_custom_headers():
 
 
 def test_http_json_webhook_retries_on_failure():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{
         "name": "wh1", "kind": "http-json",
@@ -133,7 +133,7 @@ def test_http_json_webhook_retries_on_failure():
 
 
 def test_http_json_webhook_no_retry_on_success():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{
         "name": "wh1", "kind": "http-json",
@@ -151,20 +151,20 @@ def test_http_json_webhook_no_retry_on_success():
 
 
 def test_http_json_webhook_matches_default_all_events():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
     cfg = [{"name": "wh1", "kind": "http-json", "url": "https://x"}]
     wh = build_webhooks(cfg, run_fn=None)[0]
     assert wh.matches({"action": "anything"}) is True
 
 
 def test_slack_incoming_webhook_registered():
-    from workflows.code_review.webhooks import _WEBHOOK_KINDS
-    from workflows.code_review.webhooks import slack_incoming  # noqa: F401
+    from workflows.change_delivery.webhooks import _WEBHOOK_KINDS
+    from workflows.change_delivery.webhooks import slack_incoming  # noqa: F401
     assert "slack-incoming" in _WEBHOOK_KINDS
 
 
 def test_slack_incoming_payload_shape():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{
         "name": "slack", "kind": "slack-incoming",
@@ -198,13 +198,13 @@ def test_slack_incoming_payload_shape():
 
 
 def test_disabled_webhook_registered():
-    from workflows.code_review.webhooks import _WEBHOOK_KINDS
-    from workflows.code_review.webhooks import disabled  # noqa: F401
+    from workflows.change_delivery.webhooks import _WEBHOOK_KINDS
+    from workflows.change_delivery.webhooks import disabled  # noqa: F401
     assert "disabled" in _WEBHOOK_KINDS
 
 
 def test_disabled_webhook_does_not_call_urlopen():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{"name": "wh", "kind": "disabled"}]
     webhooks = build_webhooks(cfg, run_fn=None)
@@ -216,8 +216,8 @@ def test_disabled_webhook_does_not_call_urlopen():
 
 def test_disabled_via_enabled_false():
     """enabled: false overrides any kind."""
-    from workflows.code_review.webhooks import build_webhooks
-    from workflows.code_review.webhooks.disabled import DisabledWebhook
+    from workflows.change_delivery.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks.disabled import DisabledWebhook
 
     cfg = [{"name": "wh", "kind": "http-json", "url": "https://x", "enabled": False}]
     webhooks = build_webhooks(cfg, run_fn=None)
@@ -225,33 +225,33 @@ def test_disabled_via_enabled_false():
 
 
 def test_event_filter_glob_matches_exact():
-    from workflows.code_review.webhooks import event_matches
+    from workflows.change_delivery.webhooks import event_matches
     assert event_matches({"action": "run_claude_review"}, ["run_claude_review"]) is True
     assert event_matches({"action": "merge_and_promote"}, ["run_claude_review"]) is False
 
 
 def test_event_filter_glob_matches_prefix():
-    from workflows.code_review.webhooks import event_matches
+    from workflows.change_delivery.webhooks import event_matches
     assert event_matches({"action": "run_claude_review"}, ["run_*"]) is True
     assert event_matches({"action": "run_internal_review"}, ["run_*"]) is True
     assert event_matches({"action": "merge_and_promote"}, ["run_*"]) is False
 
 
 def test_event_filter_glob_suffix():
-    from workflows.code_review.webhooks import event_matches
+    from workflows.change_delivery.webhooks import event_matches
     assert event_matches({"action": "internal_review"}, ["*_review"]) is True
     assert event_matches({"action": "external_review"}, ["*_review"]) is True
     assert event_matches({"action": "merge_and_promote"}, ["*_review"]) is False
 
 
 def test_event_filter_omitted_defaults_to_all():
-    from workflows.code_review.webhooks import event_matches
+    from workflows.change_delivery.webhooks import event_matches
     assert event_matches({"action": "any"}, None) is True
     assert event_matches({"action": "any"}, []) is True
 
 
 def test_event_filter_multiple_globs_or():
-    from workflows.code_review.webhooks import event_matches
+    from workflows.change_delivery.webhooks import event_matches
     globs = ["merge_*", "operator_*"]
     assert event_matches({"action": "merge_and_promote"}, globs) is True
     assert event_matches({"action": "operator_attention_required"}, globs) is True
@@ -260,7 +260,7 @@ def test_event_filter_multiple_globs_or():
 
 def test_filtered_subscriber_does_not_deliver_unmatched_events():
     """When wrapping a webhook into a subscriber, non-matching events are skipped."""
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{
         "name": "only-merges", "kind": "http-json",
@@ -272,7 +272,7 @@ def test_filtered_subscriber_does_not_deliver_unmatched_events():
 
 
 def test_build_webhooks_rejects_file_url():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{"name": "wh", "kind": "http-json", "url": "file:///etc/passwd"}]
     with pytest.raises(ValueError, match="unsupported URL scheme"):
@@ -280,7 +280,7 @@ def test_build_webhooks_rejects_file_url():
 
 
 def test_build_webhooks_rejects_gopher_url():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{"name": "wh", "kind": "slack-incoming", "url": "gopher://internal/"}]
     with pytest.raises(ValueError, match="unsupported URL scheme"):
@@ -288,7 +288,7 @@ def test_build_webhooks_rejects_gopher_url():
 
 
 def test_build_webhooks_accepts_http_and_https():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     for url in ("https://example.com/hook", "http://example.com/hook"):
         cfg = [{"name": "wh", "kind": "http-json", "url": url}]
@@ -297,7 +297,7 @@ def test_build_webhooks_accepts_http_and_https():
 
 def test_build_webhooks_disabled_kind_skips_scheme_check():
     """Disabled webhooks don't deliver — scheme check shouldn't apply."""
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{"name": "wh", "kind": "disabled", "url": "file:///irrelevant"}]
     # Should not raise
@@ -305,7 +305,7 @@ def test_build_webhooks_disabled_kind_skips_scheme_check():
 
 
 def test_build_webhooks_rejects_http_json_without_url():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{"name": "wh", "kind": "http-json"}]
     with pytest.raises(ValueError, match="requires a 'url'"):
@@ -313,7 +313,7 @@ def test_build_webhooks_rejects_http_json_without_url():
 
 
 def test_build_webhooks_rejects_slack_incoming_without_url():
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{"name": "wh", "kind": "slack-incoming"}]
     with pytest.raises(ValueError, match="requires a 'url'"):
@@ -322,7 +322,7 @@ def test_build_webhooks_rejects_slack_incoming_without_url():
 
 def test_build_webhooks_disabled_kind_allows_missing_url():
     """Disabled is the explicit no-op kind; url isn't required."""
-    from workflows.code_review.webhooks import build_webhooks
+    from workflows.change_delivery.webhooks import build_webhooks
 
     cfg = [{"name": "wh", "kind": "disabled"}]
     assert len(build_webhooks(cfg, run_fn=None)) == 1

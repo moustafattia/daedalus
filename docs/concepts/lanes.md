@@ -49,7 +49,7 @@ States with no outgoing arrows in this diagram (other than terminal `merged` / `
 
 ## Terminal states
 
-`merged`, `closed`, and `archived` are terminal. The `workflows.code_review.server.views._TERMINAL_LANE_STATUSES` set keeps these out of the operator dashboard. Anything else is "active" for observability purposes.
+`merged`, `closed`, and `archived` are terminal. The `workflows.change_delivery.server.views._TERMINAL_LANE_STATUSES` set keeps these out of the operator dashboard. Anything else is "active" for observability purposes.
 
 ## Lane selection
 
@@ -101,8 +101,8 @@ Each lane is bound to a **workspace** (a temporary directory under `/tmp/`). The
 
 ## Where this lives in code
 
-- Schema: `daedalus/workflows/code_review/migrations.py` (lanes table)
-- Selection config: `daedalus/workflows/code_review/lane_selection.py`
-- Selection logic: `daedalus/workflows/code_review/lane_selection.py` + `workspace.py`
-- State transitions: `daedalus/workflows/code_review/workflow.py` + `dispatch.py`
-- Read views: `daedalus/workflows/code_review/server/views.py`
+- Schema: `daedalus/workflows/change_delivery/migrations.py` (lanes table)
+- Selection config: `daedalus/workflows/change_delivery/lane_selection.py`
+- Selection logic: `daedalus/workflows/change_delivery/lane_selection.py` + `workspace.py`
+- State transitions: `daedalus/workflows/change_delivery/workflow.py` + `dispatch.py`
+- Read views: `daedalus/workflows/change_delivery/server/views.py`

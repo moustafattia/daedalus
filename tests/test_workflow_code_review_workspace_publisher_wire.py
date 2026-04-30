@@ -18,7 +18,7 @@ def load_module(module_name: str, relative_path: str):
 
 def _make_minimal_config(workspace_root: Path) -> dict:
     return {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schemaVersion": 1,
         "instance": {"name": "test", "engineOwner": "hermes"},
         "repository": {
@@ -45,8 +45,8 @@ def test_make_publisher_returns_callable_even_when_initially_disabled(tmp_path):
     Calling the publisher when disabled is a no-op (no gh CLI calls)."""
     import subprocess
     workspace_module = load_module(
-        "daedalus_workflow_code_review_workspace_publisher_wire_test",
-        "workflows/code_review/workspace.py",
+        "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
+        "workflows/change_delivery/workspace.py",
     )
     fake_run_calls = []
 
@@ -74,8 +74,8 @@ def test_disabled_then_override_enabled_publisher_takes_effect(tmp_path):
     publisher instance starts emitting — no restart needed."""
     import json
     workspace_module = load_module(
-        "daedalus_workflow_code_review_workspace_publisher_wire_test",
-        "workflows/code_review/workspace.py",
+        "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
+        "workflows/change_delivery/workspace.py",
     )
     fake_run_calls = []
 
@@ -105,7 +105,7 @@ def test_disabled_then_override_enabled_publisher_takes_effect(tmp_path):
     override_dir = tmp_path / "runtime" / "state" / "daedalus"
     override_dir.mkdir(parents=True, exist_ok=True)
     (override_dir / "observability-overrides.json").write_text(json.dumps({
-        "code-review": {"github-comments": {"enabled": True, "set-at": "2026-04-26T00:00:00Z"}}
+        "change-delivery": {"github-comments": {"enabled": True, "set-at": "2026-04-26T00:00:00Z"}}
     }))
 
     # Same publisher instance now emits.
@@ -116,8 +116,8 @@ def test_disabled_then_override_enabled_publisher_takes_effect(tmp_path):
 
 def test_make_publisher_returns_callable_when_enabled(tmp_path):
     workspace_module = load_module(
-        "daedalus_workflow_code_review_workspace_publisher_wire_test",
-        "workflows/code_review/workspace.py",
+        "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
+        "workflows/change_delivery/workspace.py",
     )
     publisher = workspace_module._make_comment_publisher(
         workflow_root=tmp_path,
@@ -133,8 +133,8 @@ def test_make_publisher_returns_callable_when_enabled(tmp_path):
 def test_publisher_skips_when_no_active_issue(tmp_path):
     """When no active lane exists, the publisher silently skips."""
     workspace_module = load_module(
-        "daedalus_workflow_code_review_workspace_publisher_wire_test",
-        "workflows/code_review/workspace.py",
+        "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
+        "workflows/change_delivery/workspace.py",
     )
     fake_run_calls = []
 

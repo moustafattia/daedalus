@@ -16,7 +16,7 @@
 
 ## What it is
 
-Daedalus automates your **SDLC** with agents — driven by your GitHub issues. Label an issue and Daedalus walks it through your workflow: picks the right agent for each stage, tracks state, survives crashes, ships when done. The first workflow we ship is **Code-Review** (`Issue → Code → Review → Merge`). More are coming.
+Daedalus automates your **SDLC** with agents — driven by your GitHub issues. Label an issue and Daedalus walks it through your workflow: picks the right agent for each stage, tracks state, survives crashes, ships when done. The first workflow we ship is **Change-Delivery** (`Issue → Code → Review → Merge`). More are coming.
 
 ## Three myths, one engine
 
@@ -58,7 +58,7 @@ Daedalus warned Icarus, then flew home. Edits take effect on the next tick. A ba
 - **Hot-reload.** Edit `WORKFLOW.md` and the next tick picks it up. Bad edits don't crash the loop; they get ignored until you fix them.
 - **Stall detection.** Wedged agents get terminated automatically and the lane retries. No zombie workers.
 - **Symphony-aligned event vocabulary** — events follow the [openai/symphony](https://github.com/openai/symphony) taxonomy, so observability tools work across systems.
-- **Operator commands** — `/daedalus status`, `/daedalus doctor`, `/workflow code-review status`, `/workflow code-review tick`.
+- **Operator commands** — `/daedalus status`, `/daedalus doctor`, `/workflow change-delivery status`, `/workflow change-delivery tick`.
 - **Live status dashboard** — ships separately as a Hermes-Agent watch plugin.
 
 ## Supported path
@@ -87,7 +87,7 @@ hermes daedalus bootstrap
 Edit the generated workflow contract:
 
 ```bash
-$EDITOR ~/.hermes/workflows/your-org-your-repo-code-review/WORKFLOW.md
+$EDITOR ~/.hermes/workflows/your-org-your-repo-change-delivery/WORKFLOW.md
 ```
 
 Then bring it up:
@@ -113,7 +113,7 @@ Inside Hermes:
 ```text
 /daedalus status
 /daedalus doctor
-/workflow code-review status
+/workflow change-delivery status
 ```
 
 For manual scaffold paths, pip installs, local-dev installation, service modes,

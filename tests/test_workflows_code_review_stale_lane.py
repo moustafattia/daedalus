@@ -15,7 +15,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def test_compute_stale_lane_reasons_flags_no_pr_lane_with_old_progress():
-    health_module = load_module("daedalus_workflows_code_review_stale_lane_test", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_stale_lane_test", "workflows/change_delivery/health.py")
 
     reasons = health_module.compute_stale_lane_reasons(
         active_lane={"number": 224},
@@ -35,7 +35,7 @@ def test_compute_stale_lane_reasons_flags_no_pr_lane_with_old_progress():
 
 
 def test_compute_stale_lane_reasons_includes_operator_attention_reasons():
-    health_module = load_module("daedalus_workflows_code_review_stale_lane_test", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_stale_lane_test", "workflows/change_delivery/health.py")
 
     reasons = health_module.compute_stale_lane_reasons(
         active_lane={"number": 224},

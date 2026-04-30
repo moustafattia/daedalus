@@ -184,45 +184,45 @@ Daedalus service
 || `/workflow <name>` | Show that workflow's `--help` |
 || `/workflow <name> <cmd> [args]` | Route to that workflow's CLI |
 
-### `code-review` workflow shortcuts (the common ones)
+### `change-delivery` workflow shortcuts (the common ones)
 
 || Command | What it does |
 |---|---|---|
-|| `/workflow code-review status` | Lane state + `nextAction` |
-|| `/workflow code-review tick` | One workflow tick |
-|| `/workflow code-review show-active-lane` | Current active GitHub issue |
-|| `/workflow code-review show-lane-state` | `.lane-state.json` contents |
-|| `/workflow code-review show-lane-memo` | `.lane-memo.md` contents |
-|| `/workflow code-review dispatch-implementation-turn` | Force a coder turn |
-|| `/workflow code-review dispatch-claude-review` | Force an internal Claude review |
-|| `/workflow code-review publish-ready-pr` | Force PR publish |
-|| `/workflow code-review merge-and-promote` | Force merge + promote next lane |
-|| `/workflow code-review reconcile` | Repair stale ledger state |
-|| `/workflow code-review pause` | Disable lane processing |
-|| `/workflow code-review resume` | Re-enable |
+|| `/workflow change-delivery status` | Lane state + `nextAction` |
+|| `/workflow change-delivery tick` | One workflow tick |
+|| `/workflow change-delivery show-active-lane` | Current active GitHub issue |
+|| `/workflow change-delivery show-lane-state` | `.lane-state.json` contents |
+|| `/workflow change-delivery show-lane-memo` | `.lane-memo.md` contents |
+|| `/workflow change-delivery dispatch-implementation-turn` | Force a coder turn |
+|| `/workflow change-delivery dispatch-claude-review` | Force an internal Claude review |
+|| `/workflow change-delivery publish-ready-pr` | Force PR publish |
+|| `/workflow change-delivery merge-and-promote` | Force merge + promote next lane |
+|| `/workflow change-delivery reconcile` | Repair stale ledger state |
+|| `/workflow change-delivery pause` | Disable lane processing |
+|| `/workflow change-delivery resume` | Re-enable |
 
 ### Webhook commands
 
 || Command | What it does |
 |---|---|---|
-|| `/workflow code-review webhooks status` | Show configured webhook subscribers |
-|| `/workflow code-review webhooks test` | Fire a test event to all webhooks |
+|| `/workflow change-delivery webhooks status` | Show configured webhook subscribers |
+|| `/workflow change-delivery webhooks test` | Fire a test event to all webhooks |
 
 ### Comments commands
 
 || Command | What it does |
 |---|---|---|
-|| `/workflow code-review comments status` | Show comment publisher state |
-|| `/workflow code-review comments sync` | Force a comment sync for current lane |
+|| `/workflow change-delivery comments status` | Show comment publisher state |
+|| `/workflow change-delivery comments sync` | Force a comment sync for current lane |
 
 ## Most useful day-to-day, in order
 
 1. `/daedalus watch` — live overview of every active lane in one frame
-2. `/workflow code-review status` — current lane + next action
+2. `/workflow change-delivery status` — current lane + next action
 3. `/daedalus doctor` — overall health
-4. `/workflow code-review show-active-lane` — what GitHub thinks
+4. `/workflow change-delivery show-active-lane` — what GitHub thinks
 5. `/daedalus service-logs` — last 50 journal entries from the active service
-5. `/workflow code-review tick` — manually fire a tick when impatient
+5. `/workflow change-delivery tick` — manually fire a tick when impatient
 
 ## Notes
 

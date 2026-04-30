@@ -39,7 +39,7 @@ We can refactor those freely as long as the stable surfaces above keep working.
 
 The first bundled public workflow is:
 
-- `workflow: code-review`
+- `workflow: change-delivery`
 
 Additional workflow types should not be advertised as public contract until they have the same scaffold, schema, docs, and smoke-test coverage.
 

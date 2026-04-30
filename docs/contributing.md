@@ -49,7 +49,7 @@ public plugin payload.
 
 - `test_<module_name>.py` — unit tests for a single module
 - `test_<feature>_phase_<letter>.py` — integration tests for a feature phase
-- `test_workflows_code_review_<topic>.py` — workflow-specific tests
+- `test_workflows_change_delivery_<topic>.py` — workflow-specific tests
 
 ### Test categories
 
@@ -58,7 +58,7 @@ public plugin payload.
 | Unit tests | ~40 | `test_config_snapshot.py`, `test_stall_detection.py` |
 | Integration tests | ~25 | `test_external_reviewer_phase_b.py` |
 | Formatter tests | ~10 | `test_formatters_shadow_report.py` |
-| Schema tests | ~8 | `test_workflow_code_review_schema.py` |
+| Schema tests | ~8 | `test_workflow_change_delivery_schema.py` |
 
 ### Running the full suite
 
@@ -71,9 +71,9 @@ pytest -n auto  # parallel (requires pytest-xdist)
 
 ## Adding a new runtime
 
-1. **Implement the Protocol** in `daedalus/workflows/code_review/runtimes/your_runtime.py`:
+1. **Implement the Protocol** in `daedalus/workflows/change_delivery/runtimes/your_runtime.py`:
    ```python
-   from workflows.code_review.runtimes import register
+   from workflows.change_delivery.runtimes import register
 
    @register("your-kind")
    class YourRuntime:
@@ -84,7 +84,7 @@ pytest -n auto  # parallel (requires pytest-xdist)
        def last_activity_ts(self) -> float | None: ...
    ```
 
-2. **Add to schema** in `daedalus/workflows/code_review/schema.yaml`:
+2. **Add to schema** in `daedalus/workflows/change_delivery/schema.yaml`:
    ```yaml
    runtimes:
      your-runtime:
@@ -92,7 +92,7 @@ pytest -n auto  # parallel (requires pytest-xdist)
        timeout-seconds: 1200
    ```
 
-3. **Add tests** in `tests/test_workflows_code_review_runtimes_your_runtime.py`.
+3. **Add tests** in `tests/test_workflows_change_delivery_runtimes_your_runtime.py`.
 
 4. **Document** in `docs/concepts/runtimes.md`.
 
@@ -100,15 +100,15 @@ pytest -n auto  # parallel (requires pytest-xdist)
 
 ## Adding a workflow stage
 
-The current code-review workflow has stages: `implementing` → `awaiting_claude_prepublish` → `ready_to_publish` → `under_review` → `approved` → `merged`.
+The current change-delivery workflow has stages: `implementing` → `awaiting_claude_prepublish` → `ready_to_publish` → `under_review` → `approved` → `merged`.
 
 To add a new stage:
 
-1. **Add the state** to the workflow state machine in `daedalus/workflows/code_review/workflow.py`.
-2. **Add the transition logic** in `daedalus/workflows/code_review/dispatch.py`.
-3. **Add the action type** in `daedalus/workflows/code_review/actions.py`.
-4. **Update the schema** in `daedalus/workflows/code_review/migrations.py` (if new DB columns needed).
-5. **Add tests** in `tests/test_workflows_code_review_actions.py`.
+1. **Add the state** to the workflow state machine in `daedalus/workflows/change_delivery/workflow.py`.
+2. **Add the transition logic** in `daedalus/workflows/change_delivery/dispatch.py`.
+3. **Add the action type** in `daedalus/workflows/change_delivery/actions.py`.
+4. **Update the schema** in `daedalus/workflows/change_delivery/migrations.py` (if new DB columns needed).
+5. **Add tests** in `tests/test_workflows_change_delivery_actions.py`.
 6. **Document** in `docs/concepts/lanes.md` and `docs/concepts/actions.md`.
 
 ---
@@ -122,7 +122,7 @@ Every code change that affects operator-facing behavior must update docs:
 | New slash command | `docs/operator/slash-commands.md`, `docs/operator/cheat-sheet.md` |
 | New concept | `docs/concepts/<new-concept>.md`, `docs/architecture.md` |
 | Schema change | `docs/concepts/lanes.md`, `docs/concepts/actions.md` |
-| Config change | `daedalus/workflows/code_review/workflow.template.md`, `docs/examples/code-review.workflow.md`, `docs/concepts/hot-reload.md`, `docs/operator/cheat-sheet.md` |
+| Config change | `daedalus/workflows/change_delivery/workflow.template.md`, `docs/examples/change-delivery.workflow.md`, `docs/concepts/hot-reload.md`, `docs/operator/cheat-sheet.md` |
 | Rename/refactor | All docs + ADR in `docs/adr/` |
 
 ---

@@ -19,14 +19,14 @@ def test_execute_workflow_command_lists_workflows_with_no_args(tmp_path, monkeyp
     workflow_root = tmp_path
     (workflow_root / "config").mkdir()
     (workflow_root / "config" / "workflow.yaml").write_text(
-        "workflow:\n  name: code-review\n  schema-version: 1\n",
+        "workflow:\n  name: change-delivery\n  schema-version: 1\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DAEDALUS_WORKFLOW_ROOT", str(workflow_root))
 
     result = tools.execute_workflow_command("")
     assert "available workflows" in result.lower()
-    assert "code-review" in result
+    assert "change-delivery" in result
 
 
 def test_execute_workflow_command_routes_to_workflow_cli(tmp_path, monkeypatch):
@@ -34,7 +34,7 @@ def test_execute_workflow_command_routes_to_workflow_cli(tmp_path, monkeypatch):
     workflow_root = tmp_path
     (workflow_root / "config").mkdir()
     (workflow_root / "config" / "workflow.yaml").write_text(
-        "workflow:\n  name: code-review\n  schema-version: 1\n",
+        "workflow:\n  name: change-delivery\n  schema-version: 1\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DAEDALUS_WORKFLOW_ROOT", str(workflow_root))
@@ -50,9 +50,9 @@ def test_execute_workflow_command_routes_to_workflow_cli(tmp_path, monkeypatch):
     import workflows
     monkeypatch.setattr(workflows, "run_cli", fake_run_cli)
 
-    result = tools.execute_workflow_command("code-review status --json")
+    result = tools.execute_workflow_command("change-delivery status --json")
 
-    assert captured["require_workflow"] == "code-review"
+    assert captured["require_workflow"] == "change-delivery"
     assert captured["argv"] == ["status", "--json"]
     assert isinstance(result, str)
 
@@ -62,7 +62,7 @@ def test_execute_workflow_command_rejects_unknown_workflow_name(tmp_path, monkey
     workflow_root = tmp_path
     (workflow_root / "config").mkdir()
     (workflow_root / "config" / "workflow.yaml").write_text(
-        "workflow:\n  name: code-review\n  schema-version: 1\n",
+        "workflow:\n  name: change-delivery\n  schema-version: 1\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DAEDALUS_WORKFLOW_ROOT", str(workflow_root))

@@ -119,8 +119,8 @@ where can_continue = false
 
 ## Where this lives in code
 
-- Session protocol: `daedalus/workflows/code_review/sessions.py`
-- Runtime adapters: `daedalus/workflows/code_review/runtimes/{claude_cli,acpx_codex,hermes_agent}.py`
-- Health checks: `daedalus/workflows/code_review/health.py`
-- Stall detection: `daedalus/workflows/code_review/stall.py`
-- Tests: `tests/test_workflows_code_review_sessions.py`, `tests/test_workflows_code_review_session_runtime.py`
+- Session protocol: `daedalus/workflows/change_delivery/sessions.py`
+- Runtime adapters: `daedalus/workflows/change_delivery/runtimes/{claude_cli,acpx_codex,hermes_agent}.py`
+- Health checks: `daedalus/workflows/change_delivery/health.py`
+- Stall detection: `daedalus/workflows/change_delivery/stall.py`
+- Tests: `tests/test_workflows_change_delivery_sessions.py`, `tests/test_workflows_change_delivery_session_runtime.py`

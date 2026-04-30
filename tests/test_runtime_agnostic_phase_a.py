@@ -6,21 +6,21 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from workflows.code_review.runtimes import SessionHandle
+from workflows.change_delivery.runtimes import SessionHandle
 
 
 def test_acpx_runtime_has_run_command():
-    from workflows.code_review.runtimes.acpx_codex import AcpxCodexRuntime
+    from workflows.change_delivery.runtimes.acpx_codex import AcpxCodexRuntime
     assert hasattr(AcpxCodexRuntime, "run_command")
 
 
 def test_claude_cli_runtime_has_run_command():
-    from workflows.code_review.runtimes.claude_cli import ClaudeCliRuntime
+    from workflows.change_delivery.runtimes.claude_cli import ClaudeCliRuntime
     assert hasattr(ClaudeCliRuntime, "run_command")
 
 
 def test_acpx_run_command_invokes_run(tmp_path):
-    from workflows.code_review.runtimes.acpx_codex import AcpxCodexRuntime
+    from workflows.change_delivery.runtimes.acpx_codex import AcpxCodexRuntime
 
     fake_run = MagicMock(return_value=MagicMock(stdout="hello"))
     rt = AcpxCodexRuntime(
@@ -42,7 +42,7 @@ def test_acpx_run_command_invokes_run(tmp_path):
 
 
 def test_claude_cli_run_command_invokes_run(tmp_path):
-    from workflows.code_review.runtimes.claude_cli import ClaudeCliRuntime
+    from workflows.change_delivery.runtimes.claude_cli import ClaudeCliRuntime
 
     fake_run = MagicMock(return_value=MagicMock(stdout="ok"))
     rt = ClaudeCliRuntime(
@@ -59,14 +59,14 @@ def test_claude_cli_run_command_invokes_run(tmp_path):
 
 def test_hermes_agent_runtime_registered():
     # Trigger registration
-    from workflows.code_review import runtimes as runtime_module
-    from workflows.code_review.runtimes import hermes_agent  # noqa: F401
+    from workflows.change_delivery import runtimes as runtime_module
+    from workflows.change_delivery.runtimes import hermes_agent  # noqa: F401
 
     assert "hermes-agent" in runtime_module._RUNTIME_KINDS
 
 
 def test_hermes_agent_run_command(tmp_path):
-    from workflows.code_review.runtimes.hermes_agent import HermesAgentRuntime
+    from workflows.change_delivery.runtimes.hermes_agent import HermesAgentRuntime
 
     fake_run = MagicMock(return_value=MagicMock(stdout="agent-out"))
     rt = HermesAgentRuntime({"kind": "hermes-agent"}, run=fake_run, run_json=None)
@@ -78,7 +78,7 @@ def test_hermes_agent_run_command(tmp_path):
 
 
 def test_hermes_agent_ensure_session_is_noop(tmp_path):
-    from workflows.code_review.runtimes.hermes_agent import HermesAgentRuntime
+    from workflows.change_delivery.runtimes.hermes_agent import HermesAgentRuntime
 
     rt = HermesAgentRuntime({"kind": "hermes-agent"}, run=MagicMock(), run_json=None)
     handle = rt.ensure_session(
@@ -90,7 +90,7 @@ def test_hermes_agent_ensure_session_is_noop(tmp_path):
 
 
 def test_hermes_agent_assess_health_always_healthy(tmp_path):
-    from workflows.code_review.runtimes.hermes_agent import HermesAgentRuntime
+    from workflows.change_delivery.runtimes.hermes_agent import HermesAgentRuntime
 
     rt = HermesAgentRuntime({"kind": "hermes-agent"}, run=MagicMock(), run_json=None)
     h = rt.assess_health(None, worktree=tmp_path)
@@ -98,7 +98,7 @@ def test_hermes_agent_assess_health_always_healthy(tmp_path):
 
 
 def test_build_runtimes_accepts_hermes_agent():
-    from workflows.code_review.runtimes import build_runtimes
+    from workflows.change_delivery.runtimes import build_runtimes
 
     cfg = {"hermes-default": {"kind": "hermes-agent"}}
     rts = build_runtimes(cfg, run=MagicMock(), run_json=MagicMock())
@@ -107,7 +107,7 @@ def test_build_runtimes_accepts_hermes_agent():
 
 def _make_workspace(tmp_path, agents_cfg, runtimes_cfg, fake_run, *, workspace_dir=None):
     """Build a minimal workspace stand-in for dispatcher tests."""
-    from workflows.code_review.runtimes import build_runtimes
+    from workflows.change_delivery.runtimes import build_runtimes
 
     runtimes = build_runtimes(runtimes_cfg, run=fake_run, run_json=MagicMock())
     cfg = {"agents": agents_cfg, "runtimes": runtimes_cfg}
@@ -141,7 +141,7 @@ def _runtimes_cfg():
 
 
 def test_dispatch_agent_substitutes_placeholders(tmp_path):
-    from workflows.code_review.dispatch import dispatch_agent
+    from workflows.change_delivery.dispatch import dispatch_agent
 
     _seed_workspace_coder_prompt(tmp_path)
     fake_run = MagicMock(return_value=MagicMock(stdout="ok"))
@@ -167,7 +167,7 @@ def test_dispatch_agent_substitutes_placeholders(tmp_path):
 
 
 def test_dispatch_agent_unknown_role_raises(tmp_path):
-    from workflows.code_review.dispatch import dispatch_agent, DispatchConfigError
+    from workflows.change_delivery.dispatch import dispatch_agent, DispatchConfigError
 
     ws = _make_workspace(tmp_path, {"coder": {}}, _runtimes_cfg(), MagicMock())
     with pytest.raises(DispatchConfigError):
@@ -179,7 +179,7 @@ def test_dispatch_agent_unknown_role_raises(tmp_path):
 
 def test_dispatch_agent_uses_runtime_default_when_no_override(tmp_path):
     """Agent without command: -> runtime profile's command."""
-    from workflows.code_review.dispatch import dispatch_agent
+    from workflows.change_delivery.dispatch import dispatch_agent
 
     _seed_workspace_coder_prompt(tmp_path)
     fake_run = MagicMock(return_value=MagicMock(stdout="ok"))
@@ -195,7 +195,7 @@ def test_dispatch_agent_uses_runtime_default_when_no_override(tmp_path):
 
 def test_dispatch_agent_role_command_overrides_runtime(tmp_path):
     """Agent's command: fully replaces runtime command."""
-    from workflows.code_review.dispatch import dispatch_agent
+    from workflows.change_delivery.dispatch import dispatch_agent
 
     _seed_workspace_coder_prompt(tmp_path)
     fake_run = MagicMock(return_value=MagicMock(stdout="ok"))
@@ -218,7 +218,7 @@ def test_dispatch_agent_role_command_overrides_runtime(tmp_path):
 
 def test_dispatch_agent_resolves_workspace_prompt_override(tmp_path):
     """When <workspace>/config/prompts/<role>.md exists, dispatcher picks it."""
-    from workflows.code_review.dispatch import resolve_prompt_template_path
+    from workflows.change_delivery.dispatch import resolve_prompt_template_path
 
     cfg_dir = tmp_path / "config"
     (cfg_dir / "prompts").mkdir(parents=True)
@@ -233,7 +233,7 @@ def test_dispatch_agent_resolves_workspace_prompt_override(tmp_path):
 
 def test_dispatch_agent_resolves_explicit_prompt_path(tmp_path):
     """Agent's `prompt:` key wins over workspace override."""
-    from workflows.code_review.dispatch import resolve_prompt_template_path
+    from workflows.change_delivery.dispatch import resolve_prompt_template_path
 
     cfg_dir = tmp_path / "config"
     (cfg_dir / "prompts").mkdir(parents=True)
@@ -252,18 +252,18 @@ def test_dispatch_agent_resolves_explicit_prompt_path(tmp_path):
 
 def test_dispatch_agent_falls_back_to_bundled(tmp_path):
     """No explicit, no workspace override -> bundled default."""
-    from workflows.code_review.dispatch import resolve_prompt_template_path
+    from workflows.change_delivery.dispatch import resolve_prompt_template_path
 
     ws = MagicMock()
     ws.path = tmp_path
     ws.config = {"agents": {}}
     p = resolve_prompt_template_path(workspace=ws, role="coder", agent_cfg={})
     assert p.name == "coder.md"
-    assert "workflows/code_review/prompts" in str(p)
+    assert "workflows/change_delivery/prompts" in str(p)
 
 
 def test_dispatch_agent_prefers_inline_prompt_template_from_config(tmp_path):
-    from workflows.code_review.dispatch import dispatch_agent
+    from workflows.change_delivery.dispatch import dispatch_agent
 
     fake_run = MagicMock(return_value=MagicMock(stdout="ok"))
     agents = {
@@ -287,7 +287,7 @@ def test_dispatch_agent_prefers_inline_prompt_template_from_config(tmp_path):
 
 
 def test_dispatch_agent_prepends_shared_workflow_policy(tmp_path):
-    from workflows.code_review.dispatch import dispatch_agent
+    from workflows.change_delivery.dispatch import dispatch_agent
 
     fake_run = MagicMock(return_value=MagicMock(stdout="ok"))
     agents = {
@@ -315,7 +315,7 @@ def test_dispatch_agent_prepends_shared_workflow_policy(tmp_path):
 
 def test_dispatch_agent_legacy_fallback_calls_run_prompt(tmp_path):
     """When neither agent nor runtime has command:, dispatcher calls runtime.run_prompt."""
-    from workflows.code_review.dispatch import dispatch_agent
+    from workflows.change_delivery.dispatch import dispatch_agent
 
     runtimes_cfg = {
         "codex-acpx": {
@@ -348,7 +348,7 @@ def test_dispatch_agent_legacy_fallback_calls_run_prompt(tmp_path):
 
 def test_dispatch_agent_raises_when_no_bundled_prompt_exists(tmp_path):
     """When command: is set but no prompt template is found anywhere, raise DispatchConfigError."""
-    from workflows.code_review.dispatch import resolve_prompt_template_path, DispatchConfigError
+    from workflows.change_delivery.dispatch import resolve_prompt_template_path, DispatchConfigError
 
     ws = MagicMock()
     ws.path = tmp_path  # no <tmp_path>/config/prompts/madeup-role.md
@@ -359,7 +359,7 @@ def test_dispatch_agent_raises_when_no_bundled_prompt_exists(tmp_path):
 
 def test_dispatch_agent_uses_workspace_prompt_override_in_dispatched_command(tmp_path):
     """Regression test for Codex P2: workspace override must drive what the agent sees."""
-    from workflows.code_review.dispatch import dispatch_agent
+    from workflows.change_delivery.dispatch import dispatch_agent
 
     cfg_dir = tmp_path / "config"
     (cfg_dir / "prompts").mkdir(parents=True)
@@ -382,7 +382,7 @@ def test_dispatch_agent_uses_workspace_prompt_override_in_dispatched_command(tmp
 
 def test_dispatch_agent_uses_explicit_prompt_in_dispatched_command(tmp_path):
     """Regression test for Codex P2: agent's prompt: key must drive what the agent sees."""
-    from workflows.code_review.dispatch import dispatch_agent
+    from workflows.change_delivery.dispatch import dispatch_agent
 
     explicit = tmp_path / "explicit-coder.md"
     explicit.write_text("from-explicit-{model}")

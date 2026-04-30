@@ -24,12 +24,12 @@ def load_module(module_name: str, relative_path: str):
 # was retired and the live CLI + workspace code paths switched to calling
 # ``ws.publish_ready_pr_raw()`` etc. directly, those ``workflow_root``-taking
 # entrypoints became dead code and were removed from
-# ``workflows/code_review/actions.py``. The tests below cover the live
+# ``workflows/change_delivery/actions.py``. The tests below cover the live
 # ``run_*`` functions that back the workspace shims.
 
 
 def test_run_publish_ready_pr_reports_no_active_lane_when_reconcile_has_none():
-    actions_module = load_module("daedalus_workflows_code_review_actions_ppr", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_ppr", "workflows/change_delivery/actions.py")
 
     captured: dict = {}
 
@@ -60,7 +60,7 @@ def test_run_publish_ready_pr_reports_no_active_lane_when_reconcile_has_none():
 
 
 def test_run_publish_ready_pr_marks_existing_draft_ready_without_pushing(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_ppr", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_ppr", "workflows/change_delivery/actions.py")
     worktree = tmp_path / "worktree"
     worktree.mkdir()
 
@@ -104,7 +104,7 @@ def test_run_publish_ready_pr_marks_existing_draft_ready_without_pushing(tmp_pat
 
 
 def test_run_push_pr_update_skips_when_pr_head_matches_local(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_ppu", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_ppu", "workflows/change_delivery/actions.py")
     worktree = tmp_path / "worktree"
     worktree.mkdir()
 
@@ -131,7 +131,7 @@ def test_run_push_pr_update_skips_when_pr_head_matches_local(tmp_path):
 
 
 def test_run_push_pr_update_pushes_updated_head_and_audits(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_ppu", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_ppu", "workflows/change_delivery/actions.py")
     worktree = tmp_path / "worktree"
     worktree.mkdir()
 
@@ -171,7 +171,7 @@ def test_run_push_pr_update_pushes_updated_head_and_audits(tmp_path):
 
 
 def test_run_merge_and_promote_skips_when_missing_active_lane_or_pr():
-    actions_module = load_module("daedalus_workflows_code_review_actions_map", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_map", "workflows/change_delivery/actions.py")
 
     def fake_reconcile(*, fix_watchers=False):
         return {"activeLane": None, "openPr": None}
@@ -194,7 +194,7 @@ def test_run_merge_and_promote_skips_when_missing_active_lane_or_pr():
 
 
 def test_run_merge_and_promote_promotes_next_lane_after_merge():
-    actions_module = load_module("daedalus_workflows_code_review_actions_map", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_map", "workflows/change_delivery/actions.py")
     reconcile_calls: list = []
 
     def fake_reconcile(*, fix_watchers=False):
@@ -328,7 +328,7 @@ def _dispatch_deps(tmp_path: Path):
 
 
 def test_run_dispatch_lane_turn_short_circuits_when_no_active_lane(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_rdlt", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_rdlt", "workflows/change_delivery/actions.py")
     state, worktree, deps = _dispatch_deps(tmp_path)
     result = actions_module.run_dispatch_lane_turn(
         status={"activeLane": None, "implementation": {}, "ledger": {}, "reviews": {}},
@@ -341,7 +341,7 @@ def test_run_dispatch_lane_turn_short_circuits_when_no_active_lane(tmp_path):
 
 
 def test_run_dispatch_lane_turn_executes_continue_session_when_healthy(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_rdlt", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_rdlt", "workflows/change_delivery/actions.py")
     state, worktree, deps = _dispatch_deps(tmp_path)
     status = {
         "activeLane": {"number": 224, "title": "T", "url": "https://example.test/issue/224"},
@@ -376,7 +376,7 @@ def test_run_dispatch_lane_turn_executes_continue_session_when_healthy(tmp_path)
 
 
 def test_run_dispatch_lane_turn_closes_session_for_restart(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_rdlt", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_rdlt", "workflows/change_delivery/actions.py")
     state, worktree, deps = _dispatch_deps(tmp_path)
     status = {
         "activeLane": {"number": 224, "title": "T", "url": "https://example.test/issue/224"},
@@ -468,7 +468,7 @@ def _dispatch_review_deps(tmp_path: Path):
 
 
 def test_run_dispatch_inter_review_agent_review_short_circuits_when_no_active_lane(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_driar", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_driar", "workflows/change_delivery/actions.py")
     state, deps = _dispatch_review_deps(tmp_path)
 
     def reconcile_fn(*, fix_watchers=False):
@@ -481,7 +481,7 @@ def test_run_dispatch_inter_review_agent_review_short_circuits_when_no_active_la
 
 
 def test_run_dispatch_inter_review_agent_review_skips_when_preflight_blocks(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_driar", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_driar", "workflows/change_delivery/actions.py")
     state, deps = _dispatch_review_deps(tmp_path)
 
     def reconcile_fn(*, fix_watchers=False):
@@ -498,7 +498,7 @@ def test_run_dispatch_inter_review_agent_review_skips_when_preflight_blocks(tmp_
 
 
 def test_run_dispatch_inter_review_agent_review_records_completed_review_on_success(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_driar", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_driar", "workflows/change_delivery/actions.py")
     state, deps = _dispatch_review_deps(tmp_path)
     result = actions_module.run_dispatch_inter_review_agent_review(**deps)
     assert result["dispatched"] is True
@@ -515,7 +515,7 @@ def test_run_dispatch_inter_review_agent_review_records_completed_review_on_succ
 
 
 def test_run_dispatch_inter_review_agent_review_records_failed_review_and_reraises(tmp_path):
-    actions_module = load_module("daedalus_workflows_code_review_actions_driar", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_driar", "workflows/change_delivery/actions.py")
     state, deps = _dispatch_review_deps(tmp_path)
 
     class _FakeReviewError(RuntimeError):
@@ -582,7 +582,7 @@ def _tick_raw_deps():
 
 
 def test_run_tick_raw_returns_without_executing_when_next_action_is_noop():
-    actions_module = load_module("daedalus_workflows_code_review_actions_rtr", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_rtr", "workflows/change_delivery/actions.py")
     state, deps = _tick_raw_deps()
 
     def reconcile_fn(*, fix_watchers=False):
@@ -600,7 +600,7 @@ def test_run_tick_raw_returns_without_executing_when_next_action_is_noop():
 
 
 def test_run_tick_raw_dispatches_publish_branch_and_uses_returned_after():
-    actions_module = load_module("daedalus_workflows_code_review_actions_rtr", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_rtr", "workflows/change_delivery/actions.py")
     state, deps = _tick_raw_deps()
     result = actions_module.run_tick_raw(**deps)
     assert state["dispatched"] == ["publish"]
@@ -611,7 +611,7 @@ def test_run_tick_raw_dispatches_publish_branch_and_uses_returned_after():
 
 
 def test_run_tick_raw_dispatches_merge_branch_and_reconciles_after_when_executed_has_no_after():
-    actions_module = load_module("daedalus_workflows_code_review_actions_rtr", "workflows/code_review/actions.py")
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_rtr", "workflows/change_delivery/actions.py")
     state, deps = _tick_raw_deps()
 
     def reconcile_fn(*, fix_watchers=False):

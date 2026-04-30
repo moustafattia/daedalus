@@ -10,7 +10,7 @@ This is the supported community install path for the first public release.
 - `systemd --user` for supervised active/shadow mode
 - the host CLIs required by the runtimes named in `WORKFLOW.md`
 
-The bundled `code-review` template defaults to:
+The bundled `change-delivery` template defaults to:
 
 - `acpx-codex` for the coder runtime
 - `claude-cli` for the internal reviewer runtime
@@ -65,7 +65,7 @@ If you want explicit control over the target root or slug:
 
 ```bash
 hermes daedalus scaffold-workflow \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-change-delivery \
   --github-slug your-org/your-repo
 ```
 
@@ -115,22 +115,22 @@ remain available:
 
 ```bash
 hermes daedalus init \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-change-delivery
 
 hermes daedalus doctor \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-change-delivery \
   --format json
 
 hermes daedalus service-install \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-change-delivery \
   --service-mode active
 
 hermes daedalus service-enable \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-change-delivery \
   --service-mode active
 
 hermes daedalus service-start \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
+  --workflow-root ~/.hermes/workflows/your-org-your-repo-change-delivery \
   --service-mode active
 ```
 
@@ -146,7 +146,7 @@ Then use:
 ```text
 /daedalus status
 /daedalus doctor
-/workflow code-review status
+/workflow change-delivery status
 ```
 
 ## Plugin state

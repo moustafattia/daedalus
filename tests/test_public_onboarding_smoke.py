@@ -51,7 +51,7 @@ def test_public_onboarding_path_install_bootstrap_and_service_up(tmp_path, monke
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(tools.subprocess, "run", fake_run)
 
-    workflow_root = hermes_home / "workflows" / "attmous-daedalus-code-review"
+    workflow_root = hermes_home / "workflows" / "attmous-daedalus-change-delivery"
 
     bootstrap_out = tools.execute_raw_args("bootstrap")
     assert "bootstrapped workflow root" in bootstrap_out
@@ -61,20 +61,20 @@ def test_public_onboarding_path_install_bootstrap_and_service_up(tmp_path, monke
     service_up_payload = json.loads(service_up_out)
     assert service_up_payload["ok"] is True
     assert service_up_payload["preflight"]["ok"] is True
-    assert service_up_payload["preflight"]["workflow"] == "code-review"
+    assert service_up_payload["preflight"]["workflow"] == "change-delivery"
     assert Path(service_up_payload["service_install"]["unit_path"]).exists()
     assert service_up_payload["service_enable"]["ok"] is True
     assert service_up_payload["service_start"]["ok"] is True
-    assert service_up_payload["service_status"]["service_name"] == "daedalus-active@attmous-daedalus-code-review.service"
+    assert service_up_payload["service_status"]["service_name"] == "daedalus-active@attmous-daedalus-change-delivery.service"
 
     status_out = tools.execute_raw_args("status --format json")
     status_payload = json.loads(status_out)
     assert status_payload["runtime_status"] == "initialized"
-    assert status_payload["project_key"] == "attmous-daedalus-code-review"
+    assert status_payload["project_key"] == "attmous-daedalus-change-delivery"
 
     assert ["systemctl", "--user", "daemon-reload"] in captured_commands
-    assert ["systemctl", "--user", "enable", "daedalus-active@attmous-daedalus-code-review.service"] in captured_commands
-    assert ["systemctl", "--user", "start", "daedalus-active@attmous-daedalus-code-review.service"] in captured_commands
+    assert ["systemctl", "--user", "enable", "daedalus-active@attmous-daedalus-change-delivery.service"] in captured_commands
+    assert ["systemctl", "--user", "start", "daedalus-active@attmous-daedalus-change-delivery.service"] in captured_commands
 
 
 def test_readme_quickstart_mentions_supported_public_path():

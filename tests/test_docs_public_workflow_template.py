@@ -7,11 +7,11 @@ from workflows.contract import WORKFLOW_POLICY_KEY, load_workflow_contract_file
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE_PATH = REPO_ROOT / "docs" / "examples" / "code-review.workflow.md"
+TEMPLATE_PATH = REPO_ROOT / "docs" / "examples" / "change-delivery.workflow.md"
 PAYLOAD_TEMPLATE_PATH = (
-    REPO_ROOT / "daedalus" / "workflows" / "code_review" / "workflow.template.md"
+    REPO_ROOT / "daedalus" / "workflows" / "change_delivery" / "workflow.template.md"
 )
-SCHEMA_PATH = REPO_ROOT / "daedalus" / "workflows" / "code_review" / "schema.yaml"
+SCHEMA_PATH = REPO_ROOT / "daedalus" / "workflows" / "change_delivery" / "schema.yaml"
 
 
 def test_public_workflow_template_validates_against_schema():
@@ -23,7 +23,7 @@ def test_public_workflow_template_validates_against_schema():
 def test_public_workflow_template_uses_generic_placeholders():
     text = TEMPLATE_PATH.read_text(encoding="utf-8").lower()
     assert "yoyopod" not in text
-    assert "your-org-your-repo-code-review" in text
+    assert "your-org-your-repo-change-delivery" in text
     assert "# workflow policy" in text
 
 

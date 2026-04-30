@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-# Mirrors workflows.code_review.paths._has_project_runtime_layout. Inlined
+# Mirrors workflows.change_delivery.paths._has_project_runtime_layout. Inlined
 # here so migration.py has no project-package dependency (it's loaded via
 # spec_from_file_location at runtime startup before sys.path includes the
 # workflows package).
@@ -20,7 +20,7 @@ _PROJECT_RUNTIME_LAYOUT_MARKERS = ("runtime", "config", "workspace", "docs")
 def _runtime_base_dir(workflow_root: Path) -> Path:
     """Resolve the directory under which state/ and memory/ live.
 
-    Mirrors workflows.code_review.paths.runtime_base_dir: when the workflow
+    Mirrors workflows.change_delivery.paths.runtime_base_dir: when the workflow
     root has any of the project-runtime layout markers (runtime/, config/,
     workspace/, docs/), state and memory are stored under
     ``<workflow_root>/runtime/``; otherwise they're at the top level.

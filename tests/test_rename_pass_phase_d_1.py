@@ -8,7 +8,7 @@ import pytest
 
 
 def test_migrate_review_keys_renames_legacy_keys():
-    from workflows.code_review.migrations import migrate_review_keys
+    from workflows.change_delivery.migrations import migrate_review_keys
 
     ledger = {"reviews": {"claudeCode": {"v": 1}, "codexCloud": {"v": 2}}}
     out, changed = migrate_review_keys(ledger)
@@ -20,7 +20,7 @@ def test_migrate_review_keys_renames_legacy_keys():
 
 
 def test_migrate_review_keys_idempotent():
-    from workflows.code_review.migrations import migrate_review_keys
+    from workflows.change_delivery.migrations import migrate_review_keys
 
     ledger = {"reviews": {"internalReview": {"v": 1}, "externalReview": {"v": 2}}}
     out, changed = migrate_review_keys(ledger)
@@ -29,7 +29,7 @@ def test_migrate_review_keys_idempotent():
 
 
 def test_migrate_review_keys_new_key_wins_when_both_present():
-    from workflows.code_review.migrations import migrate_review_keys
+    from workflows.change_delivery.migrations import migrate_review_keys
 
     ledger = {"reviews": {
         "claudeCode": {"v": "old"}, "internalReview": {"v": "new"},
@@ -44,7 +44,7 @@ def test_migrate_review_keys_new_key_wins_when_both_present():
 
 
 def test_migrate_review_keys_passes_through_unknown_keys():
-    from workflows.code_review.migrations import migrate_review_keys
+    from workflows.change_delivery.migrations import migrate_review_keys
 
     ledger = {"reviews": {"claudeCode": {"v": 1}, "rockClaw": {"v": 9}}}
     out, _ = migrate_review_keys(ledger)
@@ -52,7 +52,7 @@ def test_migrate_review_keys_passes_through_unknown_keys():
 
 
 def test_migrate_review_keys_handles_missing_reviews_block():
-    from workflows.code_review.migrations import migrate_review_keys
+    from workflows.change_delivery.migrations import migrate_review_keys
 
     ledger = {"activeLane": {"number": 42}}
     out, changed = migrate_review_keys(ledger)
@@ -61,7 +61,7 @@ def test_migrate_review_keys_handles_missing_reviews_block():
 
 
 def test_get_review_returns_new_when_present():
-    from workflows.code_review.migrations import get_review
+    from workflows.change_delivery.migrations import get_review
 
     reviews = {"internalReview": {"v": 1}}
     assert get_review(reviews, "internalReview") == {"v": 1}
@@ -69,7 +69,7 @@ def test_get_review_returns_new_when_present():
 
 def test_get_review_no_longer_falls_back_to_legacy():
     """Phase D-2: legacy-key fallback dropped after one-release deprecation window."""
-    from workflows.code_review.migrations import get_review
+    from workflows.change_delivery.migrations import get_review
 
     reviews = {"claudeCode": {"v": 1}}
     assert get_review(reviews, "internalReview") == {}
@@ -79,26 +79,26 @@ def test_get_review_no_longer_falls_back_to_legacy():
 
 
 def test_get_review_prefers_new_when_both_present():
-    from workflows.code_review.migrations import get_review
+    from workflows.change_delivery.migrations import get_review
 
     reviews = {"claudeCode": {"v": "old"}, "internalReview": {"v": "new"}}
     assert get_review(reviews, "internalReview") == {"v": "new"}
 
 
 def test_get_review_returns_empty_dict_for_unknown_key():
-    from workflows.code_review.migrations import get_review
+    from workflows.change_delivery.migrations import get_review
 
     assert get_review({"x": 1}, "made-up") == {}
 
 
 def test_get_review_returns_empty_dict_when_value_is_none():
-    from workflows.code_review.migrations import get_review
+    from workflows.change_delivery.migrations import get_review
 
     assert get_review({"internalReview": None}, "internalReview") == {}
 
 
 def test_migrate_persisted_ledger_rewrites_file_atomically(tmp_path):
-    from workflows.code_review.migrations import migrate_persisted_ledger
+    from workflows.change_delivery.migrations import migrate_persisted_ledger
 
     p = tmp_path / "ledger.json"
     p.write_text(json.dumps({"reviews": {"claudeCode": {"v": 1}}}, indent=2))
@@ -109,7 +109,7 @@ def test_migrate_persisted_ledger_rewrites_file_atomically(tmp_path):
 
 
 def test_migrate_persisted_ledger_noop_on_already_migrated(tmp_path):
-    from workflows.code_review.migrations import migrate_persisted_ledger
+    from workflows.change_delivery.migrations import migrate_persisted_ledger
 
     p = tmp_path / "ledger.json"
     initial = {"reviews": {"internalReview": {"v": 1}}}
@@ -124,7 +124,7 @@ def test_migrate_persisted_ledger_noop_on_already_migrated(tmp_path):
 
 
 def test_migrate_persisted_ledger_handles_missing_file(tmp_path):
-    from workflows.code_review.migrations import migrate_persisted_ledger
+    from workflows.change_delivery.migrations import migrate_persisted_ledger
 
     p = tmp_path / "does-not-exist.json"
     # Should not raise
@@ -133,7 +133,7 @@ def test_migrate_persisted_ledger_handles_missing_file(tmp_path):
 
 
 def test_migrate_persisted_ledger_preserves_indent(tmp_path):
-    from workflows.code_review.migrations import migrate_persisted_ledger
+    from workflows.change_delivery.migrations import migrate_persisted_ledger
 
     p = tmp_path / "ledger.json"
     p.write_text(json.dumps({"reviews": {"claudeCode": {"v": 1}}}, indent=2))
@@ -144,7 +144,7 @@ def test_migrate_persisted_ledger_preserves_indent(tmp_path):
 
 def test_existing_installed_workflow_ledger_migrates_cleanly(tmp_path):
     """Smoke test: copy the installed workflow ledger to tmp, migrate, assert it works."""
-    from workflows.code_review.migrations import migrate_persisted_ledger, get_review
+    from workflows.change_delivery.migrations import migrate_persisted_ledger, get_review
     plugin_dir = Path.home() / ".hermes" / "plugins" / "daedalus"
     if not plugin_dir.exists():
         pytest.skip("installed workflow plugin not present on this host")
@@ -169,7 +169,7 @@ def test_existing_installed_workflow_ledger_migrates_cleanly(tmp_path):
 def test_action_dispatcher_accepts_run_internal_review():
     """The dispatcher matches the new literal."""
     from pathlib import Path
-    src = Path(__file__).resolve().parent.parent / "daedalus" / "workflows/code_review/actions.py"
+    src = Path(__file__).resolve().parent.parent / "daedalus" / "workflows/change_delivery/actions.py"
     text = src.read_text()
     assert "run_internal_review" in text
 

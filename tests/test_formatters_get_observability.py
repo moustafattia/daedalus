@@ -19,7 +19,7 @@ def _fmt():
 
 def _example():
     return {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "github_comments": {
             "enabled": True,
             "mode": "edit-in-place",
@@ -32,7 +32,7 @@ def _example():
 def test_panel_includes_workflow_and_enabled():
     fmt = _fmt()
     out = fmt.format_get_observability(_example(), use_color=False)
-    assert "code-review" in out
+    assert "change-delivery" in out
     assert "yaml" in out
     # enabled rendered as 'yes' not True
     assert " True" not in out

@@ -6,7 +6,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
-SCHEMA_PATH = REPO_ROOT / "workflows" / "code_review" / "schema.yaml"
+SCHEMA_PATH = REPO_ROOT / "workflows" / "change_delivery" / "schema.yaml"
 
 
 def _load_schema():
@@ -16,9 +16,9 @@ def _load_schema():
 def _minimal_valid_config():
     """The smallest YAML that should pass schema validation."""
     return {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
-        "instance": {"name": "owner-repo-code-review", "engine-owner": "hermes"},
+        "instance": {"name": "owner-repo-change-delivery", "engine-owner": "hermes"},
         "repository": {
             "local-path": "/tmp/repo",
             "github-slug": "owner/repo",
@@ -106,8 +106,8 @@ def test_schema_rejects_agent_pointing_at_unknown_runtime():
     jsonschema.validate(cfg, _load_schema())
 
 
-def test_schema_enforces_workflow_const_value_is_code_review():
+def test_schema_enforces_workflow_const_value_is_change_delivery():
     cfg = _minimal_valid_config()
-    cfg["workflow"] = "not-code-review"
+    cfg["workflow"] = "not-change-delivery"
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(cfg, _load_schema())

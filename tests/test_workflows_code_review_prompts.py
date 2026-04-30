@@ -15,7 +15,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def test_render_implementation_dispatch_prompt_uses_compact_turn_for_continue_session():
-    prompts_module = load_module("daedalus_workflows_code_review_prompts_test", "workflows/code_review/prompts.py")
+    prompts_module = load_module("daedalus_workflows_change_delivery_prompts_test", "workflows/change_delivery/prompts.py")
 
     result = prompts_module.render_implementation_dispatch_prompt(
         issue={"number": 224, "title": "Issue 224", "url": "https://example.com/issues/224"},
@@ -34,7 +34,7 @@ def test_render_implementation_dispatch_prompt_uses_compact_turn_for_continue_se
 
 
 def test_render_implementation_dispatch_prompt_includes_issue_summary_for_restart_session():
-    prompts_module = load_module("daedalus_workflows_code_review_prompts_test", "workflows/code_review/prompts.py")
+    prompts_module = load_module("daedalus_workflows_change_delivery_prompts_test", "workflows/change_delivery/prompts.py")
 
     result = prompts_module.render_implementation_dispatch_prompt(
         issue={"number": 224, "title": "Issue 224", "url": "https://example.com/issues/224"},
@@ -54,7 +54,7 @@ def test_render_implementation_dispatch_prompt_includes_issue_summary_for_restar
 
 
 def test_render_implementation_dispatch_prompt_prepends_shared_workflow_policy():
-    prompts_module = load_module("daedalus_workflows_code_review_prompts_test", "workflows/code_review/prompts.py")
+    prompts_module = load_module("daedalus_workflows_change_delivery_prompts_test", "workflows/change_delivery/prompts.py")
 
     result = prompts_module.render_implementation_dispatch_prompt(
         issue={"number": 224, "title": "Issue 224", "url": "https://example.com/issues/224"},
@@ -74,7 +74,7 @@ def test_render_implementation_dispatch_prompt_prepends_shared_workflow_policy()
 
 
 def test_render_claude_repair_handoff_prompt_includes_review_summary_and_fix_lists():
-    prompts_module = load_module("daedalus_workflows_code_review_prompts_test", "workflows/code_review/prompts.py")
+    prompts_module = load_module("daedalus_workflows_change_delivery_prompts_test", "workflows/change_delivery/prompts.py")
 
     result = prompts_module.render_claude_repair_handoff_prompt(
         issue={"number": 224, "title": "Issue 224"},
@@ -94,7 +94,7 @@ def test_render_claude_repair_handoff_prompt_includes_review_summary_and_fix_lis
 
 
 def test_render_external_reviewer_repair_handoff_prompt_includes_pr_url_and_guardrails():
-    prompts_module = load_module("daedalus_workflows_code_review_prompts_test", "workflows/code_review/prompts.py")
+    prompts_module = load_module("daedalus_workflows_change_delivery_prompts_test", "workflows/change_delivery/prompts.py")
 
     result = prompts_module.render_external_reviewer_repair_handoff_prompt(
         issue={"number": 224, "title": "Issue 224"},
@@ -114,7 +114,7 @@ def test_render_external_reviewer_repair_handoff_prompt_includes_pr_url_and_guar
 
 
 def test_render_inter_review_agent_prompt_can_prepend_shared_workflow_policy(tmp_path):
-    prompts_module = load_module("daedalus_workflows_code_review_prompts_test", "workflows/code_review/prompts.py")
+    prompts_module = load_module("daedalus_workflows_change_delivery_prompts_test", "workflows/change_delivery/prompts.py")
 
     result = prompts_module.render_inter_review_agent_prompt(
         issue={"number": 224, "title": "Issue 224", "url": "https://example.com/issues/224"},
@@ -131,7 +131,7 @@ def test_render_inter_review_agent_prompt_can_prepend_shared_workflow_policy(tmp
 
 
 def test_summarize_validation_and_render_lane_memo_capture_checks_progress_and_fix_lists():
-    prompts_module = load_module("daedalus_workflows_code_review_prompts_test", "workflows/code_review/prompts.py")
+    prompts_module = load_module("daedalus_workflows_change_delivery_prompts_test", "workflows/change_delivery/prompts.py")
 
     validation = prompts_module.summarize_validation(
         {
@@ -162,7 +162,7 @@ def test_summarize_validation_and_render_lane_memo_capture_checks_progress_and_f
 
 def test_prompt_templates_bundle_exists_with_three_files():
     from pathlib import Path
-    bundle = Path(__file__).resolve().parents[1] / "daedalus" / "workflows" / "code_review" / "prompts"
+    bundle = Path(__file__).resolve().parents[1] / "daedalus" / "workflows" / "change_delivery" / "prompts"
     assert bundle.is_dir(), f"prompts bundle missing at {bundle}"
     names = sorted(p.name for p in bundle.glob("*.md"))
     assert names == [

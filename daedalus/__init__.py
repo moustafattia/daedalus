@@ -8,7 +8,7 @@ PLUGIN_DIR = Path(__file__).resolve().parent
 # packages (workflows/, etc.) resolve when Hermes loads us as a package.
 # Hermes' plugin loader puts ~/.hermes/plugins/ on sys.path so this package
 # (`daedalus`) is importable, but doesn't add this directory itself — so
-# tools.py's `from workflows.code_review.paths import ...` fails without
+# tools.py's `from workflows.change_delivery.paths import ...` fails without
 # this bootstrap. Same self-bootstrap pattern as workflows/__main__.py.
 _PLUGIN_DIR_STR = str(PLUGIN_DIR)
 if _PLUGIN_DIR_STR not in sys.path:
@@ -43,7 +43,7 @@ def register(ctx):
     ctx.register_command(
         "workflow",
         execute_workflow_command,
-        description="Run a workflow's CLI (e.g. /workflow code-review status).",
+        description="Run a workflow's CLI (e.g. /workflow change-delivery status).",
     )
     ctx.register_cli_command(
         name="daedalus",

@@ -24,7 +24,7 @@ State is in SQLite. **History is in events.** Never reconstruct current state by
 
 ## Taxonomy (Symphony §10.4)
 
-Daedalus follows the Symphony event taxonomy with a `daedalus.*` prefix on orchestration events. The bare names are defined as Symphony-compatible aliases (`workflows.code_review.event_taxonomy.EVENT_ALIASES`) and run for one release before the prefixed form becomes the only canonical type.
+Daedalus follows the Symphony event taxonomy with a `daedalus.*` prefix on orchestration events. The bare names are defined as Symphony-compatible aliases (`workflows.change_delivery.event_taxonomy.EVENT_ALIASES`) and run for one release before the prefixed form becomes the only canonical type.
 
 ```mermaid
 flowchart LR
@@ -64,7 +64,7 @@ flowchart LR
 | Lane-level (Daedalus orchestration) | accepted (alias window) | ✅ canonical |
 | Session-level | ✅ canonical | also accepted |
 
-`workflows.code_review.event_taxonomy.canonicalize(event_type)` resolves either form to the current canonical name.
+`workflows.change_delivery.event_taxonomy.canonicalize(event_type)` resolves either form to the current canonical name.
 
 ## Event writer
 
@@ -108,11 +108,11 @@ All events share a common envelope:
 
 ## Reading events efficiently
 
-The dashboard tails the last 20 events on every HTTP hit. Naïve `readlines()` is O(file size); the implementation in `daedalus/workflows/code_review/server/views.py::_read_events_tail` uses an 8 KiB reverse-chunked seek so request cost is bounded regardless of how big the log gets. Same algorithm if you write your own consumer.
+The dashboard tails the last 20 events on every HTTP hit. Naïve `readlines()` is O(file size); the implementation in `daedalus/workflows/change_delivery/server/views.py::_read_events_tail` uses an 8 KiB reverse-chunked seek so request cost is bounded regardless of how big the log gets. Same algorithm if you write your own consumer.
 
 ## Where this lives in code
 
-- Taxonomy constants: `daedalus/workflows/code_review/event_taxonomy.py`
+- Taxonomy constants: `daedalus/workflows/change_delivery/event_taxonomy.py`
 - Writer: `daedalus/runtime.py::append_daedalus_event`
-- Reader (tail): `daedalus/workflows/code_review/server/views.py::_read_events_tail`
+- Reader (tail): `daedalus/workflows/change_delivery/server/views.py::_read_events_tail`
 - AST regression test: `tests/test_event_taxonomy.py` ensures `daedalus/runtime.py` only emits known event types

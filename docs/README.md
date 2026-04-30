@@ -6,7 +6,7 @@ Entry point for everything that won't fit on the [project landing page](../READM
 
 - **[architecture.md](architecture.md)** — the big picture. What Daedalus is, what it isn't, how the pieces fit together.
 - **[operator/installation.md](operator/installation.md)** — the supported install, scaffold, verify, and supervise flow.
-- **[examples/code-review.workflow.md](examples/code-review.workflow.md)** — copyable public baseline for `WORKFLOW.md`.
+- **[examples/change-delivery.workflow.md](examples/change-delivery.workflow.md)** — copyable public baseline for `WORKFLOW.md`.
 - **[public-contract.md](public-contract.md)** — the stability boundary for the first public release.
 - **[symphony-conformance.md](symphony-conformance.md)** — where Daedalus matches the current Symphony draft, and where it still differs.
 - **[security.md](security.md)** — the trust model, shell/network posture, and secret-handling expectations.

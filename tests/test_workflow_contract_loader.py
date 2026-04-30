@@ -14,9 +14,9 @@ from workflows.contract import (
 
 def _native_config() -> dict:
     return {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
-        "instance": {"name": "attmous-daedalus-code-review", "engine-owner": "hermes"},
+        "instance": {"name": "attmous-daedalus-change-delivery", "engine-owner": "hermes"},
         "repository": {
             "local-path": "/tmp/repo",
             "github-slug": "attmous/daedalus",
@@ -52,7 +52,7 @@ def test_load_workflow_contract_reads_yaml_mapping(tmp_path):
     contract = load_workflow_contract(root)
 
     assert contract.source_path == path
-    assert contract.config["workflow"] == "code-review"
+    assert contract.config["workflow"] == "change-delivery"
     assert contract.prompt_template == ""
 
 
@@ -72,7 +72,7 @@ def test_load_workflow_contract_reads_markdown_and_injects_prompt(tmp_path):
     contract = load_workflow_contract(root)
 
     assert contract.source_path == path
-    assert contract.config["workflow"] == "code-review"
+    assert contract.config["workflow"] == "change-delivery"
     assert contract.config[WORKFLOW_POLICY_KEY] == "Review the lane strictly."
     assert contract.prompt_template == "Review the lane strictly."
 

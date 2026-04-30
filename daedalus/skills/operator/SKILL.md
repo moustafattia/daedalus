@@ -139,7 +139,7 @@ agents:
 **Prompt resolution order** (highest priority first):
 1. `prompt:` on the agent role (absolute or relative to `<workspace>/config/`)
 2. `<workspace>/config/prompts/<role>.md`
-3. Bundled `workflows/code_review/prompts/<role>.md`
+3. Bundled `workflows/change_delivery/prompts/<role>.md`
 
 **Runtime kinds:**
 - `acpx-codex` — persistent Codex sessions via `acpx`
@@ -184,7 +184,7 @@ agents:
 
 **Deprecated:** the top-level `codex-bot:` block (`logins`/`clean-reactions`/`pending-reactions`) is still honored as a fallback for one release. Move those keys inside `agents.external-reviewer:` to silence the deprecation path.
 
-**Prompt overrides:** the repair-handoff prompt now lives at `workflows/code_review/prompts/external-reviewer-repair-handoff.md`. Drop a file at `<workspace>/config/prompts/external-reviewer-repair-handoff.md` to override it (Phase A resolution chain).
+**Prompt overrides:** the repair-handoff prompt now lives at `workflows/change_delivery/prompts/external-reviewer-repair-handoff.md`. Drop a file at `<workspace>/config/prompts/external-reviewer-repair-handoff.md` to override it (Phase A resolution chain).
 
 ## Webhooks (Phase C — outbound event subscribers)
 
@@ -199,7 +199,7 @@ webhooks:
 
   - name: ci-mirror
     kind: http-json
-    url: https://ci.example.com/hooks/code-review
+    url: https://ci.example.com/hooks/change-delivery
     headers:
       Authorization: Bearer xyz
     events: ["run_*", "merge_*"]
@@ -262,7 +262,7 @@ The one-release back-compat aliases introduced in Phases B / D-1 have been remov
 - Top-level `codex-bot:` block in `workflow.yaml` is no longer honored — move `logins` / `clean-reactions` / `pending-reactions` into `agents.external-reviewer:`
 - The `run_claude_review` action-type literal is no longer dispatched — only `run_internal_review`
 - `get_review(reviews, key)` no longer falls back to legacy ledger keys — `migrate_persisted_ledger` already ran on D-1 boot
-- 8 functions in `workflows/code_review/reviews.py` were renamed (`fetch_codex_cloud_review` → `fetch_external_review`, etc.); old names retained as one-release aliases
+- 8 functions in `workflows/change_delivery/reviews.py` were renamed (`fetch_codex_cloud_review` → `fetch_external_review`, etc.); old names retained as one-release aliases
 
 ## Persisted-state migration round 2 (Phase D-3)
 
@@ -281,12 +281,12 @@ Plus `claudeModel` is dropped entirely — its value lives in `internalReviewerM
 
 **Status output keys also renamed** — external tooling that parsed `claudeModel` / `interReviewAgentModel` / `codexCloudAutoResolved` / `lastClaudeVerdict` from `workflow-status.json` should switch to the new names.
 
-**Workspace internals.** Four `_codex_cloud_repair_handoff_*` shims in `workflows/code_review/workspace.py` renamed to `_external_review_repair_handoff_*`. Workspace-internal API; affects subagent test fixtures only.
+**Workspace internals.** Four `_codex_cloud_repair_handoff_*` shims in `workflows/change_delivery/workspace.py` renamed to `_external_review_repair_handoff_*`. Workspace-internal API; affects subagent test fixtures only.
 
 ## Deprecation cleanup round 2 (Phase D-4)
 
 The Phase D-2 / D-3 one-release back-compat aliases have been removed:
-- 8 D-2 module-level function aliases in `workflows/code_review/reviews.py` (`fetch_codex_cloud_review`, etc.) — gone. Use the `external_review` names.
+- 8 D-2 module-level function aliases in `workflows/change_delivery/reviews.py` (`fetch_codex_cloud_review`, etc.) — gone. Use the `external_review` names.
 - D-3 read-time legacy-key fallbacks in `get_ledger_field`, `reviews.py:308`, `workspace.py:504` — gone. Live ledgers were migrated by the D-3 bootstrap; restored backups still get migrated automatically before any read.
 - Per-thread `"source": "codexCloud"` review-thread label is now `"externalReview"`. Threads are rebuilt from GitHub data each tick, so old labels self-heal.
 

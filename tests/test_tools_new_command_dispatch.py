@@ -39,14 +39,14 @@ def test_set_observability_dispatched_not_falling_through_to_unknown(tmp_path):
     raw = (
         f"set-observability "
         f"--workflow-root {tmp_path} "
-        f"--workflow code-review "
+        f"--workflow change-delivery "
         f"--github-comments unset"
     )
     out = tools.execute_raw_args(raw)
     assert "unknown daedalus command" not in out, out
-    # Either a normal output ("removed for code-review") or — if the override
+    # Either a normal output ("removed for change-delivery") or — if the override
     # file doesn't exist — still a clean message, never the "unknown" string.
-    assert "code-review" in out or "removed" in out.lower() or "set" in out.lower()
+    assert "change-delivery" in out or "removed" in out.lower() or "set" in out.lower()
 
 
 def test_get_observability_dispatched_not_falling_through_to_unknown(tmp_path):
@@ -54,7 +54,7 @@ def test_get_observability_dispatched_not_falling_through_to_unknown(tmp_path):
     raw = (
         f"get-observability "
         f"--workflow-root {tmp_path} "
-        f"--workflow code-review"
+        f"--workflow change-delivery"
     )
     out = tools.execute_raw_args(raw)
     assert "unknown daedalus command" not in out, out
@@ -81,7 +81,7 @@ def test_watch_dispatched_not_falling_through_to_unknown(tmp_path):
 
 def test_scaffold_workflow_dispatched_not_falling_through_to_unknown(tmp_path):
     tools = _tools()
-    root = tmp_path / "attmous-daedalus-code-review"
+    root = tmp_path / "attmous-daedalus-change-delivery"
     out = tools.execute_raw_args(
         f"scaffold-workflow --workflow-root {root} --github-slug attmous/daedalus"
     )
@@ -109,4 +109,4 @@ def test_bootstrap_dispatched_not_falling_through_to_unknown(tmp_path, monkeypat
     out = tools.execute_raw_args(f"bootstrap --repo-path {repo}")
     assert "unknown daedalus command" not in out, out
     assert "bootstrapped workflow root" in out
-    assert (home / ".hermes" / "workflows" / "attmous-daedalus-code-review" / "WORKFLOW.md").exists()
+    assert (home / ".hermes" / "workflows" / "attmous-daedalus-change-delivery" / "WORKFLOW.md").exists()

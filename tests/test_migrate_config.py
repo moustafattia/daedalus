@@ -62,7 +62,7 @@ def _sample_old_json():
 def test_migrate_emits_valid_workflow_yaml(tmp_path):
     json_path = tmp_path / "legacy-workflow.json"
     json_path.write_text(json.dumps(_sample_old_json()), encoding="utf-8")
-    workflow_root = tmp_path / "attmous-daedalus-code-review"
+    workflow_root = tmp_path / "attmous-daedalus-change-delivery"
     yaml_path = workflow_root / "config" / "workflow.yaml"
 
     result = subprocess.run(
@@ -84,15 +84,15 @@ def test_migrate_emits_valid_workflow_yaml(tmp_path):
 
     # Validate against the live schema
     import jsonschema
-    schema_path = REPO_ROOT / "daedalus" / "workflows" / "code_review" / "schema.yaml"
+    schema_path = REPO_ROOT / "daedalus" / "workflows" / "change_delivery" / "schema.yaml"
     schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
     jsonschema.validate(cfg, schema)
 
     # Spot-check key translations
-    assert cfg["workflow"] == "code-review"
+    assert cfg["workflow"] == "change-delivery"
     assert cfg["schema-version"] == 1
     assert cfg["instance"]["engine-owner"] == "hermes"
-    assert cfg["instance"]["name"] == "attmous-daedalus-code-review"
+    assert cfg["instance"]["name"] == "attmous-daedalus-change-delivery"
     assert cfg["repository"]["local-path"] == "/home/radxa/.hermes/workspaces/example-repo"
     assert cfg["runtimes"]["acpx-codex"]["session-idle-freshness-seconds"] == 900
     assert cfg["runtimes"]["claude-cli"]["max-turns-per-invocation"] == 24

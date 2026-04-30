@@ -9,7 +9,7 @@ import pytest
 
 def test_runtime_protocol_has_last_activity_ts():
     """The Runtime Protocol declares last_activity_ts (optional method)."""
-    from workflows.code_review.runtimes import Runtime
+    from workflows.change_delivery.runtimes import Runtime
 
     assert "last_activity_ts" in Runtime.__dict__ or hasattr(Runtime, "last_activity_ts"), \
         "Runtime Protocol must declare last_activity_ts"
@@ -17,7 +17,7 @@ def test_runtime_protocol_has_last_activity_ts():
 
 def test_claude_cli_runtime_updates_last_activity_on_stdout_line(monkeypatch):
     import time
-    from workflows.code_review.runtimes.claude_cli import ClaudeCliRuntime
+    from workflows.change_delivery.runtimes.claude_cli import ClaudeCliRuntime
 
     rt = ClaudeCliRuntime({"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}, run=None, run_json=None)
     assert rt.last_activity_ts() is None  # no signal yet
@@ -32,7 +32,7 @@ def test_claude_cli_runtime_updates_last_activity_on_stdout_line(monkeypatch):
 
 def test_acpx_codex_runtime_updates_last_activity_on_app_server_event():
     import time
-    from workflows.code_review.runtimes.acpx_codex import AcpxCodexRuntime
+    from workflows.change_delivery.runtimes.acpx_codex import AcpxCodexRuntime
 
     rt = AcpxCodexRuntime(
         {"kind": "acpx-codex",
@@ -48,7 +48,7 @@ def test_acpx_codex_runtime_updates_last_activity_on_app_server_event():
 
 
 def test_hermes_agent_runtime_updates_last_activity_on_callback():
-    from workflows.code_review.runtimes.hermes_agent import HermesAgentRuntime
+    from workflows.change_delivery.runtimes.hermes_agent import HermesAgentRuntime
 
     rt = HermesAgentRuntime({"kind": "hermes-agent"}, run=None, run_json=None)
     assert rt.last_activity_ts() is None
@@ -66,7 +66,7 @@ def test_claude_cli_records_activity_before_run_returns(tmp_path):
     activity timestamp from inside the run callback.
     """
     import time
-    from workflows.code_review.runtimes.claude_cli import ClaudeCliRuntime
+    from workflows.change_delivery.runtimes.claude_cli import ClaudeCliRuntime
 
     captured: dict[str, float | None] = {}
 
@@ -113,7 +113,7 @@ class _FakeEntry:
 
 
 def _snap_with_stall(timeout_ms: int):
-    from workflows.code_review.config_snapshot import ConfigSnapshot
+    from workflows.change_delivery.config_snapshot import ConfigSnapshot
     return ConfigSnapshot(
         config={"stall": {"timeout_ms": timeout_ms}},
         prompts={}, loaded_at=0.0, source_mtime=0.0,
@@ -121,7 +121,7 @@ def _snap_with_stall(timeout_ms: int):
 
 
 def test_reconcile_stalls_terminates_inactive_worker():
-    from workflows.code_review.stall import reconcile_stalls
+    from workflows.change_delivery.stall import reconcile_stalls
 
     snap = _snap_with_stall(1000)  # 1s threshold
     rt = _FakeRuntime(last_ts=100.0)
@@ -135,7 +135,7 @@ def test_reconcile_stalls_terminates_inactive_worker():
 
 
 def test_reconcile_stalls_skips_active_worker():
-    from workflows.code_review.stall import reconcile_stalls
+    from workflows.change_delivery.stall import reconcile_stalls
 
     snap = _snap_with_stall(10000)  # 10s threshold
     rt = _FakeRuntime(last_ts=199.5)
@@ -145,7 +145,7 @@ def test_reconcile_stalls_skips_active_worker():
 
 
 def test_reconcile_stalls_disabled_when_timeout_zero():
-    from workflows.code_review.stall import reconcile_stalls
+    from workflows.change_delivery.stall import reconcile_stalls
 
     snap = _snap_with_stall(0)
     rt = _FakeRuntime(last_ts=0.0)
@@ -156,7 +156,7 @@ def test_reconcile_stalls_disabled_when_timeout_zero():
 
 def test_reconcile_stalls_baseline_falls_back_to_started_at():
     """Worker that has produced no signal still gets a deadline."""
-    from workflows.code_review.stall import reconcile_stalls
+    from workflows.change_delivery.stall import reconcile_stalls
 
     snap = _snap_with_stall(1000)
     rt = _FakeRuntime(last_ts=None)
@@ -168,8 +168,8 @@ def test_reconcile_stalls_baseline_falls_back_to_started_at():
 
 def test_reconcile_stalls_default_timeout_when_section_absent():
     """Spec §8.4 default: 300_000 ms."""
-    from workflows.code_review.config_snapshot import ConfigSnapshot
-    from workflows.code_review.stall import reconcile_stalls
+    from workflows.change_delivery.config_snapshot import ConfigSnapshot
+    from workflows.change_delivery.stall import reconcile_stalls
 
     snap = ConfigSnapshot(config={}, prompts={}, loaded_at=0.0, source_mtime=0.0)
     rt = _FakeRuntime(last_ts=0.0)
@@ -184,7 +184,7 @@ def test_reconcile_stalls_opt_out_when_method_absent():
     """Codex P1 on PR #16: a runtime that doesn't implement
     last_activity_ts opts out entirely — the reconciler must skip it,
     NOT fall back to started_at_monotonic."""
-    from workflows.code_review.stall import reconcile_stalls
+    from workflows.change_delivery.stall import reconcile_stalls
 
     class _OptOutRuntime:
         # Deliberately does NOT define last_activity_ts.
@@ -207,9 +207,9 @@ def test_schema_accepts_stall_section():
     from pathlib import Path
     from jsonschema import Draft7Validator
 
-    schema = yaml.safe_load(Path("daedalus/workflows/code_review/schema.yaml").read_text())
+    schema = yaml.safe_load(Path("daedalus/workflows/change_delivery/schema.yaml").read_text())
     base = {
-        "workflow": "code-review", "schema-version": 1,
+        "workflow": "change-delivery", "schema-version": 1,
         "instance": {"name": "i", "engine-owner": "hermes"},
         "repository": {"local-path": "/tmp", "github-slug": "o/r", "active-lane-label": "x"},
         "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}},
@@ -233,9 +233,9 @@ def test_schema_rejects_negative_stall_timeout():
     from jsonschema import Draft7Validator
     from jsonschema.exceptions import ValidationError as JSError
 
-    schema = yaml.safe_load(Path("daedalus/workflows/code_review/schema.yaml").read_text())
+    schema = yaml.safe_load(Path("daedalus/workflows/change_delivery/schema.yaml").read_text())
     base = {
-        "workflow": "code-review", "schema-version": 1,
+        "workflow": "change-delivery", "schema-version": 1,
         "instance": {"name": "i", "engine-owner": "hermes"},
         "repository": {"local-path": "/tmp", "github-slug": "o/r", "active-lane-label": "x"},
         "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}},
@@ -257,8 +257,8 @@ def test_stall_emits_both_events_and_queues_retry(tmp_path, monkeypatch):
     """Smoke: when reconcile_stalls returns a verdict, the tick-loop
     integration emits stall_detected, terminates, emits stall_terminated,
     and queues a retry. Tested via a thin fake orchestrator."""
-    from workflows.code_review.stall import StallVerdict, reconcile_stalls
-    from workflows.code_review.event_taxonomy import (
+    from workflows.change_delivery.stall import StallVerdict, reconcile_stalls
+    from workflows.change_delivery.event_taxonomy import (
         DAEDALUS_STALL_DETECTED, DAEDALUS_STALL_TERMINATED,
     )
 

@@ -1,4 +1,4 @@
-"""Tests for workflows.code_review.preflight.run_preflight().
+"""Tests for workflows.change_delivery.preflight.run_preflight().
 
 Symphony §6.3: pure dispatch preflight. No I/O beyond inspecting the
 config dict (and env for $VAR resolution). Fixed error-code enum.
@@ -10,18 +10,18 @@ from unittest import mock
 
 import pytest
 
-from workflows.code_review.preflight import PreflightResult, run_preflight
+from workflows.change_delivery.preflight import PreflightResult, run_preflight
 
 
 def _minimal_ok_config() -> dict:
-    """Minimal config matching the actual code-review schema field paths.
+    """Minimal config matching the actual change-delivery schema field paths.
 
     Codex P2 on PR #21 fix: the preflight reads ``runtimes.<name>.kind``
     and ``agents.external-reviewer.kind`` (the real schema layout), not
     legacy top-level ``runtime`` / ``external-reviewer`` keys.
     """
     return {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
         "runtimes": {"r1": {"kind": "claude-cli"}},
         "agents": {"external-reviewer": {"kind": "github-comments"}},
@@ -93,7 +93,7 @@ def test_var_token_set_env_resolves_ok():
 
 def test_absent_optional_sections_ok():
     cfg = {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
     }
     result = run_preflight(cfg)

@@ -16,13 +16,13 @@ import pytest
 ])
 def test_codex_cloud_alias_dropped(name):
     """All 8 Phase D-2 module-level aliases should be gone."""
-    from workflows.code_review import reviews
+    from workflows.change_delivery import reviews
     assert not hasattr(reviews, name), f"{name} alias should have been removed"
 
 
 def test_build_external_review_thread_uses_externalReview_source():
     """Per-thread source label is provider-neutral after D-4."""
-    from workflows.code_review.reviews import build_external_review_thread
+    from workflows.change_delivery.reviews import build_external_review_thread
 
     out = build_external_review_thread(
         node={"id": "T1", "isResolved": False, "isOutdated": False, "path": "a.py", "line": 1},
@@ -35,7 +35,7 @@ def test_build_external_review_thread_uses_externalReview_source():
 
 def test_get_ledger_field_no_legacy_fallback():
     """D-3 fallback to legacy keys is dropped after D-4."""
-    from workflows.code_review.migrations import get_ledger_field
+    from workflows.change_delivery.migrations import get_ledger_field
     assert get_ledger_field({"interReviewAgentModel": "x"}, "internalReviewerModel") is None
     assert get_ledger_field({"claudeRepairHandoff": {"v": 1}}, "internalReviewRepairHandoff") is None
 
@@ -43,7 +43,7 @@ def test_get_ledger_field_no_legacy_fallback():
 def test_reviews_no_lastClaudeVerdict_fallback():
     """reviews.py:308 should read only the new key after D-4."""
     from pathlib import Path
-    src = (Path(__file__).resolve().parent.parent / "daedalus" / "workflows/code_review/reviews.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "daedalus" / "workflows/change_delivery/reviews.py").read_text()
     # The fallback `or state_review.get("lastClaudeVerdict")` should be gone.
     assert 'state_review.get("lastClaudeVerdict")' not in src
 
@@ -51,6 +51,6 @@ def test_reviews_no_lastClaudeVerdict_fallback():
 def test_workspace_no_interReviewAgentModel_fallback():
     """workspace.py review_policy fallback should not include the legacy key after D-4."""
     from pathlib import Path
-    src = (Path(__file__).resolve().parent.parent / "daedalus" / "workflows/code_review/workspace.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "daedalus" / "workflows/change_delivery/workspace.py").read_text()
     # The fallback `or review_policy.get("interReviewAgentModel")` should be gone.
     assert 'review_policy.get("interReviewAgentModel")' not in src

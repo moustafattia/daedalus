@@ -109,9 +109,9 @@ observability:
 ### Operator commands
 
 ```text
-/daedalus set-observability --workflow code-review --github-comments on
-/daedalus set-observability --workflow code-review --github-comments off
-/daedalus get-observability --workflow code-review
+/daedalus set-observability --workflow change-delivery --github-comments on
+/daedalus set-observability --workflow change-delivery --github-comments off
+/daedalus get-observability --workflow change-delivery
 ```
 
 ---
@@ -132,9 +132,9 @@ See [events.md](events.md) for the full taxonomy.
 
 - TUI frame renderer: `daedalus/watch.py`
 - Watch source aggregation: `daedalus/watch_sources.py`
-- HTTP server: `daedalus/workflows/code_review/server/`
-- GitHub comments: `daedalus/workflows/code_review/comments.py`, `comments_publisher.py`
-- Observability config: `daedalus/workflows/code_review/observability.py`
+- HTTP server: `daedalus/workflows/change_delivery/server/`
+- GitHub comments: `daedalus/workflows/change_delivery/comments.py`, `comments_publisher.py`
+- Observability config: `daedalus/workflows/change_delivery/observability.py`
 - Override surface: `daedalus/observability_overrides.py`
 - Event writer: `daedalus/runtime.py::append_daedalus_event`
-- Tests: `tests/test_daedalus_watch_render.py`, `tests/test_daedalus_watch_sources.py`, `tests/test_status_server.py`, `tests/test_workflow_code_review_comments_*.py`
+- Tests: `tests/test_daedalus_watch_render.py`, `tests/test_daedalus_watch_sources.py`, `tests/test_status_server.py`, `tests/test_workflow_change_delivery_comments_*.py`

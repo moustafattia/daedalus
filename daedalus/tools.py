@@ -21,7 +21,7 @@ from workflows.contract import (
     workflow_yaml_path as legacy_workflow_config_path,
     workflow_markdown_path,
 )
-from workflows.code_review.paths import (
+from workflows.change_delivery.paths import (
     derive_workflow_instance_name,
     plugin_runtime_path,
     project_key_for_workflow_root,
@@ -29,7 +29,7 @@ from workflows.code_review.paths import (
     resolve_default_workflow_root as resolve_workflow_root_default,
     workflow_cli_argv,
 )
-from workflows.code_review.status import build_status as build_workflow_status
+from workflows.change_delivery.status import build_status as build_workflow_status
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 DEFAULT_WORKFLOW_ROOT_ENV_VARS = ("DAEDALUS_WORKFLOW_ROOT",)
@@ -1139,7 +1139,7 @@ def _lazy_cmd_watch(args, parser):
 
 def _workflow_template_path(workflow_name: str) -> Path:
     templates = {
-        "code-review": PLUGIN_DIR / "workflows" / "code_review" / "workflow.template.md",
+        "change-delivery": PLUGIN_DIR / "workflows" / "change_delivery" / "workflow.template.md",
     }
     path = templates.get(workflow_name)
     if path is None:
@@ -1519,9 +1519,9 @@ def cmd_set_observability(args, parser) -> str:
 def cmd_get_observability(args, parser) -> str:
     """``/daedalus get-observability --workflow X``: show effective config + source."""
     try:
-        from workflows.code_review.observability import resolve_effective_config
+        from workflows.change_delivery.observability import resolve_effective_config
     except ImportError:
-        path = PLUGIN_DIR / "workflows" / "code_review" / "observability.py"
+        path = PLUGIN_DIR / "workflows" / "change_delivery" / "observability.py"
         spec = importlib.util.spec_from_file_location("daedalus_observability_for_cli", path)
         if spec is None or spec.loader is None:
             raise DaedalusCommandError(f"unable to load observability resolver from {path}")
@@ -1818,7 +1818,7 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         help="Override observability config for a workflow (writes runtime override file).",
     )
     set_obs_cmd.add_argument("--workflow-root", type=Path, default=default_workflow_root_path)
-    set_obs_cmd.add_argument("--workflow", required=True, help="Workflow name (e.g. code-review)")
+    set_obs_cmd.add_argument("--workflow", required=True, help="Workflow name (e.g. change-delivery)")
     set_obs_cmd.add_argument("--github-comments", choices=["on", "off", "unset"], required=True)
     set_obs_cmd.set_defaults(handler=cmd_set_observability, func=run_cli_command)
 
@@ -1840,7 +1840,7 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         required=True,
         help="Workflow root to create. Directory name must be <owner>-<repo>-<workflow-type>.",
     )
-    scaffold_cmd.add_argument("--workflow", default="code-review", choices=["code-review"])
+    scaffold_cmd.add_argument("--workflow", default="change-delivery", choices=["change-delivery"])
     scaffold_cmd.add_argument("--repo-path", type=Path)
     scaffold_cmd.add_argument("--github-slug", required=True)
     scaffold_cmd.add_argument("--active-lane-label", default="active-lane")
@@ -1855,7 +1855,7 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     bootstrap_cmd.add_argument("--repo-path", type=Path, help="Git checkout to inspect (defaults to current working directory).")
     bootstrap_cmd.add_argument("--workflow-root", type=Path, help="Optional explicit workflow root override.")
-    bootstrap_cmd.add_argument("--workflow", default="code-review", choices=["code-review"])
+    bootstrap_cmd.add_argument("--workflow", default="change-delivery", choices=["change-delivery"])
     bootstrap_cmd.add_argument("--github-slug", help="Override the inferred GitHub slug from git origin.")
     bootstrap_cmd.add_argument("--active-lane-label", default="active-lane")
     bootstrap_cmd.add_argument("--engine-owner", default="hermes", choices=["hermes", "openclaw"])

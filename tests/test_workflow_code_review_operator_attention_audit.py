@@ -17,8 +17,8 @@ def load_module(module_name: str, relative_path: str):
 
 def test_emit_operator_attention_transition_on_entering_state():
     orch = load_module(
-        "daedalus_workflow_code_review_orchestrator_test",
-        "workflows/code_review/orchestrator.py",
+        "daedalus_workflow_change_delivery_orchestrator_test",
+        "workflows/change_delivery/orchestrator.py",
     )
     captured = []
 
@@ -38,8 +38,8 @@ def test_emit_operator_attention_transition_on_entering_state():
 
 def test_emit_operator_attention_recovered_on_leaving_state():
     orch = load_module(
-        "daedalus_workflow_code_review_orchestrator_test",
-        "workflows/code_review/orchestrator.py",
+        "daedalus_workflow_change_delivery_orchestrator_test",
+        "workflows/change_delivery/orchestrator.py",
     )
     captured = []
 
@@ -58,8 +58,8 @@ def test_emit_operator_attention_recovered_on_leaving_state():
 
 def test_no_emit_when_state_unchanged():
     orch = load_module(
-        "daedalus_workflow_code_review_orchestrator_test",
-        "workflows/code_review/orchestrator.py",
+        "daedalus_workflow_change_delivery_orchestrator_test",
+        "workflows/change_delivery/orchestrator.py",
     )
     captured = []
 

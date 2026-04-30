@@ -9,7 +9,7 @@ import pytest
 
 
 def test_migrate_lane_state_review_keys_renames_legacy():
-    from workflows.code_review.migrations import migrate_lane_state_review_keys
+    from workflows.change_delivery.migrations import migrate_lane_state_review_keys
 
     ledger = {
         "implementation": {
@@ -33,7 +33,7 @@ def test_migrate_lane_state_review_keys_renames_legacy():
 
 
 def test_migrate_lane_state_review_keys_handles_missing_path():
-    from workflows.code_review.migrations import migrate_lane_state_review_keys
+    from workflows.change_delivery.migrations import migrate_lane_state_review_keys
 
     # No implementation block
     out, changed = migrate_lane_state_review_keys({"reviews": {}})
@@ -49,7 +49,7 @@ def test_migrate_lane_state_review_keys_handles_missing_path():
 
 
 def test_migrate_lane_state_review_keys_idempotent():
-    from workflows.code_review.migrations import migrate_lane_state_review_keys
+    from workflows.change_delivery.migrations import migrate_lane_state_review_keys
 
     ledger = {
         "implementation": {
@@ -66,7 +66,7 @@ def test_migrate_lane_state_review_keys_idempotent():
 
 
 def test_migrate_lane_state_review_keys_new_key_wins():
-    from workflows.code_review.migrations import migrate_lane_state_review_keys
+    from workflows.change_delivery.migrations import migrate_lane_state_review_keys
 
     ledger = {
         "implementation": {
@@ -85,7 +85,7 @@ def test_migrate_lane_state_review_keys_new_key_wins():
 
 
 def test_migrate_persisted_ledger_runs_all_three_migrations(tmp_path):
-    from workflows.code_review.migrations import migrate_persisted_ledger
+    from workflows.change_delivery.migrations import migrate_persisted_ledger
 
     p = tmp_path / "l.json"
     p.write_text(json.dumps({
@@ -103,23 +103,23 @@ def test_migrate_persisted_ledger_runs_all_three_migrations(tmp_path):
 
 
 def test_get_lane_state_review_field_returns_new_when_present():
-    from workflows.code_review.migrations import get_lane_state_review_field
+    from workflows.change_delivery.migrations import get_lane_state_review_field
     assert get_lane_state_review_field({"lastInternalReviewedHeadSha": "x"}, "lastInternalReviewedHeadSha") == "x"
 
 
 def test_get_lane_state_review_field_falls_back_to_legacy():
-    from workflows.code_review.migrations import get_lane_state_review_field
+    from workflows.change_delivery.migrations import get_lane_state_review_field
     assert get_lane_state_review_field({"lastClaudeReviewedHeadSha": "x"}, "lastInternalReviewedHeadSha") == "x"
     assert get_lane_state_review_field({"localClaudeReviewCount": 5}, "localInternalReviewCount") == 5
 
 
 def test_get_lane_state_review_field_returns_none_for_unknown_key():
-    from workflows.code_review.migrations import get_lane_state_review_field
+    from workflows.change_delivery.migrations import get_lane_state_review_field
     assert get_lane_state_review_field({"x": 1}, "made-up") is None
 
 
 def test_existing_installed_workflow_ledger_lane_state_migration(tmp_path):
-    from workflows.code_review.migrations import migrate_persisted_ledger
+    from workflows.change_delivery.migrations import migrate_persisted_ledger
     plugin_dir = Path.home() / ".hermes" / "plugins" / "daedalus"
     if not plugin_dir.exists():
         pytest.skip("installed workflow plugin not present")

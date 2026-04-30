@@ -53,7 +53,7 @@ def _resolve_workflow_root(argv: list[str]) -> tuple[Path, list[str]]:
         i += 1
 
     if workflow_root is None:
-        from workflows.code_review.paths import resolve_default_workflow_root
+        from workflows.change_delivery.paths import resolve_default_workflow_root
 
         workflow_root = resolve_default_workflow_root(
             plugin_dir=Path(__file__).resolve().parent.parent

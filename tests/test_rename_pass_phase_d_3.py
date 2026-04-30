@@ -9,7 +9,7 @@ import pytest
 
 
 def test_migrate_top_level_keys_renames_legacy():
-    from workflows.code_review.migrations import migrate_top_level_keys
+    from workflows.change_delivery.migrations import migrate_top_level_keys
 
     ledger = {
         "claudeRepairHandoff": {"v": 1},
@@ -31,7 +31,7 @@ def test_migrate_top_level_keys_renames_legacy():
 
 
 def test_migrate_top_level_keys_drops_claude_model():
-    from workflows.code_review.migrations import migrate_top_level_keys
+    from workflows.change_delivery.migrations import migrate_top_level_keys
 
     ledger = {"claudeModel": "claude-sonnet-4"}
     out, changed = migrate_top_level_keys(ledger)
@@ -40,7 +40,7 @@ def test_migrate_top_level_keys_drops_claude_model():
 
 
 def test_migrate_top_level_keys_idempotent():
-    from workflows.code_review.migrations import migrate_top_level_keys
+    from workflows.change_delivery.migrations import migrate_top_level_keys
 
     ledger = {
         "internalReviewRepairHandoff": {"v": 1},
@@ -51,7 +51,7 @@ def test_migrate_top_level_keys_idempotent():
 
 
 def test_migrate_top_level_keys_new_key_wins():
-    from workflows.code_review.migrations import migrate_top_level_keys
+    from workflows.change_delivery.migrations import migrate_top_level_keys
 
     ledger = {
         "interReviewAgentModel": "old",
@@ -64,7 +64,7 @@ def test_migrate_top_level_keys_new_key_wins():
 
 
 def test_migrate_persisted_ledger_runs_both_migrations(tmp_path):
-    from workflows.code_review.migrations import migrate_persisted_ledger
+    from workflows.change_delivery.migrations import migrate_persisted_ledger
 
     p = tmp_path / "l.json"
     p.write_text(json.dumps({
@@ -80,22 +80,22 @@ def test_migrate_persisted_ledger_runs_both_migrations(tmp_path):
 
 
 def test_get_ledger_field_returns_new_when_present():
-    from workflows.code_review.migrations import get_ledger_field
+    from workflows.change_delivery.migrations import get_ledger_field
     assert get_ledger_field({"internalReviewerModel": "x"}, "internalReviewerModel") == "x"
 
 
 def test_get_ledger_field_returns_none_for_unknown_key():
-    from workflows.code_review.migrations import get_ledger_field
+    from workflows.change_delivery.migrations import get_ledger_field
     assert get_ledger_field({"x": 1}, "made-up") is None
 
 
 def test_get_ledger_field_handles_none_ledger():
-    from workflows.code_review.migrations import get_ledger_field
+    from workflows.change_delivery.migrations import get_ledger_field
     assert get_ledger_field(None, "internalReviewerModel") is None
 
 
 def test_existing_installed_workflow_ledger_top_level_migration(tmp_path):
-    from workflows.code_review.migrations import migrate_persisted_ledger
+    from workflows.change_delivery.migrations import migrate_persisted_ledger
     plugin_dir = Path.home() / ".hermes" / "plugins" / "daedalus"
     if not plugin_dir.exists():
         pytest.skip("installed workflow plugin not present")
@@ -122,6 +122,6 @@ def test_lane_state_read_falls_back_to_legacy_lastClaudeVerdict():
     # Structural assertion: reviews.py must accept either key when reading
     # state_review verdict.
     from pathlib import Path
-    src = (Path(__file__).resolve().parent.parent / "daedalus" / "workflows/code_review/reviews.py").read_text()
+    src = (Path(__file__).resolve().parent.parent / "daedalus" / "workflows/change_delivery/reviews.py").read_text()
     # The reads should reference both keys (new first, legacy fallback)
     assert "lastInternalVerdict" in src

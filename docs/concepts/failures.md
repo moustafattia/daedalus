@@ -114,9 +114,9 @@ The backoff is **minimum**, not exact. The next tick after the backoff window ex
 When `retry_count == max_retries`, the lane transitions to `operator_attention_required`. The operator can:
 
 - `/daedalus analyze-failure --failure-id <id>` — see full context
-- `/workflow code-review tick` — force another attempt (bypasses retry budget)
+- `/workflow change-delivery tick` — force another attempt (bypasses retry budget)
 - Edit the issue / PR to unblock the lane manually
-- `/workflow code-review pause` — stop processing this lane
+- `/workflow change-delivery pause` — stop processing this lane
 
 ---
 
@@ -155,6 +155,6 @@ group by lane_id;
 
 - Failure tracking: `daedalus/runtime.py` (look for `record_failure`, `resolve_failure`, `retry_eligible`)
 - Action queue: `daedalus/runtime.py` (look for `request_active_action`, `action_idempotency_key`)
-- Retry logic: `daedalus/workflows/code_review/dispatch.py`
+- Retry logic: `daedalus/workflows/change_delivery/dispatch.py`
 - Operator surface: `daedalus/tools.py` (`analyze-failure` command)
-- Tests: `tests/test_workflows_code_review_actions.py`, `tests/test_stall_detection.py`
+- Tests: `tests/test_workflows_change_delivery_actions.py`, `tests/test_stall_detection.py`

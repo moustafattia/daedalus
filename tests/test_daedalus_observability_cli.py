@@ -31,17 +31,17 @@ def test_set_observability_writes_override(tmp_path):
 
     args = mock.Mock()
     args.workflow_root = root
-    args.workflow = "code-review"
+    args.workflow = "change-delivery"
     args.github_comments = "off"
 
     out = tools.cmd_set_observability(args, parser=None)
-    assert "code-review" in out
+    assert "change-delivery" in out
     assert "off" in out.lower() or "False" in out
 
     override_file = root / "runtime" / "state" / "daedalus" / "observability-overrides.json"
     assert override_file.exists()
     data = json.loads(override_file.read_text())
-    assert data["code-review"]["github-comments"]["enabled"] is False
+    assert data["change-delivery"]["github-comments"]["enabled"] is False
 
 
 def test_set_observability_unset_removes_block(tmp_path):
@@ -51,21 +51,21 @@ def test_set_observability_unset_removes_block(tmp_path):
     # First set
     args1 = mock.Mock()
     args1.workflow_root = root
-    args1.workflow = "code-review"
+    args1.workflow = "change-delivery"
     args1.github_comments = "on"
     tools.cmd_set_observability(args1, parser=None)
 
     # Then unset
     args2 = mock.Mock()
     args2.workflow_root = root
-    args2.workflow = "code-review"
+    args2.workflow = "change-delivery"
     args2.github_comments = "unset"
     out = tools.cmd_set_observability(args2, parser=None)
     assert "unset" in out.lower() or "removed" in out.lower()
 
     override_file = root / "runtime" / "state" / "daedalus" / "observability-overrides.json"
     data = json.loads(override_file.read_text())
-    assert "code-review" not in data
+    assert "change-delivery" not in data
 
 
 def test_get_observability_shows_default_source_when_no_yaml_no_override(tmp_path):
@@ -74,7 +74,7 @@ def test_get_observability_shows_default_source_when_no_yaml_no_override(tmp_pat
 
     # Create a workflow.yaml without an observability block
     (root / "config" / "workflow.yaml").write_text("""\
-workflow: code-review
+workflow: change-delivery
 schema-version: 1
 instance: {name: workflow-example, engine-owner: hermes}
 repository: {local-path: /tmp, github-slug: o/r, active-lane-label: active-lane}
@@ -94,7 +94,7 @@ storage: {ledger: l, health: h, audit-log: a}
 """)
     args = mock.Mock()
     args.workflow_root = root
-    args.workflow = "code-review"
+    args.workflow = "change-delivery"
 
     out = tools.cmd_get_observability(args, parser=None)
     assert "default" in out.lower() or "false" in out.lower()
@@ -105,7 +105,7 @@ def test_get_observability_shows_override_source_when_overridden(tmp_path):
     root = _make_workflow_root(tmp_path)
 
     (root / "config" / "workflow.yaml").write_text("""\
-workflow: code-review
+workflow: change-delivery
 schema-version: 1
 instance: {name: workflow-example, engine-owner: hermes}
 repository: {local-path: /tmp, github-slug: o/r, active-lane-label: active-lane}
@@ -126,12 +126,12 @@ storage: {ledger: l, health: h, audit-log: a}
     # Pre-write override
     override_dir = root / "runtime" / "state" / "daedalus"
     (override_dir / "observability-overrides.json").write_text(json.dumps({
-        "code-review": {"github-comments": {"enabled": True, "set-at": "2026-04-26T00:00:00Z"}}
+        "change-delivery": {"github-comments": {"enabled": True, "set-at": "2026-04-26T00:00:00Z"}}
     }))
 
     args = mock.Mock()
     args.workflow_root = root
-    args.workflow = "code-review"
+    args.workflow = "change-delivery"
     out = tools.cmd_get_observability(args, parser=None)
     assert "override" in out.lower()
     assert "true" in out.lower() or "on" in out.lower()

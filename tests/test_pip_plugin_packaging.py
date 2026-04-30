@@ -81,9 +81,9 @@ def test_wheel_contains_runtime_loaded_plugin_payload(tmp_path):
     expected = {
         "daedalus/plugin.yaml",
         "daedalus/skills/operator/SKILL.md",
-        "daedalus/workflows/code_review/schema.yaml",
-        "daedalus/workflows/code_review/workflow.template.md",
-        "daedalus/workflows/code_review/prompts/coder.md",
+        "daedalus/workflows/change_delivery/schema.yaml",
+        "daedalus/workflows/change_delivery/workflow.template.md",
+        "daedalus/workflows/change_delivery/prompts/coder.md",
     }
     missing = sorted(path for path in expected if path not in names)
     assert not missing, f"wheel missing runtime payload files: {missing}"
@@ -125,7 +125,7 @@ def test_wheel_extracts_to_working_plugin_package(tmp_path):
     assert any(item["name"] == "daedalus" for item in calls["cli_commands"])
     assert any(name == "operator" and path.exists() for name, path, _desc in calls["skills"])
 
-    workflow_root = tmp_path / "attmous-daedalus-code-review"
+    workflow_root = tmp_path / "attmous-daedalus-change-delivery"
     out = tools.execute_raw_args(
         f"scaffold-workflow --workflow-root {workflow_root} --github-slug attmous/daedalus"
     )

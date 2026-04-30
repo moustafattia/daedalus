@@ -15,7 +15,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def test_derive_next_action_prefers_merge_for_clean_published_pr():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -38,7 +38,7 @@ def test_derive_next_action_prefers_merge_for_clean_published_pr():
 
 
 def test_derive_next_action_uses_fresh_session_noop_for_healthy_implementation_lane():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -66,7 +66,7 @@ def test_derive_next_action_uses_fresh_session_noop_for_healthy_implementation_l
 
 
 def test_derive_next_action_promotes_ready_local_branch_even_when_health_is_stale_lane():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -94,7 +94,7 @@ def test_derive_next_action_promotes_ready_local_branch_even_when_health_is_stal
 
 
 def test_derive_next_action_pushes_pr_update_when_local_head_is_ahead_of_pr():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -123,7 +123,7 @@ def test_derive_next_action_pushes_pr_update_when_local_head_is_ahead_of_pr():
 
 
 def test_derive_next_action_dispatches_turn_when_no_progress_budget_is_reached():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -151,7 +151,7 @@ def test_derive_next_action_dispatches_turn_when_no_progress_budget_is_reached()
 
 
 def test_derive_next_action_dispatches_retry_turn_when_failure_budget_is_reached():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -179,7 +179,7 @@ def test_derive_next_action_dispatches_retry_turn_when_failure_budget_is_reached
 
 
 def test_derive_next_action_dispatches_claude_repair_handoff_when_review_is_actionable_and_session_is_routable():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -215,7 +215,7 @@ def test_derive_next_action_dispatches_claude_repair_handoff_when_review_is_acti
 
 
 def test_derive_next_action_dispatches_codex_cloud_repair_handoff_when_review_is_actionable_and_session_is_routable():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -251,7 +251,7 @@ def test_derive_next_action_dispatches_codex_cloud_repair_handoff_when_review_is
 
 
 def test_derive_next_action_dispatches_postpublish_repair_when_codex_findings_require_restart():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -286,7 +286,7 @@ def test_derive_next_action_dispatches_postpublish_repair_when_codex_findings_re
 
 
 def test_derive_next_action_falls_back_to_wrapper_value_for_unhandled_cases():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -313,7 +313,7 @@ def test_derive_next_action_falls_back_to_wrapper_value_for_unhandled_cases():
 
 
 def test_derive_next_action_short_circuits_when_claude_review_is_running_on_local_head():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {
@@ -348,7 +348,7 @@ def test_derive_next_action_short_circuits_when_claude_review_is_running_on_loca
 
 
 def test_derive_next_action_honors_configurable_no_progress_tick_budget():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     status = {
         "activeLane": {"number": 224},
@@ -377,7 +377,7 @@ def test_derive_next_action_honors_configurable_no_progress_tick_budget():
 
 
 def test_derive_next_action_honors_configurable_failure_retry_budget():
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     status = {
         "activeLane": {"number": 224},
@@ -409,7 +409,7 @@ def test_derive_next_action_uses_has_local_candidate_for_push_pr_update_check():
     # commitsAhead unset but local head still differs: has_local_candidate() returns False
     # because the default implementation requires commitsAhead > 0. The next-action logic
     # must not emit push_pr_update in that case.
-    workflow_module = load_module("daedalus_workflows_code_review_workflow_test", "workflows/code_review/workflow.py")
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
         {

@@ -18,14 +18,14 @@ def load_module(module_name: str, relative_path: str):
 
 def _module():
     return load_module(
-        "daedalus_workflow_code_review_observability_test",
-        "workflows/code_review/observability.py",
+        "daedalus_workflow_change_delivery_observability_test",
+        "workflows/change_delivery/observability.py",
     )
 
 
 def test_default_when_yaml_block_absent_and_no_override(tmp_path):
     obs = _module()
-    cfg = obs.resolve_effective_config(workflow_yaml={}, override_dir=tmp_path, workflow_name="code-review")
+    cfg = obs.resolve_effective_config(workflow_yaml={}, override_dir=tmp_path, workflow_name="change-delivery")
     assert cfg["github-comments"]["enabled"] is False
     assert cfg["github-comments"]["mode"] == "edit-in-place"
     # Default include-events is the spec §5 whitelist (the lifecycle transitions
@@ -53,7 +53,7 @@ def test_yaml_block_picked_up_when_no_override(tmp_path):
         }
     }
     cfg = obs.resolve_effective_config(
-        workflow_yaml=yaml_block, override_dir=tmp_path, workflow_name="code-review"
+        workflow_yaml=yaml_block, override_dir=tmp_path, workflow_name="change-delivery"
     )
     assert cfg["github-comments"]["enabled"] is True
     assert cfg["github-comments"]["include-events"] == ["merge-and-promote"]
@@ -65,10 +65,10 @@ def test_override_file_wins_over_yaml(tmp_path):
     yaml_block = {"observability": {"github-comments": {"enabled": True}}}
     override_file = tmp_path / "observability-overrides.json"
     override_file.write_text(json.dumps({
-        "code-review": {"github-comments": {"enabled": False, "set-at": "2026-04-26T00:00:00Z"}}
+        "change-delivery": {"github-comments": {"enabled": False, "set-at": "2026-04-26T00:00:00Z"}}
     }))
     cfg = obs.resolve_effective_config(
-        workflow_yaml=yaml_block, override_dir=tmp_path, workflow_name="code-review"
+        workflow_yaml=yaml_block, override_dir=tmp_path, workflow_name="change-delivery"
     )
     assert cfg["github-comments"]["enabled"] is False
     assert cfg["source"]["github-comments"] == "override"
@@ -82,7 +82,7 @@ def test_override_for_other_workflow_is_ignored(tmp_path):
         "other-workflow": {"github-comments": {"enabled": False}}
     }))
     cfg = obs.resolve_effective_config(
-        workflow_yaml=yaml_block, override_dir=tmp_path, workflow_name="code-review"
+        workflow_yaml=yaml_block, override_dir=tmp_path, workflow_name="change-delivery"
     )
     assert cfg["github-comments"]["enabled"] is True
     assert cfg["source"]["github-comments"] == "yaml"
@@ -93,7 +93,7 @@ def test_override_file_corrupt_falls_through_to_yaml(tmp_path):
     yaml_block = {"observability": {"github-comments": {"enabled": True}}}
     (tmp_path / "observability-overrides.json").write_text("not json{")
     cfg = obs.resolve_effective_config(
-        workflow_yaml=yaml_block, override_dir=tmp_path, workflow_name="code-review"
+        workflow_yaml=yaml_block, override_dir=tmp_path, workflow_name="change-delivery"
     )
     # Corrupt override is ignored, yaml wins, source reflects fallback.
     assert cfg["github-comments"]["enabled"] is True

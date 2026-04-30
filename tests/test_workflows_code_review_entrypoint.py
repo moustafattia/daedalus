@@ -1,4 +1,4 @@
-"""Tests for the per-workflow ``workflows.code_review.__main__`` entrypoint."""
+"""Tests for the per-workflow ``workflows.change_delivery.__main__`` entrypoint."""
 import importlib.util
 from pathlib import Path
 
@@ -33,7 +33,7 @@ def _minimal_config(tmp_path: Path) -> dict:
 
 
 def test_resolve_workflow_root_explicit_flag_wins(tmp_path, monkeypatch):
-    main_module = load_module("daedalus_workflows_code_review_main_test", "workflows/code_review/__main__.py")
+    main_module = load_module("daedalus_workflows_change_delivery_main_test", "workflows/change_delivery/__main__.py")
     monkeypatch.delenv("DAEDALUS_WORKFLOW_ROOT", raising=False)
     root, remaining = main_module.resolve_workflow_root([
         "--workflow-root", str(tmp_path / "a"), "status",
@@ -43,7 +43,7 @@ def test_resolve_workflow_root_explicit_flag_wins(tmp_path, monkeypatch):
 
 
 def test_resolve_workflow_root_equals_form(tmp_path, monkeypatch):
-    main_module = load_module("daedalus_workflows_code_review_main_test", "workflows/code_review/__main__.py")
+    main_module = load_module("daedalus_workflows_change_delivery_main_test", "workflows/change_delivery/__main__.py")
     monkeypatch.delenv("DAEDALUS_WORKFLOW_ROOT", raising=False)
     root, remaining = main_module.resolve_workflow_root([
         f"--workflow-root={tmp_path / 'b'}", "tick", "--json",
@@ -53,7 +53,7 @@ def test_resolve_workflow_root_equals_form(tmp_path, monkeypatch):
 
 
 def test_resolve_workflow_root_env_fallback(tmp_path, monkeypatch):
-    main_module = load_module("daedalus_workflows_code_review_main_test", "workflows/code_review/__main__.py")
+    main_module = load_module("daedalus_workflows_change_delivery_main_test", "workflows/change_delivery/__main__.py")
     monkeypatch.setenv("DAEDALUS_WORKFLOW_ROOT", str(tmp_path / "env-root"))
     root, remaining = main_module.resolve_workflow_root(["status"])
     assert root == (tmp_path / "env-root").resolve()
@@ -61,7 +61,7 @@ def test_resolve_workflow_root_env_fallback(tmp_path, monkeypatch):
 
 
 def test_resolve_workflow_root_requires_value(tmp_path, monkeypatch):
-    main_module = load_module("daedalus_workflows_code_review_main_test", "workflows/code_review/__main__.py")
+    main_module = load_module("daedalus_workflows_change_delivery_main_test", "workflows/change_delivery/__main__.py")
     monkeypatch.delenv("DAEDALUS_WORKFLOW_ROOT", raising=False)
     import pytest
 
@@ -70,10 +70,10 @@ def test_resolve_workflow_root_requires_value(tmp_path, monkeypatch):
 
 
 def _write_workflow_yaml(config_dir: Path, config: dict) -> None:
-    """Write a minimal workflow.yaml for the code-review workflow."""
+    """Write a minimal workflow.yaml for the change-delivery workflow."""
     import yaml  # type: ignore[import]
     full_yaml_config = {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {
@@ -140,15 +140,15 @@ def test_main_calls_cli_main_with_workspace(tmp_path, monkeypatch):
     config = _minimal_config(tmp_path)
     _write_workflow_yaml(config_dir, config)
 
-    main_module = load_module("daedalus_workflows_code_review_main_test", "workflows/code_review/__main__.py")
+    main_module = load_module("daedalus_workflows_change_delivery_main_test", "workflows/change_delivery/__main__.py")
 
-    # Patch workflows.code_review.cli_main so we don't actually dispatch a real
+    # Patch workflows.change_delivery.cli_main so we don't actually dispatch a real
     # command — we just want to verify the workspace was built and argv was forwarded.
     import sys as _sys
     plugin_root = str(REPO_ROOT)
     if plugin_root not in _sys.path:
         _sys.path.insert(0, plugin_root)
-    import workflows.code_review as wf_module
+    import workflows.change_delivery as wf_module
 
     received: dict = {}
 
@@ -179,14 +179,14 @@ def test_main_subprocess_calledprocesserror_returns_nonzero(tmp_path, monkeypatc
     config_dir.mkdir(parents=True)
     _write_workflow_yaml(config_dir, _minimal_config(tmp_path))
 
-    main_module = load_module("daedalus_workflows_code_review_main_test", "workflows/code_review/__main__.py")
+    main_module = load_module("daedalus_workflows_change_delivery_main_test", "workflows/change_delivery/__main__.py")
 
     import subprocess as _sp
     import sys as _sys
     plugin_root = str(REPO_ROOT)
     if plugin_root not in _sys.path:
         _sys.path.insert(0, plugin_root)
-    import workflows.code_review as wf_module
+    import workflows.change_delivery as wf_module
 
     def _raise(ws, argv=None):
         raise _sp.CalledProcessError(returncode=7, cmd=["gh", "issue", "list"], stderr="boom")

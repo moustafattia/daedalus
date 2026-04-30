@@ -7,17 +7,17 @@ import pytest
 
 
 def test_repair_handoff_template_file_exists():
-    bundled = Path(__file__).resolve().parent.parent / "daedalus" / "workflows" / "code_review" / "prompts" / "external-reviewer-repair-handoff.md"
+    bundled = Path(__file__).resolve().parent.parent / "daedalus" / "workflows" / "change_delivery" / "prompts" / "external-reviewer-repair-handoff.md"
     assert bundled.is_file()
 
 
 def test_render_external_reviewer_repair_handoff_prompt_callable():
-    from workflows.code_review.prompts import render_external_reviewer_repair_handoff_prompt
+    from workflows.change_delivery.prompts import render_external_reviewer_repair_handoff_prompt
     assert callable(render_external_reviewer_repair_handoff_prompt)
 
 
 def test_repair_handoff_includes_required_fields():
-    from workflows.code_review.prompts import render_external_reviewer_repair_handoff_prompt
+    from workflows.change_delivery.prompts import render_external_reviewer_repair_handoff_prompt
 
     out = render_external_reviewer_repair_handoff_prompt(
         issue={"number": 42, "title": "Bug X"},

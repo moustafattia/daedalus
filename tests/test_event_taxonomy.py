@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 def test_canonical_constants_present():
-    from workflows.code_review import event_taxonomy as et
+    from workflows.change_delivery import event_taxonomy as et
 
     # Symphony bare names (forward-use; no current writer emits these)
     assert et.SESSION_STARTED == "session_started"
@@ -18,7 +18,7 @@ def test_canonical_constants_present():
 
 
 def test_daedalus_native_constants_have_prefix():
-    from workflows.code_review import event_taxonomy as et
+    from workflows.change_delivery import event_taxonomy as et
 
     daedalus_natives = [
         et.DAEDALUS_RUNTIME_STARTED,
@@ -46,7 +46,7 @@ def test_daedalus_native_constants_have_prefix():
 
 
 def test_canonicalize_passes_canonical_names_through():
-    from workflows.code_review.event_taxonomy import canonicalize, TURN_COMPLETED, DAEDALUS_LANE_PROMOTED
+    from workflows.change_delivery.event_taxonomy import canonicalize, TURN_COMPLETED, DAEDALUS_LANE_PROMOTED
 
     assert canonicalize(TURN_COMPLETED) == TURN_COMPLETED
     assert canonicalize(DAEDALUS_LANE_PROMOTED) == DAEDALUS_LANE_PROMOTED
@@ -55,7 +55,7 @@ def test_canonicalize_passes_canonical_names_through():
 
 def test_canonicalize_resolves_legacy_aliases():
     """Pre-rename Daedalus orchestration names get resolved to daedalus.* canonical."""
-    from workflows.code_review.event_taxonomy import canonicalize
+    from workflows.change_delivery.event_taxonomy import canonicalize
 
     assert canonicalize("daedalus_runtime_started") == "daedalus.runtime_started"
     assert canonicalize("daedalus_runtime_heartbeat") == "daedalus.runtime_heartbeat"
@@ -73,7 +73,7 @@ def test_canonicalize_resolves_legacy_aliases():
 
 
 def test_canonicalize_unknown_passthrough():
-    from workflows.code_review.event_taxonomy import canonicalize
+    from workflows.change_delivery.event_taxonomy import canonicalize
 
     assert canonicalize("totally_unknown_event") == "totally_unknown_event"
 
@@ -82,7 +82,7 @@ def test_event_aliases_table_integrity():
     """Every legacy alias resolves to a string starting with 'daedalus.' (the
     canonical namespace for Daedalus-native orchestration events that this
     rename pass formalizes)."""
-    from workflows.code_review import event_taxonomy as et
+    from workflows.change_delivery import event_taxonomy as et
 
     for legacy, canonical in et.EVENT_ALIASES.items():
         assert canonical.startswith("daedalus."), \
@@ -96,7 +96,7 @@ def test_round_trip_canonical_writer_reader(tmp_path):
     test mirrors that schema.
     """
     import json
-    from workflows.code_review.event_taxonomy import (
+    from workflows.change_delivery.event_taxonomy import (
         canonicalize, DAEDALUS_LANE_PROMOTED, DAEDALUS_RUNTIME_STARTED,
     )
 
@@ -115,7 +115,7 @@ def test_round_trip_canonical_writer_reader(tmp_path):
 def test_legacy_log_lines_canonicalize_on_read(tmp_path):
     """Old jsonl files with bare Daedalus names still resolve through canonicalize."""
     import json
-    from workflows.code_review.event_taxonomy import (
+    from workflows.change_delivery.event_taxonomy import (
         canonicalize, DAEDALUS_LANE_PROMOTED, DAEDALUS_RUNTIME_STARTED,
     )
 
@@ -135,7 +135,7 @@ def test_runtime_py_emits_only_canonical_event_types():
     """
     import ast
     import pathlib
-    from workflows.code_review import event_taxonomy as et
+    from workflows.change_delivery import event_taxonomy as et
 
     canonical_values = {
         v for v in vars(et).values()
@@ -166,5 +166,5 @@ def test_runtime_py_emits_only_canonical_event_types():
     assert bare_literal_sites == [], (
         f"runtime.py contains bare event_type string literals that aren't "
         f"event_taxonomy canonicals: {bare_literal_sites}. Use a DAEDALUS_* "
-        f"constant from workflows.code_review.event_taxonomy instead."
+        f"constant from workflows.change_delivery.event_taxonomy instead."
     )

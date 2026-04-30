@@ -24,11 +24,11 @@ def _tools():
 
 def test_scaffold_workflow_writes_config_and_layout(tmp_path):
     tools = _tools()
-    root = tmp_path / "attmous-daedalus-code-review"
+    root = tmp_path / "attmous-daedalus-change-delivery"
 
     result = tools.scaffold_workflow_root(
         workflow_root=root,
-        workflow_name="code-review",
+        workflow_name="change-delivery",
         repo_path=None,
         github_slug="attmous/daedalus",
         active_lane_label="ready-for-daedalus",
@@ -40,7 +40,7 @@ def test_scaffold_workflow_writes_config_and_layout(tmp_path):
     cfg = load_workflow_contract_file(contract_path).config
 
     assert result["contract_path"] == str(contract_path)
-    assert cfg["instance"]["name"] == "attmous-daedalus-code-review"
+    assert cfg["instance"]["name"] == "attmous-daedalus-change-delivery"
     assert cfg["instance"]["engine-owner"] == "hermes"
     assert cfg["repository"]["github-slug"] == "attmous/daedalus"
     assert cfg["repository"]["active-lane-label"] == "ready-for-daedalus"
@@ -56,15 +56,15 @@ def test_scaffold_workflow_writes_config_and_layout(tmp_path):
 
 def test_scaffold_workflow_refuses_to_overwrite_without_force(tmp_path):
     tools = _tools()
-    root = tmp_path / "attmous-daedalus-code-review"
+    root = tmp_path / "attmous-daedalus-change-delivery"
     contract_path = root / "WORKFLOW.md"
     contract_path.parent.mkdir(parents=True)
-    contract_path.write_text("---\nworkflow: code-review\nschema-version: 1\n---\n", encoding="utf-8")
+    contract_path.write_text("---\nworkflow: change-delivery\nschema-version: 1\n---\n", encoding="utf-8")
 
     try:
         tools.scaffold_workflow_root(
             workflow_root=root,
-            workflow_name="code-review",
+            workflow_name="change-delivery",
             repo_path=None,
             github_slug="attmous/daedalus",
             active_lane_label="active-lane",
@@ -79,14 +79,14 @@ def test_scaffold_workflow_refuses_to_overwrite_without_force(tmp_path):
 
 def test_scaffold_workflow_force_replaces_existing_config(tmp_path):
     tools = _tools()
-    root = tmp_path / "attmous-daedalus-code-review"
+    root = tmp_path / "attmous-daedalus-change-delivery"
     contract_path = root / "WORKFLOW.md"
     contract_path.parent.mkdir(parents=True)
     contract_path.write_text("---\nworkflow: old\nschema-version: 1\n---\n", encoding="utf-8")
 
     tools.scaffold_workflow_root(
         workflow_root=root,
-        workflow_name="code-review",
+        workflow_name="change-delivery",
         repo_path=root / "workspace" / "checkout",
         github_slug="attmous/daedalus",
         active_lane_label="active-lane",
@@ -95,22 +95,22 @@ def test_scaffold_workflow_force_replaces_existing_config(tmp_path):
     )
 
     cfg = load_workflow_contract_file(contract_path).config
-    assert cfg["workflow"] == "code-review"
-    assert cfg["instance"]["name"] == "attmous-daedalus-code-review"
+    assert cfg["workflow"] == "change-delivery"
+    assert cfg["instance"]["name"] == "attmous-daedalus-change-delivery"
     assert cfg["instance"]["engine-owner"] == "openclaw"
     assert cfg["repository"]["local-path"] == str(root / "workspace" / "checkout")
 
 
 def test_scaffold_workflow_force_retires_legacy_yaml_when_present(tmp_path):
     tools = _tools()
-    root = tmp_path / "attmous-daedalus-code-review"
+    root = tmp_path / "attmous-daedalus-change-delivery"
     legacy_path = root / "config" / "workflow.yaml"
     legacy_path.parent.mkdir(parents=True)
-    legacy_path.write_text("workflow: code-review\nschema-version: 1\n", encoding="utf-8")
+    legacy_path.write_text("workflow: change-delivery\nschema-version: 1\n", encoding="utf-8")
 
     tools.scaffold_workflow_root(
         workflow_root=root,
-        workflow_name="code-review",
+        workflow_name="change-delivery",
         repo_path=None,
         github_slug="attmous/daedalus",
         active_lane_label="active-lane",
@@ -129,7 +129,7 @@ def test_scaffold_workflow_requires_owner_repo_workflow_root_name(tmp_path):
     with pytest.raises(tools.DaedalusCommandError) as exc:
         tools.scaffold_workflow_root(
             workflow_root=root,
-            workflow_name="code-review",
+            workflow_name="change-delivery",
             repo_path=None,
             github_slug="attmous/daedalus",
             active_lane_label="active-lane",

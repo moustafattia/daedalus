@@ -19,8 +19,8 @@ def load_module(module_name: str, relative_path: str):
 
 def test_audit_calls_publisher_when_hook_provided(tmp_path):
     workspace_module = load_module(
-        "daedalus_workflow_code_review_workspace_test",
-        "workflows/code_review/workspace.py",
+        "daedalus_workflow_change_delivery_workspace_test",
+        "workflows/change_delivery/workspace.py",
     )
 
     audit_log_path = tmp_path / "audit.jsonl"
@@ -51,8 +51,8 @@ def test_audit_calls_publisher_when_hook_provided(tmp_path):
 
 def test_audit_does_not_raise_if_publisher_throws(tmp_path):
     workspace_module = load_module(
-        "daedalus_workflow_code_review_workspace_test",
-        "workflows/code_review/workspace.py",
+        "daedalus_workflow_change_delivery_workspace_test",
+        "workflows/change_delivery/workspace.py",
     )
     audit_log_path = tmp_path / "audit.jsonl"
 
@@ -71,8 +71,8 @@ def test_audit_does_not_raise_if_publisher_throws(tmp_path):
 
 def test_audit_works_with_no_publisher(tmp_path):
     workspace_module = load_module(
-        "daedalus_workflow_code_review_workspace_test",
-        "workflows/code_review/workspace.py",
+        "daedalus_workflow_change_delivery_workspace_test",
+        "workflows/change_delivery/workspace.py",
     )
     audit_log_path = tmp_path / "audit.jsonl"
 

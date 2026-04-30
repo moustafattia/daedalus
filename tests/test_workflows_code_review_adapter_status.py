@@ -57,7 +57,7 @@ def _install_workspace_stub(monkeypatch, status_module, raw_status: dict) -> Non
     plugin_root = str(REPO_ROOT)
     if plugin_root not in _sys.path:
         _sys.path.insert(0, plugin_root)
-    workspace_mod = importlib.import_module("workflows.code_review.workspace")
+    workspace_mod = importlib.import_module("workflows.change_delivery.workspace")
 
     class _StubWorkspace:
         def build_status_raw(self):
@@ -70,7 +70,7 @@ def _install_workspace_stub(monkeypatch, status_module, raw_status: dict) -> Non
 
 
 def test_adapter_status_build_status_normalizes_raw_payload(monkeypatch, tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
     workflow_root = tmp_path / "workflow"
     workflow_root.mkdir()
     raw = {
@@ -99,7 +99,7 @@ def test_adapter_status_build_status_normalizes_raw_payload(monkeypatch, tmp_pat
 
 
 def test_adapter_status_surfaces_tick_dispatch_state(monkeypatch, tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
     workflow_root = tmp_path / "workflow"
     workflow_root.mkdir()
     raw = {
@@ -132,7 +132,7 @@ def test_adapter_status_surfaces_tick_dispatch_state(monkeypatch, tmp_path):
 
 
 def test_adapter_status_archives_inactive_tick_dispatch_state(monkeypatch, tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
     workflow_root = tmp_path / "workflow"
     workflow_root.mkdir()
     raw = {
@@ -167,7 +167,7 @@ def test_adapter_status_archives_inactive_tick_dispatch_state(monkeypatch, tmp_p
 
 
 def test_normalize_implementation_for_active_lane_preserves_matching_lane_and_sets_expected_paths():
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
 
     result = status_module.normalize_implementation_for_active_lane(
         {
@@ -192,7 +192,7 @@ def test_normalize_implementation_for_active_lane_preserves_matching_lane_and_se
 
 
 def test_normalize_implementation_for_active_lane_resets_mismatched_lane_to_fresh_expected_shape():
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
 
     result = status_module.normalize_implementation_for_active_lane(
         {
@@ -222,7 +222,7 @@ def test_normalize_implementation_for_active_lane_resets_mismatched_lane_to_fres
 
 
 def test_collect_worktree_repo_facts_reads_branch_commit_count_and_head_sha(tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
 
     seen = []
     worktree = tmp_path / "worktree"
@@ -257,7 +257,7 @@ def test_collect_worktree_repo_facts_reads_branch_commit_count_and_head_sha(tmp_
 
 
 def test_git_branch_and_commits_ahead_helpers_handle_missing_paths_and_run_output(tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
     worktree = tmp_path / "worktree"
     worktree.mkdir()
 
@@ -279,7 +279,7 @@ def test_git_branch_and_commits_ahead_helpers_handle_missing_paths_and_run_outpu
 
 
 def test_git_head_sha_helper_reads_head_and_handles_missing_path(tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
     worktree = tmp_path / "worktree"
     worktree.mkdir()
 
@@ -297,7 +297,7 @@ def test_git_head_sha_helper_reads_head_and_handles_missing_path(tmp_path):
 
 
 def test_collect_worktree_repo_facts_gracefully_handles_missing_path_and_git_failures(tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
 
     missing = status_module.collect_worktree_repo_facts(tmp_path / "missing", run=lambda *_args, **_kwargs: None)
 
@@ -321,7 +321,7 @@ def test_collect_worktree_repo_facts_gracefully_handles_missing_path_and_git_fai
 
 
 def test_load_implementation_session_meta_prefers_acpx_session_lookup_for_acpx_runtime(tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
     worktree = tmp_path / "worktree"
     worktree.mkdir()
 
@@ -344,7 +344,7 @@ def test_load_implementation_session_meta_prefers_acpx_session_lookup_for_acpx_r
 
 
 def test_load_implementation_session_meta_falls_back_to_legacy_session_lookup_when_not_acpx():
-    status_module = load_module("daedalus_workflows_code_review_status_test", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
 
     seen = {}
 
@@ -364,7 +364,7 @@ def test_load_implementation_session_meta_falls_back_to_legacy_session_lookup_wh
 
 
 def test_increment_no_progress_ticks_resets_on_approval_or_merge():
-    status_module = load_module("daedalus_workflows_code_review_status_ipt", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_ipt", "workflows/change_delivery/status.py")
 
     assert status_module.increment_no_progress_ticks(
         existing={"budget": {"noProgressTicks": 4}},
@@ -379,7 +379,7 @@ def test_increment_no_progress_ticks_resets_on_approval_or_merge():
 
 
 def test_increment_no_progress_ticks_bumps_when_same_progress_and_cooldown_elapsed():
-    status_module = load_module("daedalus_workflows_code_review_status_ipt", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_ipt", "workflows/change_delivery/status.py")
 
     # Same progress fingerprint, evaluated well past the cooldown window -> bump.
     existing = {
@@ -411,7 +411,7 @@ def test_increment_no_progress_ticks_bumps_when_same_progress_and_cooldown_elaps
 
 
 def test_increment_no_progress_ticks_resets_when_progress_advances():
-    status_module = load_module("daedalus_workflows_code_review_status_ipt", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_ipt", "workflows/change_delivery/status.py")
 
     existing = {
         "implementation": {
@@ -428,7 +428,7 @@ def test_increment_no_progress_ticks_resets_when_progress_advances():
 
 
 def test_write_lane_memo_writes_rendered_markdown(tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_wlm", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_wlm", "workflows/change_delivery/status.py")
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     body = status_module.write_lane_memo(
@@ -447,7 +447,7 @@ def test_write_lane_memo_writes_rendered_markdown(tmp_path):
 
 
 def test_write_lane_memo_skips_when_required_args_missing(tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_wlm", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_wlm", "workflows/change_delivery/status.py")
     assert status_module.write_lane_memo(
         worktree=None,
         issue={"number": 224},
@@ -471,7 +471,7 @@ def test_write_lane_memo_skips_when_required_args_missing(tmp_path):
 
 
 def test_write_lane_state_emits_expected_payload_shape(tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_wls", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_wls", "workflows/change_delivery/status.py")
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     result = status_module.write_lane_state(
@@ -511,7 +511,7 @@ def test_write_lane_state_emits_expected_payload_shape(tmp_path):
 
 
 def test_compute_ledger_drift_reports_lane_and_pr_mismatches():
-    status_module = load_module("daedalus_workflows_code_review_status_drift", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_drift", "workflows/change_delivery/status.py")
 
     drift = status_module.compute_ledger_drift(
         active_lane={"number": 224},
@@ -532,7 +532,7 @@ def test_compute_ledger_drift_reports_lane_and_pr_mismatches():
 
 
 def test_compute_ledger_drift_detects_workflowidle_mismatch_and_stale_state():
-    status_module = load_module("daedalus_workflows_code_review_status_drift", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_drift", "workflows/change_delivery/status.py")
 
     drift = status_module.compute_ledger_drift(
         active_lane={"number": 224},
@@ -551,7 +551,7 @@ def test_compute_ledger_drift_detects_workflowidle_mismatch_and_stale_state():
 
 
 def test_compute_ledger_drift_detects_missing_active_lane_when_ledger_has_one():
-    status_module = load_module("daedalus_workflows_code_review_status_drift", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_drift", "workflows/change_delivery/status.py")
 
     drift = status_module.compute_ledger_drift(
         active_lane=None,
@@ -569,7 +569,7 @@ def test_compute_ledger_drift_detects_missing_active_lane_when_ledger_has_one():
 
 
 def test_resolve_publish_ready_workflow_state_maps_review_loop_states():
-    status_module = load_module("daedalus_workflows_code_review_status_rpws", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_rpws", "workflows/change_delivery/status.py")
 
     assert status_module.resolve_publish_ready_workflow_state("clean", merge_blocked=False) == ("approved", "approved")
     assert status_module.resolve_publish_ready_workflow_state("clean", merge_blocked=True) == ("under_review", "under_review")
@@ -579,7 +579,7 @@ def test_resolve_publish_ready_workflow_state_maps_review_loop_states():
 
 
 def test_derive_publish_status_returns_ready_draft_or_not_published():
-    status_module = load_module("daedalus_workflows_code_review_status_dps", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_dps", "workflows/change_delivery/status.py")
 
     assert status_module.derive_publish_status({"isDraft": False}, publish_ready=True) == "ready_for_review"
     assert status_module.derive_publish_status({"isDraft": True}, publish_ready=False) == "draft_pr"
@@ -587,7 +587,7 @@ def test_derive_publish_status_returns_ready_draft_or_not_published():
 
 
 def test_resolve_prepublish_workflow_state_returns_implementing_local_when_no_candidate():
-    status_module = load_module("daedalus_workflows_code_review_status_rpre", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_rpre", "workflows/change_delivery/status.py")
 
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=False,
@@ -598,7 +598,7 @@ def test_resolve_prepublish_workflow_state_returns_implementing_local_when_no_ca
 
 
 def test_resolve_prepublish_workflow_state_returns_ready_to_publish_when_gate_already_satisfied():
-    status_module = load_module("daedalus_workflows_code_review_status_rpre", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_rpre", "workflows/change_delivery/status.py")
 
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=True,
@@ -609,7 +609,7 @@ def test_resolve_prepublish_workflow_state_returns_ready_to_publish_when_gate_al
 
 
 def test_resolve_prepublish_workflow_state_returns_findings_when_claude_current_and_actionable():
-    status_module = load_module("daedalus_workflows_code_review_status_rpre", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_rpre", "workflows/change_delivery/status.py")
 
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=True,
@@ -627,7 +627,7 @@ def test_resolve_prepublish_workflow_state_returns_findings_when_claude_current_
 
 
 def test_resolve_prepublish_workflow_state_defaults_to_awaiting_claude_prepublish():
-    status_module = load_module("daedalus_workflows_code_review_status_rpre", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_rpre", "workflows/change_delivery/status.py")
 
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=True,
@@ -646,7 +646,7 @@ def test_resolve_prepublish_workflow_state_defaults_to_awaiting_claude_prepublis
 
 
 def test_apply_idle_ledger_transition_resets_active_lane_state():
-    status_module = load_module("daedalus_workflows_code_review_status_idle", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_idle", "workflows/change_delivery/status.py")
     ledger: dict = {
         "approval": {"status": "approved", "approvedAt": "t", "approvedHeadSha": "h", "pendingReason": None},
         "activeLane": 224,
@@ -679,7 +679,7 @@ def test_apply_idle_ledger_transition_resets_active_lane_state():
 
 
 def test_apply_active_lane_error_ledger_transition_marks_blocked_state():
-    status_module = load_module("daedalus_workflows_code_review_status_ale", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_ale", "workflows/change_delivery/status.py")
     ledger: dict = {
         "approval": {"status": "approved", "approvedAt": "t", "approvedHeadSha": "h", "pendingReason": None},
         "workflowState": "implementing_local",
@@ -712,7 +712,7 @@ def _active_lane_baseline_ledger():
 
 
 def test_apply_active_lane_ledger_transition_sets_approved_for_clean_publish_ready_merge():
-    status_module = load_module("daedalus_workflows_code_review_status_alt", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_alt", "workflows/change_delivery/status.py")
     ledger = _active_lane_baseline_ledger()
     status_module.apply_active_lane_ledger_transition(
         ledger,
@@ -744,7 +744,7 @@ def test_apply_active_lane_ledger_transition_sets_approved_for_clean_publish_rea
 
 
 def test_apply_active_lane_ledger_transition_forces_operator_attention_reason_when_flag_set():
-    status_module = load_module("daedalus_workflows_code_review_status_alt", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_alt", "workflows/change_delivery/status.py")
     ledger = _active_lane_baseline_ledger()
     status_module.apply_active_lane_ledger_transition(
         ledger,
@@ -768,7 +768,7 @@ def test_apply_active_lane_ledger_transition_forces_operator_attention_reason_wh
 
 
 def test_apply_active_lane_ledger_transition_prepublish_routes_through_claude_findings_when_brief_present():
-    status_module = load_module("daedalus_workflows_code_review_status_alt", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_alt", "workflows/change_delivery/status.py")
     ledger = _active_lane_baseline_ledger()
     status_module.apply_active_lane_ledger_transition(
         ledger,
@@ -799,7 +799,7 @@ def test_apply_active_lane_ledger_transition_prepublish_routes_through_claude_fi
 
 
 def test_derive_latest_progress_returns_approved_event_when_published_pr_is_clean():
-    status_module = load_module("daedalus_workflows_code_review_status_dlp", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_dlp", "workflows/change_delivery/status.py")
 
     progress = status_module.derive_latest_progress(
         implementation={"status": "under_review", "updatedAt": "2026-04-23T00:00:00Z"},
@@ -814,7 +814,7 @@ def test_derive_latest_progress_returns_approved_event_when_published_pr_is_clea
 
 
 def test_derive_latest_progress_falls_back_to_implementation_status_and_updated_at():
-    status_module = load_module("daedalus_workflows_code_review_status_dlp", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_dlp", "workflows/change_delivery/status.py")
 
     progress = status_module.derive_latest_progress(
         implementation={"status": "implementing_local", "updatedAt": "2026-04-23T00:04:00Z"},
@@ -829,7 +829,7 @@ def test_derive_latest_progress_falls_back_to_implementation_status_and_updated_
 
 
 def test_derive_latest_progress_uses_now_when_no_implementation_updatedAt_and_unknown_when_no_state():
-    status_module = load_module("daedalus_workflows_code_review_status_dlp", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_dlp", "workflows/change_delivery/status.py")
 
     progress = status_module.derive_latest_progress(
         implementation=None,
@@ -844,7 +844,7 @@ def test_derive_latest_progress_uses_now_when_no_implementation_updatedAt_and_un
 
 
 def test_assemble_status_payload_returns_fully_shaped_status_dict():
-    status_module = load_module("daedalus_workflows_code_review_status_asp", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_asp", "workflows/change_delivery/status.py")
 
     reviews = {"internalReview": {"model": "claude-sonnet-4-6"}, "externalReview": {}, "rockClaw": {}}
     implementation = {
@@ -923,7 +923,7 @@ def test_assemble_status_payload_returns_fully_shaped_status_dict():
 
 
 def test_apply_ledger_reviews_and_header_writes_expected_keys():
-    status_module = load_module("daedalus_workflows_code_review_status_alrh", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_alrh", "workflows/change_delivery/status.py")
     ledger: dict = {}
     status_module.apply_ledger_reviews_and_header(
         ledger,
@@ -945,7 +945,7 @@ def test_apply_ledger_reviews_and_header_writes_expected_keys():
 
 
 def test_apply_ledger_implementation_merge_preserves_prior_ledger_keys():
-    status_module = load_module("daedalus_workflows_code_review_status_alim", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_alim", "workflows/change_delivery/status.py")
     ledger: dict = {"implementation": {"persistedExtra": "x", "lastDispatchAt": "old"}, "workflowState": "implementing_local"}
     status_module.apply_ledger_implementation_merge(
         ledger,
@@ -984,7 +984,7 @@ def test_apply_ledger_implementation_merge_preserves_prior_ledger_keys():
 
 
 def test_apply_ledger_implementation_merge_falls_back_to_implementing_for_active_no_pr():
-    status_module = load_module("daedalus_workflows_code_review_status_alim", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_alim", "workflows/change_delivery/status.py")
     ledger: dict = {"implementation": {}, "workflowState": "some_state"}
     status_module.apply_ledger_implementation_merge(
         ledger,
@@ -1018,7 +1018,7 @@ def test_apply_ledger_implementation_merge_falls_back_to_implementing_for_active
 
 
 def test_write_lane_state_skips_when_missing_worktree_or_issue(tmp_path):
-    status_module = load_module("daedalus_workflows_code_review_status_wls", "workflows/code_review/status.py")
+    status_module = load_module("daedalus_workflows_change_delivery_status_wls", "workflows/change_delivery/status.py")
     assert status_module.write_lane_state(
         worktree=None,
         issue={"number": 1},

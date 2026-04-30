@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def _make_runtime(**cfg_overrides):
-    from workflows.code_review.runtimes.acpx_codex import AcpxCodexRuntime
+    from workflows.change_delivery.runtimes.acpx_codex import AcpxCodexRuntime
 
     cfg = {
         "kind": "acpx-codex",

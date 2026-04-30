@@ -42,7 +42,7 @@ flowchart LR
   E -- no --> G[abort tick]
 ```
 
-`PREFLIGHT_GATED_COMMANDS` is declared on the workflow module (`daedalus/workflows/code_review/__init__.py`). Today it gates `tick`, `dispatch-implementation-turn`, `dispatch-internal-review-turn`, `dispatch-external-review-turn`, and `dispatch-merge-turn`. Read-only commands (`status`, `inspect`) bypass the gate.
+`PREFLIGHT_GATED_COMMANDS` is declared on the workflow module (`daedalus/workflows/change_delivery/__init__.py`). Today it gates `tick`, `dispatch-implementation-turn`, `dispatch-internal-review-turn`, `dispatch-external-review-turn`, and `dispatch-merge-turn`. Read-only commands (`status`, `inspect`) bypass the gate.
 
 ### What preflight actually checks
 
@@ -55,8 +55,8 @@ flowchart LR
 
 ## Where this lives in code
 
-- `ConfigSnapshot` + `AtomicRef`: `daedalus/workflows/code_review/config_snapshot.py`
-- Watcher: `daedalus/workflows/code_review/config_watcher.py`
-- Preflight: `daedalus/workflows/code_review/preflight.py`
+- `ConfigSnapshot` + `AtomicRef`: `daedalus/workflows/change_delivery/config_snapshot.py`
+- Watcher: `daedalus/workflows/change_delivery/config_watcher.py`
+- Preflight: `daedalus/workflows/change_delivery/preflight.py`
 - Gating: `daedalus/workflows/__init__.py::run_cli` reads `PREFLIGHT_GATED_COMMANDS`
 - Tests: `tests/test_config_snapshot.py`, `tests/test_config_watcher.py`, `tests/test_workflows_preflight_cli_integration.py`

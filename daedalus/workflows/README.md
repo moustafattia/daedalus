@@ -3,7 +3,7 @@
 Each subdirectory under `workflows/` is one **workflow** — a Python
 package implementing the stages, gates, and agent dispatch for a
 specific lifecycle. The first workflow we ship and dogfood is
-`code_review/` (`Issue → Code → Review → Merge`).
+`change_delivery/` (`Issue → Code → Review → Merge`).
 
 Workflows are loaded by name through `workflows.<slug>`. The dispatcher
 in `__init__.py` enforces a small contract: every workflow package must
@@ -12,8 +12,8 @@ expose `NAME`, `SUPPORTED_SCHEMA_VERSIONS`, `CONFIG_SCHEMA_PATH`,
 
 ## Naming
 
-- Workflow type: external contract in `WORKFLOW.md` front matter, always `lower-kebab-case` such as `code-review`.
-- Workflow package: Python slug under `workflows/`, always `lower_snake_case` such as `code_review/`.
+- Workflow type: external contract in `WORKFLOW.md` front matter, always `lower-kebab-case` such as `change-delivery`.
+- Workflow package: Python slug under `workflows/`, always `lower_snake_case` such as `change_delivery/`.
 - Workflow instance root: directory under `~/.hermes/workflows/`, always `<owner>-<repo>-<workflow-type>`.
 - `instance.name` in `WORKFLOW.md` should match the workflow root directory name.
 
@@ -24,9 +24,9 @@ workflows/
 ├── __init__.py              # workflow loader + dispatcher contract
 ├── __main__.py              # `python -m workflows <name> ...` entrypoint
 ├── README.md                # this file
-└── code_review/             # the bundled Issue → Code → Review → Merge workflow
+└── change_delivery/         # the bundled Issue → Code → Review → Merge workflow
     ├── __init__.py          # workflow contract attrs (NAME, schema, etc.)
-    ├── __main__.py          # `python -m workflows.code_review ...`
+    ├── __main__.py          # `python -m workflows.change_delivery ...`
     ├── cli.py               # operator subcommands (status, doctor, tick)
     ├── workflow.py          # top-level workflow wiring
     ├── orchestrator.py      # stage transitions + lane lifecycle
@@ -63,7 +63,7 @@ workflows/
 1. Daedalus's tick loop loads `WORKFLOW.md` from the workflow root
    (or legacy `config/workflow.yaml` when migrating older instances).
 2. The dispatcher imports the workflow package referenced by
-   `workflow:` in the config (e.g. `code-review`).
+   `workflow:` in the config (e.g. `change-delivery`).
 3. `make_workspace(workflow_root, config)` returns the workspace
    object the CLI subcommands operate on.
 4. Per-tick: preflight validates the config; if it passes, the
@@ -79,6 +79,6 @@ workflows/
 4. Reference it from `WORKFLOW.md` front matter in the workflow root:
    `workflow: <your-name>`.
 
-The `code_review/` package is the reference implementation — start by
+The `change_delivery/` package is the reference implementation — start by
 copying its `__init__.py`, `cli.py`, and `schema.yaml` and pruning what
 you don't need.

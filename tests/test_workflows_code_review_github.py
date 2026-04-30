@@ -15,7 +15,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def test_issue_label_names_normalizes_dicts_and_strings():
-    github_module = load_module("daedalus_workflows_code_review_github_test", "workflows/code_review/github.py")
+    github_module = load_module("daedalus_workflows_change_delivery_github_test", "workflows/change_delivery/github.py")
 
     result = github_module.issue_label_names(
         {
@@ -33,14 +33,14 @@ def test_issue_label_names_normalizes_dicts_and_strings():
 
 
 def test_parse_priority_from_title_defaults_when_not_p_label():
-    github_module = load_module("daedalus_workflows_code_review_github_test", "workflows/code_review/github.py")
+    github_module = load_module("daedalus_workflows_change_delivery_github_test", "workflows/change_delivery/github.py")
 
     assert github_module.parse_priority_from_title("[P3] Legit priority") == 3
     assert github_module.parse_priority_from_title("[A01] Architecture lane") == 999
 
 
 def test_pick_next_lane_issue_skips_active_lane_and_sorts_by_priority_then_issue_number():
-    github_module = load_module("daedalus_workflows_code_review_github_test", "workflows/code_review/github.py")
+    github_module = load_module("daedalus_workflows_change_delivery_github_test", "workflows/change_delivery/github.py")
 
     result = github_module.pick_next_lane_issue(
         [
@@ -55,7 +55,7 @@ def test_pick_next_lane_issue_skips_active_lane_and_sorts_by_priority_then_issue
 
 
 def test_get_issue_details_uses_runner_when_issue_number_present():
-    github_module = load_module("daedalus_workflows_code_review_github_test", "workflows/code_review/github.py")
+    github_module = load_module("daedalus_workflows_change_delivery_github_test", "workflows/change_delivery/github.py")
 
     seen = {}
 
@@ -72,7 +72,7 @@ def test_get_issue_details_uses_runner_when_issue_number_present():
 
 
 def test_issue_add_label_returns_true_when_runner_succeeds():
-    github_module = load_module("daedalus_workflows_code_review_github_test", "workflows/code_review/github.py")
+    github_module = load_module("daedalus_workflows_change_delivery_github_test", "workflows/change_delivery/github.py")
 
     seen = {}
 
@@ -89,7 +89,7 @@ def test_issue_add_label_returns_true_when_runner_succeeds():
 
 
 def test_pick_next_lane_issue_from_repo_fetches_open_issues_then_selects_best_candidate():
-    github_module = load_module("daedalus_workflows_code_review_github_test", "workflows/code_review/github.py")
+    github_module = load_module("daedalus_workflows_change_delivery_github_test", "workflows/change_delivery/github.py")
 
     seen = {}
 
@@ -110,7 +110,7 @@ def test_pick_next_lane_issue_from_repo_fetches_open_issues_then_selects_best_ca
 
 
 def test_get_active_lane_from_repo_returns_single_matching_issue():
-    github_module = load_module("daedalus_workflows_code_review_github_test", "workflows/code_review/github.py")
+    github_module = load_module("daedalus_workflows_change_delivery_github_test", "workflows/change_delivery/github.py")
 
     seen = {}
 
@@ -148,7 +148,7 @@ def test_get_active_lane_from_repo_returns_single_matching_issue():
 
 
 def test_get_active_lane_from_repo_reports_multiple_matching_issues():
-    github_module = load_module("daedalus_workflows_code_review_github_test", "workflows/code_review/github.py")
+    github_module = load_module("daedalus_workflows_change_delivery_github_test", "workflows/change_delivery/github.py")
 
     def fake_run_json(_command, cwd=None):
         assert cwd == Path("/tmp/repo")
@@ -169,7 +169,7 @@ def test_get_active_lane_from_repo_reports_multiple_matching_issues():
 
 
 def test_get_open_pr_for_issue_matches_head_branch_to_issue_number():
-    github_module = load_module("daedalus_workflows_code_review_github_test", "workflows/code_review/github.py")
+    github_module = load_module("daedalus_workflows_change_delivery_github_test", "workflows/change_delivery/github.py")
 
     seen = {}
 

@@ -15,7 +15,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def test_compute_health_ignores_core_job_missing_when_engine_owner_is_hermes():
-    health_module = load_module("daedalus_workflows_code_review_health_test", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_health_test", "workflows/change_delivery/health.py")
 
     health = health_module.compute_health(
         engine_owner="hermes",
@@ -32,7 +32,7 @@ def test_compute_health_ignores_core_job_missing_when_engine_owner_is_hermes():
 
 
 def test_compute_health_marks_missing_core_jobs_for_non_hermes_engine_owner():
-    health_module = load_module("daedalus_workflows_code_review_health_test", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_health_test", "workflows/change_delivery/health.py")
 
     health = health_module.compute_health(
         engine_owner="openclaw",
@@ -49,7 +49,7 @@ def test_compute_health_marks_missing_core_jobs_for_non_hermes_engine_owner():
 
 
 def test_compute_health_prefers_stale_ledger_before_stale_lane():
-    health_module = load_module("daedalus_workflows_code_review_health_test", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_health_test", "workflows/change_delivery/health.py")
 
     health = health_module.compute_health(
         engine_owner="hermes",
@@ -66,7 +66,7 @@ def test_compute_health_prefers_stale_ledger_before_stale_lane():
 
 
 def test_collect_broken_watchers_filters_by_regex_and_error_text():
-    health_module = load_module("daedalus_workflows_code_review_health_cbw", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_health_cbw", "workflows/change_delivery/health.py")
 
     jobs_payload = {
         "jobs": [
@@ -116,7 +116,7 @@ def test_collect_broken_watchers_filters_by_regex_and_error_text():
 
 
 def test_collect_broken_watchers_reads_legacy_flat_fields():
-    health_module = load_module("daedalus_workflows_code_review_health_cbw", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_health_cbw", "workflows/change_delivery/health.py")
     import re
 
     jobs_payload = {
@@ -136,7 +136,7 @@ def test_collect_broken_watchers_reads_legacy_flat_fields():
 
 
 def test_disable_broken_watchers_disables_matching_jobs_and_returns_names():
-    health_module = load_module("daedalus_workflows_code_review_health_dbw", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_health_dbw", "workflows/change_delivery/health.py")
     import re
 
     jobs_payload = {
@@ -177,7 +177,7 @@ def test_disable_broken_watchers_disables_matching_jobs_and_returns_names():
 
 
 def test_disable_broken_watchers_is_noop_when_nothing_matches():
-    health_module = load_module("daedalus_workflows_code_review_health_dbw", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_health_dbw", "workflows/change_delivery/health.py")
     import re
 
     jobs_payload = {"jobs": [{"name": "issue-224-watch", "enabled": False, "state": {"lastStatus": "error", "lastError": "target <chatId>"}}]}
@@ -190,7 +190,7 @@ def test_disable_broken_watchers_is_noop_when_nothing_matches():
 
 
 def test_compute_core_job_status_splits_missing_disabled_and_stale():
-    health_module = load_module("daedalus_workflows_code_review_health_cjs", "workflows/code_review/health.py")
+    health_module = load_module("daedalus_workflows_change_delivery_health_cjs", "workflows/change_delivery/health.py")
 
     managed = ["job-a", "job-b", "job-c", "job-d"]
     job_map = {

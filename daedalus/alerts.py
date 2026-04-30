@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from workflows.code_review.paths import resolve_default_workflow_root as resolve_workflow_root_default
-from workflows.code_review.paths import runtime_paths as workflow_runtime_paths
+from workflows.change_delivery.paths import resolve_default_workflow_root as resolve_workflow_root_default
+from workflows.change_delivery.paths import runtime_paths as workflow_runtime_paths
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 DEFAULT_WORKFLOW_ROOT_ENV_VARS = ("DAEDALUS_WORKFLOW_ROOT",)

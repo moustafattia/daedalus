@@ -8,7 +8,7 @@ import pytest
 
 
 _VALID_YAML = textwrap.dedent("""\
-    workflow: code-review
+    workflow: change-delivery
     schema-version: 1
     instance:
       name: test-instance
@@ -56,29 +56,29 @@ def _valid_workflow_markdown() -> str:
 
 
 def test_parse_and_validate_returns_snapshot(tmp_path):
-    from workflows.code_review.config_watcher import parse_and_validate
+    from workflows.change_delivery.config_watcher import parse_and_validate
 
     p = tmp_path / "workflow.yaml"
     p.write_text(_VALID_YAML)
     snap = parse_and_validate(p)
-    assert snap.config["workflow"] == "code-review"
+    assert snap.config["workflow"] == "change-delivery"
     assert snap.source_mtime == p.stat().st_mtime
     assert snap.loaded_at > 0
 
 
 def test_parse_and_validate_accepts_workflow_markdown(tmp_path):
-    from workflows.code_review.config_watcher import parse_and_validate
+    from workflows.change_delivery.config_watcher import parse_and_validate
 
     p = tmp_path / "WORKFLOW.md"
     p.write_text(_valid_workflow_markdown())
     snap = parse_and_validate(p)
 
-    assert snap.config["workflow"] == "code-review"
+    assert snap.config["workflow"] == "change-delivery"
     assert snap.config["workflow-policy"] == "You are the workflow prompt."
 
 
 def test_parse_and_validate_raises_on_yaml_syntax_error(tmp_path):
-    from workflows.code_review.config_watcher import parse_and_validate, ParseError
+    from workflows.change_delivery.config_watcher import parse_and_validate, ParseError
 
     p = tmp_path / "workflow.yaml"
     p.write_text("workflow: [unclosed\n")
@@ -87,17 +87,17 @@ def test_parse_and_validate_raises_on_yaml_syntax_error(tmp_path):
 
 
 def test_parse_and_validate_raises_on_schema_violation(tmp_path):
-    from workflows.code_review.config_watcher import parse_and_validate, ValidationError
+    from workflows.change_delivery.config_watcher import parse_and_validate, ValidationError
 
     p = tmp_path / "workflow.yaml"
-    p.write_text("workflow: code-review\n")  # missing required fields
+    p.write_text("workflow: change-delivery\n")  # missing required fields
     with pytest.raises(ValidationError):
         parse_and_validate(p)
 
 
 def _seed_snapshot(tmp_path: Path):
     """Helper: write valid yaml + return (path, snapshot)."""
-    from workflows.code_review.config_watcher import parse_and_validate
+    from workflows.change_delivery.config_watcher import parse_and_validate
 
     p = tmp_path / "workflow.yaml"
     p.write_text(_VALID_YAML)
@@ -106,8 +106,8 @@ def _seed_snapshot(tmp_path: Path):
 
 def test_watcher_poll_swaps_on_mtime_change(tmp_path):
     import os
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
 
     p, initial = _seed_snapshot(tmp_path)
     ref = AtomicRef(initial)
@@ -125,8 +125,8 @@ def test_watcher_poll_swaps_on_mtime_change(tmp_path):
 
 
 def test_watcher_poll_no_change_is_noop(tmp_path):
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
 
     p, initial = _seed_snapshot(tmp_path)
     ref = AtomicRef(initial)
@@ -141,8 +141,8 @@ def test_watcher_poll_no_change_is_noop(tmp_path):
 
 def test_watcher_poll_invalid_yaml_keeps_lkg_and_emits_failure(tmp_path):
     import os
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
 
     p, initial = _seed_snapshot(tmp_path)
     ref = AtomicRef(initial)
@@ -159,15 +159,15 @@ def test_watcher_poll_invalid_yaml_keeps_lkg_and_emits_failure(tmp_path):
 
 def test_watcher_poll_schema_invalid_keeps_lkg_and_emits_failure(tmp_path):
     import os
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
 
     p, initial = _seed_snapshot(tmp_path)
     ref = AtomicRef(initial)
     events: list[tuple[str, dict]] = []
     w = ConfigWatcher(p, ref, lambda t, d: events.append((t, d)))
 
-    p.write_text("workflow: code-review\n")  # schema-invalid (missing required fields)
+    p.write_text("workflow: change-delivery\n")  # schema-invalid (missing required fields)
     os.utime(p, (initial.source_mtime + 5, initial.source_mtime + 5))
 
     w.poll()
@@ -179,8 +179,8 @@ def test_watcher_poll_schema_invalid_keeps_lkg_and_emits_failure(tmp_path):
 
 def test_watcher_poll_does_not_re_emit_for_same_broken_mtime(tmp_path):
     import os
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
 
     p, initial = _seed_snapshot(tmp_path)
     ref = AtomicRef(initial)
@@ -201,8 +201,8 @@ def test_watcher_poll_does_not_re_emit_for_same_broken_mtime(tmp_path):
 def test_watcher_poll_detects_size_change_at_same_mtime(tmp_path):
     """Bytes changed but mtime preserved (e.g. rsync -t). Must reload."""
     import os
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
 
     p, initial = _seed_snapshot(tmp_path)
     ref = AtomicRef(initial)
@@ -228,8 +228,8 @@ def test_watcher_poll_detects_size_change_at_same_mtime(tmp_path):
 
 
 def test_watcher_poll_missing_file_keeps_lkg_no_event(tmp_path):
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
 
     p, initial = _seed_snapshot(tmp_path)
     ref = AtomicRef(initial)
@@ -249,8 +249,8 @@ def test_watcher_post_init_detects_drift_between_bootstrap_and_construction(tmp_
     the drifted-but-current bytes look "fresh" and never get reloaded.
     """
     import os
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
 
     p, initial = _seed_snapshot(tmp_path)
 
@@ -280,8 +280,8 @@ def test_watcher_poll_handles_unicode_decode_error(tmp_path):
     Otherwise binary content slipping into workflow.yaml crashes the
     watcher loop instead of preserving last-known-good config.
     """
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
 
     p, initial = _seed_snapshot(tmp_path)
     ref = AtomicRef(initial)
@@ -306,9 +306,9 @@ def test_watcher_poll_handles_oserror_during_read(tmp_path, monkeypatch):
     file disappears between stat() and read_text(). Without this catch
     the watcher crashes the daemon.
     """
-    from workflows.code_review.config_snapshot import AtomicRef
-    from workflows.code_review.config_watcher import ConfigWatcher
-    from workflows.code_review import config_watcher as cw_mod
+    from workflows.change_delivery.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_watcher import ConfigWatcher
+    from workflows.change_delivery import config_watcher as cw_mod
 
     p, initial = _seed_snapshot(tmp_path)
     ref = AtomicRef(initial)

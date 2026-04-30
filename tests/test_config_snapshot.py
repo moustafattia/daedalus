@@ -7,10 +7,10 @@ import pytest
 
 
 def test_config_snapshot_is_frozen():
-    from workflows.code_review.config_snapshot import ConfigSnapshot
+    from workflows.change_delivery.config_snapshot import ConfigSnapshot
 
     snap = ConfigSnapshot(
-        config={"workflow": "code-review"},
+        config={"workflow": "change-delivery"},
         prompts={"coder": "hi"},
         loaded_at=1.0,
         source_mtime=2.0,
@@ -20,7 +20,7 @@ def test_config_snapshot_is_frozen():
 
 
 def test_config_snapshot_fields():
-    from workflows.code_review.config_snapshot import ConfigSnapshot
+    from workflows.change_delivery.config_snapshot import ConfigSnapshot
 
     snap = ConfigSnapshot(
         config={"k": "v"},
@@ -35,7 +35,7 @@ def test_config_snapshot_fields():
 
 
 def test_atomic_ref_get_set_roundtrip():
-    from workflows.code_review.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_snapshot import AtomicRef
 
     ref: AtomicRef[int] = AtomicRef(0)
     assert ref.get() == 0
@@ -46,7 +46,7 @@ def test_atomic_ref_get_set_roundtrip():
 
 
 def test_atomic_ref_swap_returns_old_value():
-    from workflows.code_review.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_snapshot import AtomicRef
 
     ref: AtomicRef[str] = AtomicRef("a")
     old = ref.swap("b")
@@ -55,7 +55,7 @@ def test_atomic_ref_swap_returns_old_value():
 
 
 def test_atomic_ref_holds_config_snapshot():
-    from workflows.code_review.config_snapshot import AtomicRef, ConfigSnapshot
+    from workflows.change_delivery.config_snapshot import AtomicRef, ConfigSnapshot
 
     s1 = ConfigSnapshot(config={"v": 1}, prompts={}, loaded_at=1.0, source_mtime=1.0)
     s2 = ConfigSnapshot(config={"v": 2}, prompts={}, loaded_at=2.0, source_mtime=2.0)
@@ -69,7 +69,7 @@ def test_atomic_ref_holds_config_snapshot():
 def test_config_snapshot_inner_dicts_are_read_only():
     """Code-quality P2 fix: dict contents wrapped in MappingProxyType so
     accidental mutation surfaces as TypeError at the boundary."""
-    from workflows.code_review.config_snapshot import ConfigSnapshot
+    from workflows.change_delivery.config_snapshot import ConfigSnapshot
 
     snap = ConfigSnapshot(
         config={"k": "v"},
@@ -100,7 +100,7 @@ def test_atomic_ref_concurrent_readers_and_writer_consistent():
     """
     import threading
     import time
-    from workflows.code_review.config_snapshot import AtomicRef
+    from workflows.change_delivery.config_snapshot import AtomicRef
 
     valid_values = {0, 1, 2, 3, 4}
     ref: AtomicRef[int] = AtomicRef(0)

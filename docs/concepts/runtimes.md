@@ -71,12 +71,12 @@ Because it is one-shot, `assess_health` always returns healthy and `last_activit
 ## Adding a new runtime
 
 1. Subclass nothing — just implement the Protocol shape.
-2. Decorate with `@register("<your-kind>")` from `workflows.code_review.runtimes`.
+2. Decorate with `@register("<your-kind>")` from `workflows.change_delivery.runtimes`.
 3. Add the kind to `schema.yaml` so config validation accepts it.
 4. Optionally implement `last_activity_ts()` for stall participation.
 
 ## Where this lives in code
 
-- Protocol: `daedalus/workflows/code_review/runtimes/__init__.py`
-- Adapters: `daedalus/workflows/code_review/runtimes/{claude_cli,acpx_codex,hermes_agent}.py`
-- Preflight: `daedalus/workflows/code_review/preflight.py`
+- Protocol: `daedalus/workflows/change_delivery/runtimes/__init__.py`
+- Adapters: `daedalus/workflows/change_delivery/runtimes/{claude_cli,acpx_codex,hermes_agent}.py`
+- Preflight: `daedalus/workflows/change_delivery/preflight.py`

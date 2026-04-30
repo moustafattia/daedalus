@@ -81,7 +81,7 @@ def _make_workspace(**overrides):
 
 
 def _run_main(workspace, argv):
-    cli = load_module("daedalus_workflows_code_review_cli_test", "workflows/code_review/cli.py")
+    cli = load_module("daedalus_workflows_change_delivery_cli_test", "workflows/change_delivery/cli.py")
     buf = io.StringIO()
     with redirect_stdout(buf):
         code = cli.main(workspace, argv=argv)

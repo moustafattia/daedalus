@@ -22,7 +22,7 @@ def _write_workflow_yaml(workflow_root: Path, *, instance_name: str = "blueprint
     (config_dir / "workflow.yaml").write_text(
         yaml.safe_dump(
             {
-                "workflow": "code-review",
+                "workflow": "change-delivery",
                 "schema-version": 1,
                 "instance": {"name": instance_name, "engine-owner": "hermes"},
                 "repository": {
@@ -51,7 +51,7 @@ def _write_workflow_yaml(workflow_root: Path, *, instance_name: str = "blueprint
 
 def _write_workflow_markdown(workflow_root: Path, *, instance_name: str = "blueprint-engine") -> None:
     config = {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": instance_name, "engine-owner": "hermes"},
         "repository": {
@@ -81,7 +81,7 @@ def _write_workflow_markdown(workflow_root: Path, *, instance_name: str = "bluep
 
 
 def test_runtime_paths_use_project_runtime_subdirs_when_present(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "blueprint"
     (workflow_root / "runtime").mkdir(parents=True)
     (workflow_root / "config").mkdir()
@@ -95,18 +95,18 @@ def test_runtime_paths_use_project_runtime_subdirs_when_present(tmp_path):
 
 def test_derive_workflow_instance_name_uses_owner_repo_workflow_convention(tmp_path):
     del tmp_path
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
 
     name = paths_module.derive_workflow_instance_name(
         github_slug="Attmous/Daedalus_Core",
-        workflow_name="code-review",
+        workflow_name="change-delivery",
     )
 
-    assert name == "attmous-daedalus-core-code-review"
+    assert name == "attmous-daedalus-core-change-delivery"
 
 
 def test_runtime_paths_fall_back_to_legacy_layout_without_project_runtime(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "workflow"
 
     paths = paths_module.runtime_paths(workflow_root)
@@ -116,7 +116,7 @@ def test_runtime_paths_fall_back_to_legacy_layout_without_project_runtime(tmp_pa
 
 
 def test_resolve_default_workflow_root_prefers_env_var(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "workflow-root"
 
     resolved = paths_module.resolve_default_workflow_root(
@@ -128,7 +128,7 @@ def test_resolve_default_workflow_root_prefers_env_var(tmp_path):
 
 
 def test_resolve_default_workflow_root_detects_cwd_ancestor_with_config(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "workflow-root"
     nested = workflow_root / "workspace" / "repo" / "src"
     _write_workflow_yaml(workflow_root)
@@ -144,7 +144,7 @@ def test_resolve_default_workflow_root_detects_cwd_ancestor_with_config(tmp_path
 
 
 def test_resolve_default_workflow_root_detects_cwd_ancestor_with_workflow_markdown(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "workflow-root"
     nested = workflow_root / "workspace" / "repo" / "src"
     _write_workflow_markdown(workflow_root)
@@ -163,8 +163,8 @@ def test_resolve_default_workflow_root_detects_cwd_ancestor_with_workflow_markdo
 
 
 def test_resolve_default_workflow_root_follows_repo_local_pointer(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
-    workflow_root = tmp_path / ".hermes" / "workflows" / "owner-repo-code-review"
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
+    workflow_root = tmp_path / ".hermes" / "workflows" / "owner-repo-change-delivery"
     _write_workflow_markdown(workflow_root)
     (workflow_root / "runtime").mkdir(parents=True, exist_ok=True)
     (workflow_root / "memory").mkdir(parents=True, exist_ok=True)
@@ -187,7 +187,7 @@ def test_resolve_default_workflow_root_follows_repo_local_pointer(tmp_path):
 
 
 def test_resolve_default_workflow_root_falls_back_to_cwd_when_no_config(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     cwd = tmp_path / "scratch"
     cwd.mkdir()
 
@@ -201,7 +201,7 @@ def test_resolve_default_workflow_root_falls_back_to_cwd_when_no_config(tmp_path
 
 
 def test_lane_state_and_memo_paths_resolve_under_worktree_and_handle_none(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     worktree = tmp_path / "issue-224"
 
     assert paths_module.lane_state_path(worktree) == worktree / ".lane-state.json"
@@ -211,13 +211,13 @@ def test_lane_state_and_memo_paths_resolve_under_worktree_and_handle_none(tmp_pa
 
 
 def test_plugin_entrypoint_path_points_at_generic_dispatcher(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     expected = Path(paths_module.__file__).resolve().parents[2] / "workflows" / "__main__.py"
     assert paths_module.plugin_entrypoint_path(tmp_path / "workflow") == expected
 
 
 def test_workflow_cli_argv_uses_global_plugin_entrypoint(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "workflow"
 
     import sys as _sys
@@ -226,14 +226,14 @@ def test_workflow_cli_argv_uses_global_plugin_entrypoint(tmp_path):
 
 
 def test_project_key_for_workflow_root_reads_instance_name_from_workflow_yaml(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "workflow"
     _write_workflow_yaml(workflow_root, instance_name="Blueprint Engine")
     assert paths_module.project_key_for_workflow_root(workflow_root) == "blueprint-engine"
 
 
 def test_project_key_for_workflow_root_reads_instance_name_from_workflow_markdown(tmp_path):
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "workflow"
     _write_workflow_markdown(workflow_root, instance_name="Blueprint Engine")
     assert paths_module.project_key_for_workflow_root(workflow_root) == "blueprint-engine"
@@ -245,7 +245,7 @@ def test_workflow_cli_argv_always_targets_generic_dispatcher(tmp_path):
     ``workflow_cli_argv`` should always build an argv targeting the plugin's
     generic dispatcher regardless of what happens to exist in the workflow root.
     """
-    paths_module = load_module("daedalus_workflows_code_review_paths_test", "workflows/code_review/paths.py")
+    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "workflow"
 
     import sys as _sys

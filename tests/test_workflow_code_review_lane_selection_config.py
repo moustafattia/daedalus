@@ -18,7 +18,7 @@ def load_module(module_name: str, relative_path: str):
 def _module():
     return load_module(
         "daedalus_workflow_lane_selection_config_test",
-        "workflows/code_review/lane_selection.py",
+        "workflows/change_delivery/lane_selection.py",
     )
 
 

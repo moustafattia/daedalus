@@ -101,7 +101,7 @@ This is the same contract used by `workspace._make_audit_fn`.
    - `name: str`
    - `deliver(audit_event: dict) -> None`
    - `matches(audit_event: dict) -> bool`
-2. Decorate with `@register("your-kind")` from `workflows.code_review.webhooks`.
+2. Decorate with `@register("your-kind")` from `workflows.change_delivery.webhooks`.
 3. Add the kind to `schema.yaml`.
 4. Lazy-import in `build_webhooks` so side-effect registration happens.
 
@@ -117,9 +117,9 @@ This is the same contract used by `workspace._make_audit_fn`.
 
 ## Where this lives in code
 
-- Protocol + factory: `daedalus/workflows/code_review/webhooks/__init__.py`
-- Slack implementation: `daedalus/workflows/code_review/webhooks/slack_incoming.py`
-- HTTP JSON implementation: `daedalus/workflows/code_review/webhooks/http_json.py`
-- Disabled stub: `daedalus/workflows/code_review/webhooks/disabled.py`
-- Fan-out: `daedalus/workflows/code_review/webhooks/__init__.py::compose_audit_subscribers`
+- Protocol + factory: `daedalus/workflows/change_delivery/webhooks/__init__.py`
+- Slack implementation: `daedalus/workflows/change_delivery/webhooks/slack_incoming.py`
+- HTTP JSON implementation: `daedalus/workflows/change_delivery/webhooks/http_json.py`
+- Disabled stub: `daedalus/workflows/change_delivery/webhooks/disabled.py`
+- Fan-out: `daedalus/workflows/change_delivery/webhooks/__init__.py::compose_audit_subscribers`
 - Tests: `tests/test_webhooks_phase_c.py`, `tests/test_webhooks_schema.py`

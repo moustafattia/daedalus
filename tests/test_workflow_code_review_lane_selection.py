@@ -16,11 +16,11 @@ def load_module(module_name: str, relative_path: str):
 
 
 def _gh():
-    return load_module("daedalus_workflow_github_test", "workflows/code_review/github.py")
+    return load_module("daedalus_workflow_github_test", "workflows/change_delivery/github.py")
 
 
 def _ls():
-    return load_module("daedalus_workflow_lane_selection_test_2", "workflows/code_review/lane_selection.py")
+    return load_module("daedalus_workflow_lane_selection_test_2", "workflows/change_delivery/lane_selection.py")
 
 
 def _issue(number, labels=None, title=None, created_at=None):

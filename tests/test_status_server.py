@@ -111,7 +111,7 @@ def _make_events_log(events_path: Path, entries: list[dict]) -> None:
 
 
 def test_state_view_empty_when_no_db(tmp_path: Path) -> None:
-    from workflows.code_review.server.views import state_view
+    from workflows.change_delivery.server.views import state_view
     view = state_view(tmp_path / "missing.db", tmp_path / "missing.jsonl")
     assert view["counts"] == {"running": 0, "retrying": 0}
     assert view["running"] == []
@@ -122,7 +122,7 @@ def test_state_view_empty_when_no_db(tmp_path: Path) -> None:
 
 
 def test_state_view_lists_active_lanes(tmp_path: Path) -> None:
-    from workflows.code_review.server.views import state_view
+    from workflows.change_delivery.server.views import state_view
 
     db = tmp_path / "daedalus.db"
     events = tmp_path / "events.jsonl"
@@ -148,7 +148,7 @@ def test_state_view_lists_active_lanes(tmp_path: Path) -> None:
 
 
 def test_issue_view_returns_none_for_unknown(tmp_path: Path) -> None:
-    from workflows.code_review.server.views import issue_view
+    from workflows.change_delivery.server.views import issue_view
 
     db = tmp_path / "daedalus.db"
     events = tmp_path / "events.jsonl"
@@ -158,7 +158,7 @@ def test_issue_view_returns_none_for_unknown(tmp_path: Path) -> None:
 
 
 def test_issue_view_resolves_by_issue_number_and_lane_id(tmp_path: Path) -> None:
-    from workflows.code_review.server.views import issue_view
+    from workflows.change_delivery.server.views import issue_view
 
     db = tmp_path / "daedalus.db"
     events = tmp_path / "events.jsonl"
@@ -183,10 +183,10 @@ def test_issue_view_resolves_by_issue_number_and_lane_id(tmp_path: Path) -> None
 
 
 def test_refresh_controller_coalesces_rapid_triggers(tmp_path: Path) -> None:
-    from workflows.code_review.server.refresh import RefreshController
+    from workflows.change_delivery.server.refresh import RefreshController
 
     ctrl = RefreshController(tmp_path)
-    with mock.patch("workflows.code_review.server.refresh.subprocess.Popen") as popen:
+    with mock.patch("workflows.change_delivery.server.refresh.subprocess.Popen") as popen:
         results = [ctrl.trigger() for _ in range(10)]
     # First call fires; the rest are debounced.
     assert results[0] is True
@@ -200,11 +200,11 @@ def test_refresh_controller_coalesces_rapid_triggers(tmp_path: Path) -> None:
 
 
 def test_refresh_controller_allows_after_debounce(tmp_path: Path) -> None:
-    from workflows.code_review.server.refresh import RefreshController
+    from workflows.change_delivery.server.refresh import RefreshController
 
     ctrl = RefreshController(tmp_path)
     ctrl.DEBOUNCE_SECONDS = 0.01  # speed up the test
-    with mock.patch("workflows.code_review.server.refresh.subprocess.Popen") as popen:
+    with mock.patch("workflows.change_delivery.server.refresh.subprocess.Popen") as popen:
         assert ctrl.trigger() is True
         time.sleep(0.05)
         assert ctrl.trigger() is True
@@ -215,8 +215,8 @@ def test_refresh_controller_allows_after_debounce(tmp_path: Path) -> None:
 
 
 def test_render_dashboard_includes_lane_identifier(tmp_path: Path) -> None:
-    from workflows.code_review.server.views import state_view
-    from workflows.code_review.server.html import render_dashboard
+    from workflows.change_delivery.server.views import state_view
+    from workflows.change_delivery.server.html import render_dashboard
 
     db = tmp_path / "daedalus.db"
     events = tmp_path / "events.jsonl"
@@ -232,7 +232,7 @@ def test_render_dashboard_includes_lane_identifier(tmp_path: Path) -> None:
 
 
 def test_render_dashboard_escapes_html(tmp_path: Path) -> None:
-    from workflows.code_review.server.html import render_dashboard
+    from workflows.change_delivery.server.html import render_dashboard
 
     state = {
         "generated_at": "2026-04-28T20:15:30Z",
@@ -264,7 +264,7 @@ def test_render_dashboard_escapes_html(tmp_path: Path) -> None:
 
 
 def _start_test_server(tmp_path: Path):
-    from workflows.code_review.server import start_server
+    from workflows.change_delivery.server import start_server
 
     db = tmp_path / "daedalus.db"
     events = tmp_path / "events.jsonl"
@@ -273,7 +273,7 @@ def _start_test_server(tmp_path: Path):
 
     workflow_root = tmp_path
     # Patch path resolution so the server reads the test fixtures.
-    with mock.patch("workflows.code_review.server.routes.runtime_paths") as rp:
+    with mock.patch("workflows.change_delivery.server.routes.runtime_paths") as rp:
         rp.return_value = {"db_path": db, "event_log_path": events, "alert_state_path": tmp_path / "alert.json"}
         handle = start_server(workflow_root, port=0, bind="127.0.0.1")
     return handle
@@ -325,7 +325,7 @@ def test_server_refresh_endpoint_triggers_tick(tmp_path: Path) -> None:
     handle = _start_test_server(tmp_path)
     try:
         url = f"http://127.0.0.1:{handle.port}/api/v1/refresh"
-        with mock.patch("workflows.code_review.server.refresh.subprocess.Popen") as popen:
+        with mock.patch("workflows.change_delivery.server.refresh.subprocess.Popen") as popen:
             req = urllib.request.Request(url, method="POST", data=b"")
             with urllib.request.urlopen(req, timeout=5) as resp:
                 assert resp.status == 202
@@ -379,14 +379,14 @@ def test_server_shutdown_is_clean(tmp_path: Path) -> None:
 def test_serve_subcommand_binds_and_serves(tmp_path: Path) -> None:
     """End-to-end smoke: build a workspace, invoke cli_main(['serve','--port','0'])
     in a thread, assert the state endpoint responds, then shut the server down."""
-    from workflows.code_review.server import start_server as real_start_server
+    from workflows.change_delivery.server import start_server as real_start_server
 
     captured: dict = {}
 
     def fake_start_server(workflow_root, port, bind):
         # Force the server to read the fixture DB rather than the real
         # workspace layout (which is fully mocked here).
-        with mock.patch("workflows.code_review.server.routes.runtime_paths") as rp:
+        with mock.patch("workflows.change_delivery.server.routes.runtime_paths") as rp:
             rp.return_value = {
                 "db_path": tmp_path / "daedalus.db",
                 "event_log_path": tmp_path / "events.jsonl",
@@ -400,7 +400,7 @@ def test_serve_subcommand_binds_and_serves(tmp_path: Path) -> None:
     _make_events_log(tmp_path / "events.jsonl", [])
 
     from types import SimpleNamespace
-    from workflows.code_review.cli import main as cli_main
+    from workflows.change_delivery.cli import main as cli_main
 
     workspace = SimpleNamespace(WORKSPACE=tmp_path, CONFIG={})
 
@@ -408,7 +408,7 @@ def test_serve_subcommand_binds_and_serves(tmp_path: Path) -> None:
 
     def runner():
         try:
-            with mock.patch("workflows.code_review.server.start_server", side_effect=fake_start_server):
+            with mock.patch("workflows.change_delivery.server.start_server", side_effect=fake_start_server):
                 # Make handle.thread.join() return immediately so the CLI
                 # function exits cleanly after we shut down the server.
                 cli_main(workspace, ["serve", "--port", "0"])
@@ -443,7 +443,7 @@ def test_read_events_tail_is_bounded_by_limit_not_file_size(tmp_path):
     """
     import json
     import os
-    from workflows.code_review.server.views import _read_events_tail
+    from workflows.change_delivery.server.views import _read_events_tail
 
     log = tmp_path / "events.jsonl"
     with log.open("w") as fh:
@@ -466,7 +466,7 @@ def test_read_events_tail_is_bounded_by_limit_not_file_size(tmp_path):
 
 def test_refresh_controller_uses_workflow_cli_argv(tmp_path, monkeypatch):
     """Codex P1 on PR #22: refresh must use workflow_cli_argv (plugin
-    entrypoint), not -m workflows.code_review which fails in script-form
+    entrypoint), not -m workflows.change_delivery which fails in script-form
     deployments where workflows isn't on the child's sys.path.
     """
     captured: dict[str, list[str]] = {}
@@ -479,16 +479,16 @@ def test_refresh_controller_uses_workflow_cli_argv(tmp_path, monkeypatch):
 
         return _FakeProc()
 
-    from workflows.code_review.server import refresh as refresh_mod
+    from workflows.change_delivery.server import refresh as refresh_mod
     monkeypatch.setattr(refresh_mod.subprocess, "Popen", fake_popen)
 
     rc = refresh_mod.RefreshController(tmp_path)
     assert rc.trigger() is True
 
     argv = captured.get("argv", [])
-    # Must NOT contain "-m workflows.code_review" — that's the broken form.
+    # Must NOT contain "-m workflows.change_delivery" — that's the broken form.
     joined = " ".join(argv)
-    assert "-m workflows.code_review" not in joined, (
+    assert "-m workflows.change_delivery" not in joined, (
         f"refresh argv uses module-form which breaks in installed script "
         f"deployments. argv={argv}"
     )

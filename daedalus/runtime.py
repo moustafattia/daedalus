@@ -8,13 +8,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from workflows.code_review.paths import (
+from workflows.change_delivery.paths import (
     plugin_entrypoint_path,
     project_key_for_workflow_root,
     runtime_paths,
     workflow_cli_argv,
 )
-from workflows.code_review.event_taxonomy import (
+from workflows.change_delivery.event_taxonomy import (
     DAEDALUS_ACTIVE_ACTION_COMPLETED,
     DAEDALUS_ACTIVE_ACTION_FAILED,
     DAEDALUS_ACTIVE_ACTION_REQUESTED,
@@ -30,7 +30,7 @@ from workflows.code_review.event_taxonomy import (
     DAEDALUS_SHADOW_ACTION_REQUESTED,
     canonicalize as canonicalize_event_type,
 )
-from workflows.code_review.status import build_status as build_workflow_status
+from workflows.change_delivery.status import build_status as build_workflow_status
 import sys
 
 def _load_migration_module():
@@ -3707,7 +3707,7 @@ def _load_legacy_workflow_module(workflow_root: Path):
     Returns an object that exposes the full workflow attribute
     surface (``build_status``, ``reconcile``, ``doctor``, ``dispatch_*``,
     config constants, helper methods). The supported resolution is via
-    ``workflows.code_review.workspace.load_workspace_from_config``.
+    ``workflows.change_delivery.workspace.load_workspace_from_config``.
     """
     plugin_root = Path(__file__).resolve().parent
     plugin_main = plugin_root / "workflows" / "__main__.py"
@@ -3718,7 +3718,7 @@ def _load_legacy_workflow_module(workflow_root: Path):
         )
     if str(plugin_root) not in sys.path:
         sys.path.insert(0, str(plugin_root))
-    workspace_mod = importlib.import_module("workflows.code_review.workspace")
+    workspace_mod = importlib.import_module("workflows.change_delivery.workspace")
     return workspace_mod.load_workspace_from_config(workspace_root=workflow_root)
 
 

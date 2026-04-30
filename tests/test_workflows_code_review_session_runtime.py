@@ -16,7 +16,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def test_normalize_acpx_session_meta_maps_session_fields():
-    sessions_module = load_module("daedalus_workflows_code_review_session_runtime_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_session_runtime_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.normalize_acpx_session_meta(
         {
@@ -41,7 +41,7 @@ def test_normalize_acpx_session_meta_maps_session_fields():
 
 
 def test_show_acpx_session_returns_normalized_payload():
-    sessions_module = load_module("daedalus_workflows_code_review_session_runtime_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_session_runtime_test", "workflows/change_delivery/sessions.py")
 
     seen = {}
 
@@ -68,7 +68,7 @@ def test_show_acpx_session_returns_normalized_payload():
 
 
 def test_close_acpx_session_returns_true_when_runner_succeeds():
-    sessions_module = load_module("daedalus_workflows_code_review_session_runtime_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_session_runtime_test", "workflows/change_delivery/sessions.py")
 
     seen = {}
 
@@ -87,7 +87,7 @@ def test_close_acpx_session_returns_true_when_runner_succeeds():
 
 
 def test_ensure_acpx_session_retries_without_resume_when_resource_not_found():
-    sessions_module = load_module("daedalus_workflows_code_review_session_runtime_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_session_runtime_test", "workflows/change_delivery/sessions.py")
 
     calls = []
 
@@ -114,7 +114,7 @@ def test_ensure_acpx_session_retries_without_resume_when_resource_not_found():
 
 
 def test_run_acpx_prompt_returns_stripped_stdout():
-    sessions_module = load_module("daedalus_workflows_code_review_session_runtime_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_session_runtime_test", "workflows/change_delivery/sessions.py")
 
     class Completed:
         stdout = "ok\n"
@@ -139,7 +139,7 @@ def test_run_acpx_prompt_returns_stripped_stdout():
 
 
 def test_prepare_lane_worktree_reuses_existing_git_repo_and_restores_artifacts(tmp_path):
-    sessions_module = load_module("daedalus_workflows_code_review_session_runtime_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_session_runtime_test", "workflows/change_delivery/sessions.py")
 
     worktree = tmp_path / 'lane'
     worktree.mkdir()
@@ -169,7 +169,7 @@ def test_prepare_lane_worktree_reuses_existing_git_repo_and_restores_artifacts(t
 
 
 def test_is_git_repo_helper_detects_repo_and_handles_missing_path(tmp_path):
-    sessions_module = load_module("daedalus_workflows_code_review_session_runtime_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_session_runtime_test", "workflows/change_delivery/sessions.py")
     worktree = tmp_path / 'lane'
     worktree.mkdir()
     seen = []
@@ -185,7 +185,7 @@ def test_is_git_repo_helper_detects_repo_and_handles_missing_path(tmp_path):
 
 
 def test_prepare_lane_worktree_recreates_non_git_directory_before_worktree_add(tmp_path):
-    sessions_module = load_module("daedalus_workflows_code_review_session_runtime_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_session_runtime_test", "workflows/change_delivery/sessions.py")
 
     worktree = tmp_path / 'lane'
     worktree.mkdir()

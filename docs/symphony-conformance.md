@@ -14,8 +14,8 @@ The short version: Daedalus is already **Symphony-aligned** in architecture, but
 
 | Symphony concept | Daedalus status | Notes |
 |---|---|---|
-| `WORKFLOW.md` loader | Partial | Supported at the workflow root as the public contract. Front matter maps directly to the current `code-review` schema, and the Markdown body becomes shared workflow policy. |
-| Typed config + hot reload | Implemented | Current `code-review` schema is validated and hot-reloaded with last-known-good behavior. |
+| `WORKFLOW.md` loader | Partial | Supported at the workflow root as the public contract. Front matter maps directly to the current `change-delivery` schema, and the Markdown body becomes shared workflow policy. |
+| Typed config + hot reload | Implemented | Current `change-delivery` schema is validated and hot-reloaded with last-known-good behavior. |
 | Issue tracker client boundary | Partial | GitHub issue selection exists, but there is no generic tracker protocol or Linear adapter yet. |
 | Workspace manager | Partial | Per-lane worktrees and lane-local files exist; generic lifecycle hooks are not first-class yet. |
 | Bounded concurrency | Partial | Ownership and recovery exist; Symphony-style global/per-state scheduler limits are not yet config-first. |
@@ -29,7 +29,7 @@ The short version: Daedalus is already **Symphony-aligned** in architecture, but
 
 Daedalus currently differs from the Symphony draft in three material ways:
 
-1. The first workflow is GitHub-backed `code-review`, not a Linear-backed generic scheduler.
+1. The first workflow is GitHub-backed `change-delivery`, not a Linear-backed generic scheduler.
 2. Runtime adapters are CLI-oriented today, not Codex app-server-native.
 3. `WORKFLOW.md` still maps into the current Daedalus schema rather than a tracker-agnostic Symphony config model.
 

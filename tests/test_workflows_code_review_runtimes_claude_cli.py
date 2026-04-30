@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def _make_runtime(**cfg_overrides):
-    from workflows.code_review.runtimes.claude_cli import ClaudeCliRuntime
+    from workflows.change_delivery.runtimes.claude_cli import ClaudeCliRuntime
 
     cfg = {
         "kind": "claude-cli",

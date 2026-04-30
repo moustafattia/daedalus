@@ -23,8 +23,8 @@ def load_module(module_name: str, relative_path: str):
 
 def test_end_to_end_audit_creates_then_edits_bot_comment(tmp_path):
     workspace_module = load_module(
-        "daedalus_workflow_code_review_workspace_e2e",
-        "workflows/code_review/workspace.py",
+        "daedalus_workflow_change_delivery_workspace_e2e",
+        "workflows/change_delivery/workspace.py",
     )
     state_dir = tmp_path / "lane-comments"
     audit_log_path = tmp_path / "audit.jsonl"

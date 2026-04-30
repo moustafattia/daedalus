@@ -22,8 +22,8 @@ def load_module(module_name: str, relative_path: str):
 
 def _publisher():
     return load_module(
-        "daedalus_workflow_code_review_comments_publisher_test",
-        "workflows/code_review/comments_publisher.py",
+        "daedalus_workflow_change_delivery_comments_publisher_test",
+        "workflows/change_delivery/comments_publisher.py",
     )
 
 

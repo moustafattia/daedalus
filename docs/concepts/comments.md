@@ -97,9 +97,9 @@ The table is truncated at ~50 rows to avoid GitHub's comment length limits. Olde
 ## Operator commands
 
 ```text
-/daedalus set-observability --workflow code-review --github-comments on
-/daedalus set-observability --workflow code-review --github-comments off
-/daedalus get-observability --workflow code-review
+/daedalus set-observability --workflow change-delivery --github-comments on
+/daedalus set-observability --workflow change-delivery --github-comments off
+/daedalus get-observability --workflow change-delivery
 ```
 
 `get-observability` shows:
@@ -119,8 +119,8 @@ The table is truncated at ~50 rows to avoid GitHub's comment length limits. Olde
 
 ## Where this lives in code
 
-- Comment formatting: `daedalus/workflows/code_review/comments.py`
-- Comment publishing: `daedalus/workflows/code_review/comments_publisher.py`
-- Observability config: `daedalus/workflows/code_review/observability.py`
+- Comment formatting: `daedalus/workflows/change_delivery/comments.py`
+- Comment publishing: `daedalus/workflows/change_delivery/comments_publisher.py`
+- Observability config: `daedalus/workflows/change_delivery/observability.py`
 - Override surface: `daedalus/observability_overrides.py`
-- Tests: `tests/test_workflow_code_review_comments_*.py`
+- Tests: `tests/test_workflow_change_delivery_comments_*.py`

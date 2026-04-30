@@ -335,7 +335,7 @@ daedalus/
 ├── observability_overrides.py  # Operator config overrides
 └── workflows/
     ├── __init__.py          # Workflow CLI entrypoint
-    └── code_review/
+    └── change_delivery/
         ├── workflow.py      # Semantic policy engine
         ├── dispatch.py      # Action dispatch
         ├── actions.py       # Action primitives

@@ -165,11 +165,11 @@ def reconcile_stalls_tick(
 ) -> list:
     import time as _time
 
-    from workflows.code_review.event_taxonomy import (
+    from workflows.change_delivery.event_taxonomy import (
         DAEDALUS_STALL_DETECTED,
         DAEDALUS_STALL_TERMINATED,
     )
-    from workflows.code_review.stall import reconcile_stalls
+    from workflows.change_delivery.stall import reconcile_stalls
     from runtime import append_daedalus_event
 
     if now is None:

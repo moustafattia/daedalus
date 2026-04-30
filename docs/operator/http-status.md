@@ -14,7 +14,7 @@ server:
 Then run the long-running CLI subcommand (separate from `tick`):
 
 ```bash
-python3 -m workflows.code_review serve --workflow-root <root>
+python3 -m workflows.change_delivery serve --workflow-root <root>
 ```
 
 The server is `http.server.ThreadingHTTPServer`, stdlib-only, and reads SQLite via WAL read-only URI connections (`mode=ro`). It never writes — `POST /api/v1/refresh` shells out a tick subprocess instead.
@@ -67,8 +67,8 @@ Shells out the workflow's CLI entry point (resolved via `workflow_cli_argv()` so
 
 ## Where this lives in code
 
-- Server entrypoint: `daedalus/workflows/code_review/server/__init__.py`
-- Routes: `daedalus/workflows/code_review/server/routes.py`
-- Read views: `daedalus/workflows/code_review/server/views.py`
-- Refresh hook: `daedalus/workflows/code_review/server/refresh.py`
-- HTML: `daedalus/workflows/code_review/server/html.py`
+- Server entrypoint: `daedalus/workflows/change_delivery/server/__init__.py`
+- Routes: `daedalus/workflows/change_delivery/server/routes.py`
+- Read views: `daedalus/workflows/change_delivery/server/views.py`
+- Refresh hook: `daedalus/workflows/change_delivery/server/refresh.py`
+- HTML: `daedalus/workflows/change_delivery/server/html.py`

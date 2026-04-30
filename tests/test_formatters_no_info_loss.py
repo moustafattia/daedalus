@@ -166,7 +166,7 @@ def test_shadow_report_no_info_loss():
 def test_get_observability_no_info_loss():
     fmt = _fmt()
     result = {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "github_comments": {
             "enabled": True,
             "mode": "edit-in-place",

@@ -42,7 +42,7 @@ def test_bootstrap_workflow_infers_repo_root_slug_and_default_root(tmp_path, mon
 
     result = tools.bootstrap_workflow_root(
         repo_path=nested,
-        workflow_name="code-review",
+        workflow_name="change-delivery",
         workflow_root=None,
         github_slug=None,
         active_lane_label="active-lane",
@@ -50,7 +50,7 @@ def test_bootstrap_workflow_infers_repo_root_slug_and_default_root(tmp_path, mon
         force=False,
     )
 
-    expected_root = home / ".hermes" / "workflows" / "attmous-daedalus-code-review"
+    expected_root = home / ".hermes" / "workflows" / "attmous-daedalus-change-delivery"
     contract_path = expected_root / "WORKFLOW.md"
     pointer_path = repo_root / ".hermes" / "daedalus" / "workflow-root"
     cfg = load_workflow_contract_file(contract_path).config
@@ -71,11 +71,11 @@ def test_bootstrap_workflow_accepts_explicit_slug_for_non_github_remote(tmp_path
     tools = _tools()
     repo_root = tmp_path / "repo"
     _init_git_repo(repo_root, remote_url="git@example.com:team/project.git")
-    workflow_root = tmp_path / ".hermes" / "workflows" / "acme-widget-code-review"
+    workflow_root = tmp_path / ".hermes" / "workflows" / "acme-widget-change-delivery"
 
     result = tools.bootstrap_workflow_root(
         repo_path=repo_root,
-        workflow_name="code-review",
+        workflow_name="change-delivery",
         workflow_root=workflow_root,
         github_slug="acme/widget",
         active_lane_label="active-lane",
@@ -98,7 +98,7 @@ def test_bootstrap_workflow_requires_git_repo(tmp_path):
     with pytest.raises(tools.DaedalusCommandError) as exc:
         tools.bootstrap_workflow_root(
             repo_path=non_repo,
-            workflow_name="code-review",
+            workflow_name="change-delivery",
             workflow_root=None,
             github_slug=None,
             active_lane_label="active-lane",

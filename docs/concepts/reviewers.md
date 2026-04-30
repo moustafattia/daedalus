@@ -167,10 +167,10 @@ limit 1;
 
 ## Where this lives in code
 
-- Review policy: `daedalus/workflows/code_review/reviews.py`
-- Reviewer implementations: `daedalus/workflows/code_review/reviewers/`
-- Review dispatch: `daedalus/workflows/code_review/dispatch.py`
-- Findings parsing: `daedalus/workflows/code_review/reviews.py` (look for `_extract_json_object`, `SEVERITY_BADGE_RE`)
-- Repair handoff: `daedalus/workflows/code_review/actions.py`
-- Review state schema: `daedalus/workflows/code_review/migrations.py`
-- Tests: `tests/test_workflows_code_review_reviews.py`, `tests/test_external_reviewer_phase_b.py`
+- Review policy: `daedalus/workflows/change_delivery/reviews.py`
+- Reviewer implementations: `daedalus/workflows/change_delivery/reviewers/`
+- Review dispatch: `daedalus/workflows/change_delivery/dispatch.py`
+- Findings parsing: `daedalus/workflows/change_delivery/reviews.py` (look for `_extract_json_object`, `SEVERITY_BADGE_RE`)
+- Repair handoff: `daedalus/workflows/change_delivery/actions.py`
+- Review state schema: `daedalus/workflows/change_delivery/migrations.py`
+- Tests: `tests/test_workflows_change_delivery_reviews.py`, `tests/test_external_reviewer_phase_b.py`

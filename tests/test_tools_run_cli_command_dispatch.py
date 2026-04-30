@@ -48,7 +48,7 @@ def test_run_cli_command_dispatches_set_observability(tmp_path, capsys):
             "--workflow-root",
             str(tmp_path),
             "--workflow",
-            "code-review",
+            "change-delivery",
             "--github-comments",
             "unset",
         ],
@@ -56,7 +56,7 @@ def test_run_cli_command_dispatches_set_observability(tmp_path, capsys):
     tools.run_cli_command(args)
     out = capsys.readouterr().out
     assert "unknown daedalus command" not in out, out
-    assert "code-review" in out
+    assert "change-delivery" in out
 
 
 def test_run_cli_command_dispatches_get_observability(tmp_path, capsys):
@@ -68,13 +68,13 @@ def test_run_cli_command_dispatches_get_observability(tmp_path, capsys):
             "--workflow-root",
             str(tmp_path),
             "--workflow",
-            "code-review",
+            "change-delivery",
         ],
     )
     tools.run_cli_command(args)
     out = capsys.readouterr().out
     assert "unknown daedalus command" not in out, out
-    assert "code-review" in out or "github-comments" in out.lower()
+    assert "change-delivery" in out or "github-comments" in out.lower()
 
 
 def test_run_cli_command_dispatches_watch(tmp_path, capsys):
@@ -98,7 +98,7 @@ def test_run_cli_command_dispatches_watch(tmp_path, capsys):
 
 def test_run_cli_command_dispatches_scaffold_workflow(tmp_path, capsys):
     tools = _tools()
-    root = tmp_path / "attmous-daedalus-code-review"
+    root = tmp_path / "attmous-daedalus-change-delivery"
     args = _parse(
         tools,
         [
@@ -144,4 +144,4 @@ def test_run_cli_command_dispatches_bootstrap(tmp_path, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "unknown daedalus command" not in out, out
     assert "bootstrapped workflow root" in out
-    assert (home / ".hermes" / "workflows" / "attmous-daedalus-code-review" / "WORKFLOW.md").exists()
+    assert (home / ".hermes" / "workflows" / "attmous-daedalus-change-delivery" / "WORKFLOW.md").exists()

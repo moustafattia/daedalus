@@ -10,7 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
 
 
 def _load_workspace_module():
-    workspace_path = REPO_ROOT / "workflows" / "code_review" / "workspace.py"
+    workspace_path = REPO_ROOT / "workflows" / "change_delivery" / "workspace.py"
     spec = importlib.util.spec_from_file_location(
         "daedalus_workspace_yaml_loader_test", workspace_path
     )
@@ -23,12 +23,12 @@ def _load_workspace_module():
 def _yaml_config(repo_path: Path) -> dict:
     """Minimal valid YAML config that satisfies the schema and the bridge.
 
-    Mirrors the shape used by tests/test_workflows_code_review_entrypoint.py
+    Mirrors the shape used by tests/test_workflows_change_delivery_entrypoint.py
     in `_write_workflow_yaml` so the same bridge in `_yaml_to_legacy_view`
     can project it into the legacy view.
     """
     return {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {

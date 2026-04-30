@@ -25,8 +25,8 @@ def test_repo_root_exposes_official_hermes_plugin_layout():
         REPO_ROOT / "runtime.py",
         REPO_ROOT / "workflows" / "__init__.py",
         REPO_ROOT / "workflows" / "__main__.py",
-        REPO_ROOT / "workflows" / "code_review" / "__init__.py",
-        REPO_ROOT / "workflows" / "code_review" / "__main__.py",
+        REPO_ROOT / "workflows" / "change_delivery" / "__init__.py",
+        REPO_ROOT / "workflows" / "change_delivery" / "__main__.py",
     ]
     missing = [str(path.relative_to(REPO_ROOT)) for path in expected if not path.exists()]
     assert not missing, f"missing repo-root plugin files: {missing}"
@@ -67,7 +67,7 @@ def test_repo_root_plugin_entrypoint_registers_same_commands_and_skill():
 
 def test_repo_root_tools_wrapper_dispatches_scaffold(tmp_path):
     tools = _load_module("daedalus_repo_root_tools_test", REPO_ROOT / "tools.py")
-    workflow_root = tmp_path / "attmous-daedalus-code-review"
+    workflow_root = tmp_path / "attmous-daedalus-change-delivery"
 
     out = tools.execute_raw_args(
         f"scaffold-workflow --workflow-root {workflow_root} --github-slug attmous/daedalus"
@@ -77,14 +77,14 @@ def test_repo_root_tools_wrapper_dispatches_scaffold(tmp_path):
     assert (workflow_root / "WORKFLOW.md").exists()
 
 
-def test_repo_root_workflows_wrapper_exposes_code_review_submodules():
+def test_repo_root_workflows_wrapper_exposes_change_delivery_submodules():
     for module_name in list(sys.modules):
         if module_name == "workflows" or module_name.startswith("workflows."):
             del sys.modules[module_name]
 
     import importlib
 
-    runtimes = importlib.import_module("workflows.code_review.runtimes")
+    runtimes = importlib.import_module("workflows.change_delivery.runtimes")
 
     assert runtimes.__file__ is not None
-    assert "daedalus/workflows/code_review/runtimes" in runtimes.__file__
+    assert "daedalus/workflows/change_delivery/runtimes" in runtimes.__file__

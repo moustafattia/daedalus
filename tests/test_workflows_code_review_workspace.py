@@ -36,7 +36,7 @@ def _minimal_config(tmp_path: Path) -> dict:
 
 def _workflow_yaml_config(tmp_path: Path) -> dict:
     return {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {
@@ -77,7 +77,7 @@ def _workflow_yaml_config(tmp_path: Path) -> dict:
 
 
 def test_make_workspace_exposes_config_constants_and_primitives(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     config = _minimal_config(tmp_path)
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=config)
     # Constants
@@ -102,7 +102,7 @@ def test_make_workspace_exposes_config_constants_and_primitives(tmp_path):
 
 
 def test_workspace_engine_owner_selects_hermes_cron_jobs_path(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     config = _minimal_config(tmp_path)
     config["hermesCronJobsPath"] = str(tmp_path / "hermes-jobs.json")
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=config)
@@ -114,7 +114,7 @@ def test_workspace_engine_owner_selects_hermes_cron_jobs_path(tmp_path):
 
 
 def test_workspace_uses_workflow_policy_from_workflow_contract(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     cfg = _workflow_yaml_config(tmp_path)
     cfg["workflow-policy"] = "Never widen scope."
 
@@ -136,7 +136,7 @@ def test_workspace_uses_workflow_policy_from_workflow_contract(tmp_path):
 
 
 def test_workspace_audit_appends_jsonl(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     config = _minimal_config(tmp_path)
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=config)
     ws.audit("test-action", "hello world", value=42)
@@ -151,7 +151,7 @@ def test_workspace_audit_appends_jsonl(tmp_path):
 
 
 def test_workspace_load_and_save_ledger_roundtrip(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     config = _minimal_config(tmp_path)
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=config)
     ws.save_ledger({"workflowState": "implementing_local"})
@@ -159,14 +159,14 @@ def test_workspace_load_and_save_ledger_roundtrip(tmp_path):
 
 
 def test_iso_to_epoch_interprets_utc(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=_minimal_config(tmp_path))
     # 2024-01-01T00:00:00Z == 1704067200
     assert ws._iso_to_epoch("2024-01-01T00:00:00Z") == 1704067200
 
 
 def test_load_workspace_from_config_reads_file(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     workspace_root = tmp_path / "workflow"
     config_dir = workspace_root / "config"
     config_dir.mkdir(parents=True)
@@ -179,7 +179,7 @@ def test_load_workspace_from_config_reads_file(tmp_path):
 
 
 def test_workspace_exposes_adapter_module_loaders(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=_minimal_config(tmp_path))
     # Generic loader + one-liner facade helpers are all available.
     assert callable(ws._load_adapter_module)
@@ -198,10 +198,10 @@ def test_workspace_exposes_adapter_module_loaders(tmp_path):
 
 
 def test_workspace_adapter_loader_does_not_depend_on_workflow_local_plugin(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=_minimal_config(tmp_path))
     module = ws._load_adapter_status_module()
-    assert module.__file__.endswith("workflows/code_review/status.py")
+    assert module.__file__.endswith("workflows/change_delivery/status.py")
 
 
 def test_workspace_exposes_full_wrapper_facade(tmp_path):
@@ -210,7 +210,7 @@ def test_workspace_exposes_full_wrapper_facade(tmp_path):
     This test pins the contract: when the wrapper is eventually deleted, the
     adapter orchestrator + cli will look up these names on ``ws`` directly.
     """
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=_minimal_config(tmp_path))
 
     # Orchestrator + reconcile + doctor
@@ -286,7 +286,7 @@ def test_workspace_exposes_full_wrapper_facade(tmp_path):
 
 
 def test_workspace_managed_job_names_dedupes(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     config = _minimal_config(tmp_path)
     config["coreJobNames"] = ["a", "b", "a"]
     config["hermesJobNames"] = ["b", "c"]
@@ -295,13 +295,13 @@ def test_workspace_managed_job_names_dedupes(tmp_path):
 
 
 def test_workspace_summarize_job_returns_none_for_none(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=_minimal_config(tmp_path))
     assert ws._summarize_job(None) is None
 
 
 def test_workspace_job_delivery_defaults(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=_minimal_config(tmp_path))
     assert ws._job_delivery({}) == {"mode": "none"}
     assert ws._job_delivery({"deliver": "telegram"}) == {"mode": "telegram"}
@@ -309,7 +309,7 @@ def test_workspace_job_delivery_defaults(tmp_path):
 
 
 def test_workspace_lane_operator_attention_reasons(tmp_path):
-    workspace_module = load_module("daedalus_workflows_code_review_workspace_test", "workflows/code_review/workspace.py")
+    workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     config = _minimal_config(tmp_path)
     config["sessionPolicy"] = {
         "codexModel": "gpt-5.3-codex-spark/high",
@@ -364,7 +364,7 @@ def test_workspace_exposes_runtime_accessor_with_named_profiles(tmp_path):
         },
         "agentLabels": {},
     }
-    workspace_mod = importlib.import_module("workflows.code_review.workspace")
+    workspace_mod = importlib.import_module("workflows.change_delivery.workspace")
     ws = workspace_mod.make_workspace(workspace_root=tmp_path, config=config)
 
     assert hasattr(ws, "runtime"), "workspace must expose `runtime(name)` accessor"
@@ -405,7 +405,7 @@ def test_workspace_runtime_accessor_errors_on_unknown_name(tmp_path):
         "reviewPolicy": {},
         "agentLabels": {},
     }
-    workspace_mod = importlib.import_module("workflows.code_review.workspace")
+    workspace_mod = importlib.import_module("workflows.change_delivery.workspace")
     ws = workspace_mod.make_workspace(workspace_root=tmp_path, config=config)
 
     import pytest
@@ -420,10 +420,10 @@ def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
     """Given the new YAML shape, workspace exposes the same attribute surface
     callers have historically used (REPO_PATH, INTER_REVIEW_AGENT_MODEL, etc.)."""
     from pathlib import Path as _Path
-    from workflows.code_review.workspace import make_workspace
+    from workflows.change_delivery.workspace import make_workspace
 
     yaml_cfg = {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {
@@ -513,10 +513,10 @@ def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
 
 def test_workspace_raises_on_agent_referencing_unknown_runtime(tmp_path):
     """YAML shape: agents pointing at runtimes that aren't declared raise ValueError."""
-    from workflows.code_review.workspace import make_workspace
+    from workflows.change_delivery.workspace import make_workspace
 
     cfg = {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "test", "engine-owner": "hermes"},
         "repository": {"local-path": str(tmp_path), "github-slug": "o/r", "active-lane-label": "active-lane"},

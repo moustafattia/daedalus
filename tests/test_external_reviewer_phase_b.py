@@ -8,21 +8,21 @@ import pytest
 
 
 def test_reviewer_module_exposes_protocol_and_registry():
-    from workflows.code_review.reviewers import Reviewer, ReviewerContext, register, build_reviewer, _REVIEWER_KINDS
+    from workflows.change_delivery.reviewers import Reviewer, ReviewerContext, register, build_reviewer, _REVIEWER_KINDS
     assert callable(register)
     assert callable(build_reviewer)
     assert isinstance(_REVIEWER_KINDS, dict)
 
 
 def test_build_reviewer_unknown_kind_raises():
-    from workflows.code_review.reviewers import build_reviewer
+    from workflows.change_delivery.reviewers import build_reviewer
 
     with pytest.raises(ValueError, match="unknown"):
         build_reviewer({"kind": "made-up"}, ws_context=MagicMock())
 
 
 def _ws_context():
-    from workflows.code_review.reviewers import ReviewerContext
+    from workflows.change_delivery.reviewers import ReviewerContext
 
     return ReviewerContext(
         run_json=MagicMock(return_value={"data": {"repository": {"pullRequest": {
@@ -40,14 +40,14 @@ def _ws_context():
 
 
 def test_github_comments_reviewer_registered():
-    from workflows.code_review.reviewers import _REVIEWER_KINDS, github_comments  # noqa: F401
+    from workflows.change_delivery.reviewers import _REVIEWER_KINDS, github_comments  # noqa: F401
 
     assert "github-comments" in _REVIEWER_KINDS
 
 
 def test_github_comments_reviewer_uses_configured_repo_slug():
     """Regression: repo slug comes from reviewer config, not from workspace.py hardcode."""
-    from workflows.code_review.reviewers import build_reviewer
+    from workflows.change_delivery.reviewers import build_reviewer
 
     ctx = _ws_context()
     cfg = {
@@ -71,7 +71,7 @@ def test_github_comments_reviewer_uses_configured_repo_slug():
 
 def test_github_comments_reviewer_uses_configured_logins():
     """Bot logins come from reviewer config."""
-    from workflows.code_review.reviewers import build_reviewer
+    from workflows.change_delivery.reviewers import build_reviewer
 
     ctx = _ws_context()
     # Inject one matching review-thread comment from a custom bot login.
@@ -100,7 +100,7 @@ def test_github_comments_reviewer_uses_configured_logins():
 
 def test_github_comments_reviewer_ignores_non_matching_logins():
     """Comments from non-configured logins are filtered out."""
-    from workflows.code_review.reviewers import build_reviewer
+    from workflows.change_delivery.reviewers import build_reviewer
 
     ctx = _ws_context()
     ctx.run_json.return_value = {"data": {"repository": {"pullRequest": {
@@ -125,7 +125,7 @@ def test_github_comments_reviewer_ignores_non_matching_logins():
 
 def test_github_comments_reviewer_placeholder():
     """Placeholder shape matches reviews.codex_cloud_placeholder for back-compat."""
-    from workflows.code_review.reviewers import build_reviewer
+    from workflows.change_delivery.reviewers import build_reviewer
 
     cfg = {"enabled": True, "name": "X", "kind": "github-comments", "repo-slug": "x/y"}
     rv = build_reviewer(cfg, ws_context=_ws_context())
@@ -136,13 +136,13 @@ def test_github_comments_reviewer_placeholder():
 
 
 def test_disabled_reviewer_registered():
-    from workflows.code_review.reviewers import _REVIEWER_KINDS, disabled  # noqa: F401
+    from workflows.change_delivery.reviewers import _REVIEWER_KINDS, disabled  # noqa: F401
 
     assert "disabled" in _REVIEWER_KINDS
 
 
 def test_disabled_reviewer_returns_skipped_placeholder():
-    from workflows.code_review.reviewers import build_reviewer
+    from workflows.change_delivery.reviewers import build_reviewer
 
     cfg = {"enabled": False, "name": "X"}
     rv = build_reviewer(cfg, ws_context=_ws_context())
@@ -152,7 +152,7 @@ def test_disabled_reviewer_returns_skipped_placeholder():
 
 
 def test_disabled_reviewer_does_not_call_run_json():
-    from workflows.code_review.reviewers import build_reviewer
+    from workflows.change_delivery.reviewers import build_reviewer
 
     ctx = _ws_context()
     cfg = {"enabled": False, "name": "X"}
@@ -164,8 +164,8 @@ def test_disabled_reviewer_does_not_call_run_json():
 
 def test_build_reviewer_defaults_to_disabled_when_enabled_false():
     """enabled: false wins over an explicit kind."""
-    from workflows.code_review.reviewers import build_reviewer
-    from workflows.code_review.reviewers.disabled import DisabledReviewer
+    from workflows.change_delivery.reviewers import build_reviewer
+    from workflows.change_delivery.reviewers.disabled import DisabledReviewer
 
     rv = build_reviewer({"enabled": False, "kind": "github-comments"}, ws_context=_ws_context())
     assert isinstance(rv, DisabledReviewer)
@@ -173,8 +173,8 @@ def test_build_reviewer_defaults_to_disabled_when_enabled_false():
 
 def test_build_reviewer_defaults_to_github_comments_when_enabled():
     """No explicit kind + enabled: true -> github-comments."""
-    from workflows.code_review.reviewers import build_reviewer
-    from workflows.code_review.reviewers.github_comments import GithubCommentsReviewer
+    from workflows.change_delivery.reviewers import build_reviewer
+    from workflows.change_delivery.reviewers.github_comments import GithubCommentsReviewer
 
     rv = build_reviewer({"enabled": True, "name": "X"}, ws_context=_ws_context())
     assert isinstance(rv, GithubCommentsReviewer)
@@ -182,26 +182,26 @@ def test_build_reviewer_defaults_to_github_comments_when_enabled():
 
 def test_default_logins_includes_both_codex_connector_forms():
     """Regression: legacy CODEX_BOT_LOGINS had both bare and bracketed forms."""
-    from workflows.code_review.reviewers.github_comments import _DEFAULT_LOGINS
+    from workflows.change_delivery.reviewers.github_comments import _DEFAULT_LOGINS
     assert "chatgpt-codex-connector" in _DEFAULT_LOGINS
     assert "chatgpt-codex-connector[bot]" in _DEFAULT_LOGINS
 
 
 def test_default_clean_reactions_only_includes_thumbs_up():
     """Regression: legacy default was just '+1'; expanded defaults can prematurely pass merge gate."""
-    from workflows.code_review.reviewers.github_comments import _DEFAULT_CLEAN_REACTIONS
+    from workflows.change_delivery.reviewers.github_comments import _DEFAULT_CLEAN_REACTIONS
     assert tuple(_DEFAULT_CLEAN_REACTIONS) == ("+1",)
 
 
 def test_default_cache_seconds_matches_legacy_1800():
     """Regression: legacy CODEX_CLOUD_CACHE_SECONDS was 1800."""
-    from workflows.code_review.reviewers.github_comments import _DEFAULT_CACHE_SECONDS
+    from workflows.change_delivery.reviewers.github_comments import _DEFAULT_CACHE_SECONDS
     assert _DEFAULT_CACHE_SECONDS == 1800
 
 
 def test_cache_seconds_zero_is_preserved():
     """cache-seconds: 0 must not be treated as falsy and replaced with the default."""
-    from workflows.code_review.reviewers.github_comments import GithubCommentsReviewer
+    from workflows.change_delivery.reviewers.github_comments import GithubCommentsReviewer
 
     rv = GithubCommentsReviewer(
         {"enabled": True, "name": "X", "cache-seconds": 0},

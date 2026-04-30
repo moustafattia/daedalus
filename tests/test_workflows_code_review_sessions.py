@@ -15,7 +15,7 @@ def load_module(module_name: str, relative_path: str):
 
 
 def test_decide_session_action_prefers_continue_for_healthy_session():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.decide_session_action(
         active_session_health={"healthy": True, "sessionName": "lane-224"},
@@ -27,7 +27,7 @@ def test_decide_session_action_prefers_continue_for_healthy_session():
 
 
 def test_decide_session_action_uses_poke_for_stale_open_session_that_can_poke():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.decide_session_action(
         active_session_health={"healthy": False, "canPoke": True, "reason": "stale-open-session", "sessionName": "lane-224"},
@@ -39,7 +39,7 @@ def test_decide_session_action_uses_poke_for_stale_open_session_that_can_poke():
 
 
 def test_decide_session_action_requests_restart_for_active_lane_without_healthy_session():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.decide_session_action(
         active_session_health={"healthy": False, "reason": "missing-session-meta", "sessionName": None},
@@ -52,7 +52,7 @@ def test_decide_session_action_requests_restart_for_active_lane_without_healthy_
 
 
 def test_expected_lane_worktree_uses_tmp_issue_path():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.expected_lane_worktree(224)
 
@@ -61,7 +61,7 @@ def test_expected_lane_worktree_uses_tmp_issue_path():
 
 
 def test_expected_lane_branch_slugifies_issue_title():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.expected_lane_branch({"number": 224, "title": "[A07] God objects grew past every threshold the doc claims; 'thin composition shell' claim is false"})
 
@@ -70,7 +70,7 @@ def test_expected_lane_branch_slugifies_issue_title():
 
 
 def test_lane_acpx_session_name_uses_lane_prefix():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.lane_acpx_session_name(224)
 
@@ -79,7 +79,7 @@ def test_lane_acpx_session_name_uses_lane_prefix():
 
 
 def test_issue_number_extractors_parse_branch_and_worktree():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     assert sessions_module.issue_number_from_branch('codex/issue-224-something') == 224
     assert sessions_module.issue_number_from_worktree('/tmp/issue-224') == 224
@@ -87,7 +87,7 @@ def test_issue_number_extractors_parse_branch_and_worktree():
 
 
 def test_implementation_lane_matches_when_any_lane_hint_matches():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.implementation_lane_matches(
         {
@@ -103,7 +103,7 @@ def test_implementation_lane_matches_when_any_lane_hint_matches():
 
 
 def test_codex_model_for_issue_escalates_for_restart_pressure_and_large_effort_labels():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     escalated = sessions_module.codex_model_for_issue(
         {'number': 224, 'title': 'Issue 224', 'labels': [{'name': 'effort:large'}]},
@@ -136,7 +136,7 @@ def test_codex_model_for_issue_escalates_for_restart_pressure_and_large_effort_l
 
 
 def test_actor_labels_payload_uses_escalation_name_for_escalated_model():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.actor_labels_payload(
         current_coder_model='gpt-5.4',
@@ -154,7 +154,7 @@ def test_actor_labels_payload_uses_escalation_name_for_escalated_model():
 
 
 def test_build_and_record_session_nudge_payload_capture_session_issue_and_pr_context(tmp_path):
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     payload = sessions_module.build_session_nudge_payload(
         session_action={"action": "poke-session", "reason": "stale-open-session", "sessionName": "lane-224"},
@@ -186,7 +186,7 @@ def test_build_and_record_session_nudge_payload_capture_session_issue_and_pr_con
 
 
 def test_assess_codex_session_health_marks_recent_session_healthy_and_mid_stale_session_pokeable():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     healthy = sessions_module.assess_codex_session_health(
         {"name": "lane-224", "cwd": "/tmp/issue-224", "last_used_at": "2026-04-23T00:09:30Z"},
@@ -222,7 +222,7 @@ def test_assess_codex_session_health_marks_recent_session_healthy_and_mid_stale_
 
 
 def test_assess_codex_session_health_rejects_closed_wrong_worktree_and_missing_last_used():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     closed = sessions_module.assess_codex_session_health(
         {"name": "lane-224", "closed": True, "last_used_at": "2026-04-23T00:09:30Z"},
@@ -246,7 +246,7 @@ def test_assess_codex_session_health_rejects_closed_wrong_worktree_and_missing_l
 
 
 def test_build_acp_session_strategy_supports_acpx_and_legacy_runtime_shapes():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     acpx = sessions_module.build_acp_session_strategy(
         implementation_session_key="legacy-key",
@@ -282,7 +282,7 @@ def test_build_acp_session_strategy_supports_acpx_and_legacy_runtime_shapes():
 
 
 def test_should_nudge_session_blocks_recent_same_head_but_allows_other_cases():
-    sessions_module = load_module("daedalus_workflows_code_review_sessions_test", "workflows/code_review/sessions.py")
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     blocked = sessions_module.should_nudge_session(
         lane_state={"sessionControl": {"lastNudge": {"sessionName": "lane-224", "headSha": "abc123", "at": "2026-04-23T00:09:30Z"}}},
@@ -315,8 +315,8 @@ def test_ensure_session_via_runtime_routes_through_workspace_runtime_accessor():
     """sessions.ensure_session_via_runtime(workspace=..., runtime_name=..., ...) must
     resolve the runtime via ws.runtime() and delegate to its ensure_session."""
     from pathlib import Path
-    from workflows.code_review.runtimes import SessionHandle
-    from workflows.code_review import sessions
+    from workflows.change_delivery.runtimes import SessionHandle
+    from workflows.change_delivery import sessions
 
     captured = {}
 
@@ -344,7 +344,7 @@ def test_ensure_session_via_runtime_routes_through_workspace_runtime_accessor():
 
 def test_run_prompt_via_runtime_delegates_to_ws_runtime():
     from pathlib import Path
-    from workflows.code_review import sessions
+    from workflows.change_delivery import sessions
 
     captured = {}
 
@@ -372,7 +372,7 @@ def test_run_prompt_via_runtime_delegates_to_ws_runtime():
 
 def test_close_session_via_runtime_delegates_to_ws_runtime():
     from pathlib import Path
-    from workflows.code_review import sessions
+    from workflows.change_delivery import sessions
 
     captured = {}
 

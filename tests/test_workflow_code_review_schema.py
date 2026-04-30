@@ -7,7 +7,7 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
-SCHEMA_PATH = REPO_ROOT / "workflows" / "code_review" / "schema.yaml"
+SCHEMA_PATH = REPO_ROOT / "workflows" / "change_delivery" / "schema.yaml"
 
 
 def _load_schema() -> dict:
@@ -18,7 +18,7 @@ def _load_schema() -> dict:
 def _minimal_valid_config() -> dict:
     """Smallest workflow.yaml dict that satisfies the existing required fields."""
     return {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "test", "engine-owner": "hermes"},
         "repository": {

@@ -139,9 +139,9 @@ When a lane is in operator attention, the operator can:
 
 | Command | Effect |
 |---|---|
-| `/workflow code-review tick` | Force another attempt (bypasses retry budget). |
-| `/workflow code-review pause` | Stop processing the lane entirely. |
-| `/workflow code-review resume` | Resume normal processing. |
+| `/workflow change-delivery tick` | Force another attempt (bypasses retry budget). |
+| `/workflow change-delivery pause` | Stop processing the lane entirely. |
+| `/workflow change-delivery resume` | Resume normal processing. |
 | `/daedalus doctor` | See full context on why attention was triggered. |
 | `/daedalus analyze-failure --failure-id <id>` | Deep-dive a specific failure. |
 
@@ -181,10 +181,10 @@ where action = 'operator-attention-transition'
 
 ## Where this lives in code
 
-- Threshold logic: `daedalus/workflows/code_review/workspace.py` (`_lane_operator_attention_reasons`, `_lane_operator_attention_needed`)
-- Transition emission: `daedalus/workflows/code_review/orchestrator.py` (`emit_operator_attention_transition`)
+- Threshold logic: `daedalus/workflows/change_delivery/workspace.py` (`_lane_operator_attention_reasons`, `_lane_operator_attention_needed`)
+- Transition emission: `daedalus/workflows/change_delivery/orchestrator.py` (`emit_operator_attention_transition`)
 - Ingestion protection: `daedalus/runtime.py` (`ingest_legacy_status`, `ON CONFLICT DO UPDATE`)
-- Threshold config: `daedalus/workflows/code_review/workspace.py` (`lane_operator_attention_retry_threshold`, `lane_operator_attention_no_progress_threshold`)
-- Comment rendering: `daedalus/workflows/code_review/comments.py` (⚠️ header)
-- Event taxonomy: `daedalus/workflows/code_review/event_taxonomy.py`
-- Tests: `tests/test_workflow_code_review_operator_attention_audit.py`
+- Threshold config: `daedalus/workflows/change_delivery/workspace.py` (`lane_operator_attention_retry_threshold`, `lane_operator_attention_no_progress_threshold`)
+- Comment rendering: `daedalus/workflows/change_delivery/comments.py` (⚠️ header)
+- Event taxonomy: `daedalus/workflows/change_delivery/event_taxonomy.py`
+- Tests: `tests/test_workflow_change_delivery_operator_attention_audit.py`

@@ -162,6 +162,6 @@ where lane_id='lane:220'
 - Action dispatch: `daedalus/runtime.py` (look for `request_active_action`, `iterate_active`)
 - Idempotency: `daedalus/runtime.py` (look for `action_idempotency_key`, `can_requeue`)
 - Shadow vs active: `daedalus/runtime.py` (look for `Mode.SHADOW`, `Mode.ACTIVE`)
-- Action execution: `daedalus/workflows/code_review/dispatch.py`
-- Action primitives: `daedalus/workflows/code_review/actions.py`
-- Tests: `tests/test_workflows_code_review_actions.py`, `tests/test_stall_detection.py`
+- Action execution: `daedalus/workflows/change_delivery/dispatch.py`
+- Action primitives: `daedalus/workflows/change_delivery/actions.py`
+- Tests: `tests/test_workflows_change_delivery_actions.py`, `tests/test_stall_detection.py`

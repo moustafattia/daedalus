@@ -33,8 +33,8 @@ _REQUIRED_ATTRS = (
 def load_workflow(name: str) -> ModuleType:
     """Import ``workflows.<slug>`` and verify it meets the contract.
 
-    ``name`` is the canonical hyphenated form (``code-review``);
-    internally it maps to the Python slug (``code_review``).
+    ``name`` is the canonical hyphenated form (``change-delivery``);
+    internally it maps to the Python slug (``change_delivery``).
     """
     slug = name.replace("-", "_")
     module = importlib.import_module(f"workflows.{slug}")
@@ -61,7 +61,7 @@ def run_cli(
 
     When ``require_workflow`` is set, the dispatcher asserts that the contract's
     ``workflow:`` field matches before dispatching. Used by the per-workflow
-    direct form (``python3 -m workflows.code_review ...``) to pin the module
+    direct form (``python3 -m workflows.change_delivery ...``) to pin the module
     regardless of what the contract declares.
     """
     contract = load_workflow_contract(workflow_root)
@@ -146,9 +146,9 @@ def _emit_dispatch_skipped_event(
     to surface as a WorkflowContractError.
     """
     try:
-        # Imported lazily to avoid pulling code_review-specific paths into the
+        # Imported lazily to avoid pulling change_delivery-specific paths into the
         # generic dispatcher's import graph at module load time.
-        from workflows.code_review.paths import runtime_paths
+        from workflows.change_delivery.paths import runtime_paths
         import runtime as _runtime
 
         paths = runtime_paths(workflow_root)

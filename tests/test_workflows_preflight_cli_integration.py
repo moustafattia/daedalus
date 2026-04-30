@@ -25,7 +25,7 @@ def _reset_workflows_module_cache():
 
 def _write_workflow_with_preflight(tmp_path, *, name="preflight-wf"):
     """Drop a minimal workflow package whose run_preflight delegates to the
-    real code_review.preflight.run_preflight (so we exercise the real enum)."""
+    real change_delivery.preflight.run_preflight (so we exercise the real enum)."""
     slug = name.replace("-", "_")
     (tmp_path / "workflows" / slug).mkdir(parents=True, exist_ok=True)
     schema = (
@@ -45,7 +45,7 @@ def _write_workflow_with_preflight(tmp_path, *, name="preflight-wf"):
     (tmp_path / "workflows" / slug / "schema.yaml").write_text(schema, encoding="utf-8")
     (tmp_path / "workflows" / slug / "__init__.py").write_text(
         f"from pathlib import Path\n"
-        f"from workflows.code_review.preflight import run_preflight\n"
+        f"from workflows.change_delivery.preflight import run_preflight\n"
         f"NAME = {name!r}\n"
         f"SUPPORTED_SCHEMA_VERSIONS = (1,)\n"
         f"CONFIG_SCHEMA_PATH = Path(__file__).parent / 'schema.yaml'\n"
@@ -87,7 +87,7 @@ def test_run_cli_emits_dispatch_skipped_on_preflight_failure(tmp_path, monkeypat
     assert "unsupported_runtime_kind" in msg
 
     # Verify the event log was written.
-    from workflows.code_review.paths import runtime_paths
+    from workflows.change_delivery.paths import runtime_paths
 
     event_log_path = runtime_paths(workflow_root)["event_log_path"]
     assert event_log_path.exists(), f"event log not created at {event_log_path}"

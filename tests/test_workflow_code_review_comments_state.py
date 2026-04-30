@@ -18,8 +18,8 @@ def load_module(module_name: str, relative_path: str):
 
 def _module():
     return load_module(
-        "daedalus_workflow_code_review_comments_state_test",
-        "workflows/code_review/comments.py",
+        "daedalus_workflow_change_delivery_comments_state_test",
+        "workflows/change_delivery/comments.py",
     )
 
 
