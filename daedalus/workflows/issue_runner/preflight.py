@@ -70,9 +70,15 @@ def _validate_config(config: dict[str, Any]) -> None:
         tracker_kind = str(tracker_cfg.get("kind") or "").strip()
         tracker_client_cfg = dict(tracker_cfg)
         if tracker_kind == "github":
-            slug = github_slug_from_config(tracker_client_cfg, repository_cfg)
-            if slug:
-                tracker_client_cfg.setdefault("github_slug", slug)
+            if tracker_client_cfg.get("github-slug"):
+                raise TrackerConfigError(
+                    "issue-runner GitHub config uses tracker.github_slug; remove tracker.github-slug"
+                )
+            if repository_cfg.get("github_slug") or repository_cfg.get("github-slug"):
+                raise TrackerConfigError(
+                    "issue-runner GitHub config uses tracker.github_slug; remove repository.github-slug"
+                )
+            github_slug_from_config(tracker_client_cfg)
             validate_github_tracker_config(
                 workflow_root=workflow_root,
                 tracker_cfg=tracker_client_cfg,
@@ -87,7 +93,7 @@ def _validate_config(config: dict[str, Any]) -> None:
             repo_path=repo_path,
         )
         if tracker_kind == "github":
-            expected_slug = github_slug_from_config(tracker_client_cfg, repository_cfg)
+            expected_slug = github_slug_from_config(tracker_client_cfg)
             auth_host = github_auth_host_from_slug(expected_slug)
             auth_status = getattr(client, "auth_status_payload")(hostname=auth_host)
             _assert_github_auth_ok(auth_status, hostname=auth_host)

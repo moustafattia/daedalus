@@ -22,8 +22,8 @@ If your host does not have those runtimes, edit `WORKFLOW.md` before starting th
 
 The bundled `issue-runner` template defaults to `tracker.kind: local-json` so
 it is runnable without an external tracker. For first-class tracker operation,
-switch it to `tracker.kind: github` and keep `gh` authenticated in the repo
-checkout before running `service-up`. Linear exists as an experimental adapter,
+switch it to `tracker.kind: github`, set `tracker.github_slug`, and keep `gh`
+authenticated before running `service-up`. Linear exists as an experimental adapter,
 but it is deferred until the GitHub adapter is hardened further.
 
 ## Bundled workflows

@@ -25,11 +25,13 @@ export DAEDALUS_GITHUB_SMOKE_LABEL=daedalus-smoke
 ```
 
 `DAEDALUS_GITHUB_SMOKE_REPO_PATH` only needs to exist locally. The tracker uses
-`gh --repo <owner>/<repo>`, so the path does not have to be a git checkout.
+`tracker.github_slug` and `gh --repo <owner>/<repo>`, so the path does not have
+to be a git checkout.
 
 ## What It Proves
 
 - `tracker.kind: github` can select issues via `gh`
+- `tracker.github_slug` is the GitHub repository source of truth
 - required-label filtering works against live GitHub data
 - a no-op runtime can dispatch from the selected issue
 - scheduler state records the continuation retry

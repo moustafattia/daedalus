@@ -6,9 +6,10 @@ def _github_config(repo_path: Path) -> dict:
         "workflow": "issue-runner",
         "schema-version": 1,
         "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
-        "repository": {"local-path": str(repo_path), "github-slug": "attmous/daedalus"},
+        "repository": {"local-path": str(repo_path), "slug": "attmous/daedalus"},
         "tracker": {
             "kind": "github",
+            "github_slug": "attmous/daedalus",
             "active_states": ["open"],
             "terminal_states": ["closed"],
         },
@@ -69,7 +70,8 @@ def test_issue_runner_preflight_checks_auth_for_configured_github_host(monkeypat
     repo_path.mkdir()
     commands = []
     cfg = _github_config(repo_path)
-    cfg["repository"]["github-slug"] = "github.example.com/attmous/daedalus"
+    cfg["repository"]["slug"] = "attmous/daedalus"
+    cfg["tracker"]["github_slug"] = "github.example.com/attmous/daedalus"
 
     def fake_run_json(command, cwd=None):
         commands.append(command)
@@ -95,6 +97,55 @@ def test_issue_runner_preflight_checks_auth_for_configured_github_host(monkeypat
     assert result.ok is True
     assert any(command[:3] == ["gh", "auth", "status"] for command in commands)
     assert any(command[:3] == ["gh", "repo", "view"] for command in commands)
+
+
+def test_issue_runner_preflight_rejects_repository_github_slug(tmp_path):
+    from workflows.issue_runner.preflight import run_preflight
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    cfg = _github_config(repo_path)
+    cfg["tracker"].pop("github_slug")
+    cfg["repository"]["github-slug"] = "attmous/daedalus"
+
+    result = run_preflight(cfg)
+
+    assert result.ok is False
+    assert result.error_code == "invalid-config"
+    assert "tracker.github_slug" in str(result.error_detail)
+    assert "repository.github-slug" in str(result.error_detail)
+
+
+def test_issue_runner_preflight_rejects_hyphenated_tracker_github_slug(tmp_path):
+    from workflows.issue_runner.preflight import run_preflight
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    cfg = _github_config(repo_path)
+    cfg["tracker"].pop("github_slug")
+    cfg["tracker"]["github-slug"] = "attmous/daedalus"
+
+    result = run_preflight(cfg)
+
+    assert result.ok is False
+    assert result.error_code == "invalid-config"
+    assert "tracker.github_slug" in str(result.error_detail)
+    assert "tracker.github-slug" in str(result.error_detail)
+
+
+def test_issue_runner_preflight_requires_tracker_github_slug(tmp_path):
+    from workflows.issue_runner.preflight import run_preflight
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    cfg = _github_config(repo_path)
+    cfg["tracker"].pop("github_slug")
+
+    result = run_preflight(cfg)
+
+    assert result.ok is False
+    assert result.error_code == "invalid-config"
+    assert "requires tracker.github_slug" in str(result.error_detail)
 
 
 def test_issue_runner_preflight_rejects_github_state_shape(tmp_path):
@@ -159,7 +210,8 @@ def test_issue_runner_doctor_checks_auth_for_configured_github_host(monkeypatch,
     workflow_root = tmp_path / "wf"
     workflow_root.mkdir()
     cfg = _github_config(repo_path)
-    cfg["repository"]["github-slug"] = "github.example.com/attmous/daedalus"
+    cfg["repository"]["slug"] = "attmous/daedalus"
+    cfg["tracker"]["github_slug"] = "github.example.com/attmous/daedalus"
     (workflow_root / "WORKFLOW.md").write_text(
         render_workflow_markdown(config=cfg, prompt_template="Issue: {{ issue.identifier }}"),
         encoding="utf-8",

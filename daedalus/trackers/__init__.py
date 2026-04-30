@@ -75,7 +75,7 @@ def describe_tracker_source(*, workflow_root: Path, tracker_cfg: dict[str, Any])
     if kind == "local-json":
         return str(resolve_tracker_path(workflow_root=workflow_root, tracker_cfg=tracker_cfg))
     if kind == "github":
-        slug = tracker_cfg.get("github_slug") or tracker_cfg.get("github-slug")
+        slug = tracker_cfg.get("github_slug")
         if slug:
             return f"github:{slug}"
         repo_path = tracker_cfg.get("repo_path") or tracker_cfg.get("repo-path")

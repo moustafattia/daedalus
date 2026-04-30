@@ -74,9 +74,10 @@ def test_live_github_issue_runner_selects_dispatches_and_reconciles_terminal_iss
             "workflow": "issue-runner",
             "schema-version": 1,
             "instance": {"name": "smoke-issue-runner", "engine-owner": "hermes"},
-            "repository": {"local-path": str(repo_path), "github-slug": smoke_repo},
+            "repository": {"local-path": str(repo_path), "slug": smoke_repo},
             "tracker": {
                 "kind": "github",
+                "github_slug": smoke_repo,
                 "active_states": ["open"],
                 "terminal_states": ["closed"],
                 "required_labels": [label],

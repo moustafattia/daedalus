@@ -63,6 +63,20 @@ Supported tracker kinds today:
 - `local-json` — local development and test fixture path
 - `linear` — experimental adapter, deferred until after the GitHub adapter is hardened
 
+GitHub configuration is explicit. Put the repository slug under the tracker,
+not under `repository`:
+
+```yaml
+repository:
+  local-path: /path/to/repo
+  slug: your-org/your-repo
+tracker:
+  kind: github
+  github_slug: your-org/your-repo
+  active_states: [open]
+  terminal_states: [closed]
+```
+
 `issue-runner` composes the shared `trackers/` clients with workflow-specific
 eligibility, ordering, retry, and workspace policy.
 

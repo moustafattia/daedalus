@@ -21,7 +21,7 @@ def _github_slug_match(raw: str) -> re.Match[str] | None:
 
 def _github_slug_config_error() -> TrackerConfigError:
     return TrackerConfigError(
-        "tracker.github_slug or repository.github-slug must be in owner/repo or host/owner/repo form for tracker.kind='github'"
+        "tracker.github_slug must be in owner/repo or host/owner/repo form for tracker.kind='github'"
     )
 
 
@@ -135,12 +135,8 @@ def github_slug_from_config(
     tracker_cfg: dict[str, Any],
     repository_cfg: dict[str, Any] | None = None,
 ) -> str | None:
-    repository_cfg = repository_cfg or {}
     raw = str(
         tracker_cfg.get("github_slug")
-        or tracker_cfg.get("github-slug")
-        or repository_cfg.get("github_slug")
-        or repository_cfg.get("github-slug")
         or ""
     ).strip()
     if not raw:
@@ -167,11 +163,13 @@ def validate_github_tracker_config(
 ) -> None:
     repository_cfg = repository_cfg or {}
     slug = github_slug_from_config(tracker_cfg, repository_cfg)
+    if not slug:
+        raise TrackerConfigError("tracker.kind='github' requires tracker.github_slug")
     resolved_repo_path = _resolve_repo_path(
         workflow_root=workflow_root,
         tracker_cfg=tracker_cfg,
         repo_path=repo_path,
-        required=slug is None,
+        required=False,
     )
     if resolved_repo_path is not None and not resolved_repo_path.exists():
         raise TrackerConfigError(
@@ -218,7 +216,7 @@ def _resolve_repo_path(
         if not required:
             return None
         raise TrackerConfigError(
-            "tracker.kind='github' requires tracker.github_slug, repository.github-slug, or repository.local-path"
+            "tracker.kind='github' requires tracker.github_slug or repository.local-path"
         )
     path = Path(raw).expanduser()
     if not path.is_absolute():

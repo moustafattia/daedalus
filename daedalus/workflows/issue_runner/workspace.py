@@ -70,10 +70,17 @@ def _tracker_config_for_client(config: dict[str, Any]) -> dict[str, Any]:
     tracker_cfg = dict(config.get("tracker") or {})
     if str(tracker_cfg.get("kind") or "").strip() != "github":
         return tracker_cfg
+    if tracker_cfg.get("github-slug"):
+        raise TrackerConfigError(
+            "issue-runner GitHub config uses tracker.github_slug; remove tracker.github-slug"
+        )
     repository_cfg = config.get("repository") or {}
-    slug = github_slug_from_config(tracker_cfg, repository_cfg)
-    if slug:
-        tracker_cfg.setdefault("github_slug", slug)
+    if repository_cfg.get("github_slug") or repository_cfg.get("github-slug"):
+        raise TrackerConfigError(
+            "issue-runner GitHub config uses tracker.github_slug; remove repository.github-slug"
+        )
+    if not github_slug_from_config(tracker_cfg):
+        raise TrackerConfigError("tracker.kind='github' requires tracker.github_slug")
     return tracker_cfg
 
 
@@ -438,7 +445,6 @@ class IssueRunnerWorkspace:
         try:
             expected = github_slug_from_config(
                 self.config.get("tracker") or {},
-                self.config.get("repository") or {},
             )
             auth_host = github_auth_host_from_slug(expected)
             auth_payload = getattr(self.tracker_client, "auth_status_payload")(hostname=auth_host)
@@ -464,7 +470,6 @@ class IssueRunnerWorkspace:
             resolved = str(repo_payload.get("nameWithOwner") or "").strip()
             expected = github_slug_from_config(
                 self.config.get("tracker") or {},
-                self.config.get("repository") or {},
             )
             expected_name_with_owner = github_name_with_owner_from_slug(expected)
             if (
