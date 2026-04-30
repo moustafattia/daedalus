@@ -64,6 +64,7 @@ storage:
   ledger: memory/workflow-status.json
   health: memory/workflow-health.json
   audit-log: memory/workflow-audit.jsonl
+  scheduler: memory/workflow-scheduler.json
 
 lane-selection:
   exclude-labels:

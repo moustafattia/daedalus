@@ -41,6 +41,7 @@ properties:
     additionalProperties:
       oneOf:
         - $ref: "#/definitions/acpx-codex-runtime"
+        - $ref: "#/definitions/codex-app-server-runtime"
         - $ref: "#/definitions/claude-cli-runtime"
         - $ref: "#/definitions/hermes-agent-runtime"
 
@@ -181,6 +182,7 @@ properties:
       ledger: {type: string}
       health: {type: string}
       audit-log: {type: string}
+      scheduler: {type: string}
       cron-jobs-path: {type: string}
       hermes-cron-jobs-path: {type: string}
       sessions-state: {type: string}
@@ -289,6 +291,41 @@ definitions:
         type: array
         items: {type: string}
         minItems: 1
+
+  codex-app-server-runtime:
+    type: object
+    additionalProperties: false
+    required: [kind]
+    properties:
+      kind: {const: codex-app-server}
+      command:
+        oneOf:
+          - type: string
+          - type: array
+            items: {type: string}
+            minItems: 1
+      mode:
+        type: string
+        enum: [managed, external]
+      endpoint: {type: string}
+      healthcheck_path: {type: string}
+      ws_token_env: {type: string}
+      ws_token_file: {type: string}
+      ephemeral: {type: boolean}
+      approval_policy:
+        oneOf:
+          - type: string
+            enum: [untrusted, on-failure, on-request, never]
+          - type: object
+      thread_sandbox: {type: string}
+      turn_sandbox_policy:
+        oneOf:
+          - type: string
+            enum: [auto, read-only, workspace-write, danger-full-access]
+          - type: object
+      turn_timeout_ms: {type: integer, minimum: 1}
+      read_timeout_ms: {type: integer, minimum: 1}
+      stall_timeout_ms: {type: integer, minimum: 0}
 
   claude-cli-runtime:
     type: object

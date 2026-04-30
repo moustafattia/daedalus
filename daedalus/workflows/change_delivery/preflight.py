@@ -30,7 +30,7 @@ class PreflightResult:
     can_reconcile: bool = True  # always True; preflight never blocks reconciliation
 
 
-_RECOGNIZED_RUNTIME_KINDS = frozenset({"acpx-codex", "claude-cli", "hermes-agent"})
+_RECOGNIZED_RUNTIME_KINDS = frozenset({"acpx-codex", "claude-cli", "codex-app-server", "hermes-agent"})
 _RECOGNIZED_REVIEWER_KINDS = frozenset({"github-comments", "disabled"})
 _RECOGNIZED_TRACKER_KINDS = frozenset({"github"})
 

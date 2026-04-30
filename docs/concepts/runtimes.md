@@ -26,7 +26,7 @@ class Runtime(Protocol):
 
 || | `claude-cli` | `acpx-codex` | `hermes-agent` | `codex-app-server` |
 |---|---|---|---|---|---|
-| Persistent session | ❌ one-shot | ✅ resumable | ❌ one-shot | ❌ one-turn protocol client |
+| Persistent session | ❌ one-shot | ✅ resumable | ❌ one-shot | ✅ resumable Codex thread |
 | `ensure_session` | no-op | `acpx codex sessions ensure` | no-op | no-op |
 | `run_prompt` | `claude --print …` | `acpx codex prompt -s <name>` | requires `command:` override | JSON-RPC over stdio to `codex app-server` |
 | `assess_health` | always healthy | freshness + grace window | always healthy | always healthy |
@@ -149,8 +149,10 @@ socket transport.
 It maps `thread/tokenUsage/updated` into Daedalus token totals and
 `account/rateLimits/updated` into the latest rate-limit snapshot. It rejects
 non-interactive approval requests so an unattended service does not hang.
-`issue-runner` persists `issue_id -> thread_id` in scheduler state and resumes
-the existing Codex thread on later ticks instead of starting a fresh thread.
+Bundled workflows persist work-item thread mappings in scheduler state
+(`issue-runner`: `issue_id -> thread_id`; `change-delivery`:
+`lane:<issue-number> -> thread_id`) and resume the existing Codex thread on
+later ticks instead of starting a fresh thread.
 In the supervised `issue-runner run` loop, terminal tracker transitions request
 cooperative cancellation; the Codex adapter sends `turn/interrupt` for the
 active turn before surfacing the cancellation result to the scheduler.

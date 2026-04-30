@@ -82,6 +82,25 @@ def test_schema_accepts_minimal_valid_config():
     jsonschema.validate(_minimal_valid_config(), _load_schema())
 
 
+def test_schema_accepts_codex_app_server_runtime_for_coder():
+    cfg = _minimal_valid_config()
+    cfg["runtimes"]["coder-runtime"] = {
+        "kind": "codex-app-server",
+        "command": "codex app-server",
+        "mode": "managed",
+        "ephemeral": False,
+        "approval_policy": "never",
+        "thread_sandbox": "workspace-write",
+        "turn_sandbox_policy": "workspace-write",
+        "turn_timeout_ms": 3600000,
+        "read_timeout_ms": 5000,
+        "stall_timeout_ms": 300000,
+    }
+    cfg["agents"]["coder"]["default"]["runtime"] = "coder-runtime"
+
+    jsonschema.validate(cfg, _load_schema())
+
+
 def test_schema_rejects_missing_workflow_key():
     cfg = _minimal_valid_config()
     del cfg["workflow"]

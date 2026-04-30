@@ -25,6 +25,38 @@ action bodies.
 """
 
 
+def _object_value(value: Any, *keys: str) -> Any:
+    for key in keys:
+        if isinstance(value, dict) and key in value:
+            return value.get(key)
+        if hasattr(value, key):
+            return getattr(value, key)
+    return None
+
+
+def _prompt_output(value: Any) -> str:
+    output = _object_value(value, "output")
+    if output is not None:
+        return str(output).strip()
+    return str(value or "").strip()
+
+
+def _runtime_metrics_payload(value: Any) -> dict[str, Any]:
+    if value is None or isinstance(value, str):
+        return {}
+    tokens = _object_value(value, "tokens")
+    return {
+        "session_id": _object_value(value, "session_id", "sessionId"),
+        "thread_id": _object_value(value, "thread_id", "threadId"),
+        "turn_id": _object_value(value, "turn_id", "turnId"),
+        "last_event": _object_value(value, "last_event", "lastEvent"),
+        "last_message": _object_value(value, "last_message", "lastMessage"),
+        "turn_count": int(_object_value(value, "turn_count", "turnCount") or 0),
+        "tokens": tokens if isinstance(tokens, dict) else {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "rate_limits": _object_value(value, "rate_limits", "rateLimits"),
+    }
+
+
 def run_publish_ready_pr(
     *,
     reconcile_fn: Callable[..., dict[str, Any]],
@@ -182,6 +214,9 @@ def run_dispatch_lane_turn(
     reconcile_fn: Callable[..., dict[str, Any]],
     audit_fn: Callable[..., Any],
     render_implementation_dispatch_prompt_fn: Callable[..., str],
+    runtime_name: str | None = None,
+    runtime_kind: str = "acpx-codex",
+    record_runtime_result_fn: Callable[..., dict[str, Any]] | None = None,
     error_cls: type = subprocess.CalledProcessError,
 ) -> dict[str, Any]:
     """Adapter-owned implementation of ``_dispatch_lane_turn``.
@@ -237,7 +272,7 @@ def run_dispatch_lane_turn(
         action=action,
         workflow_state=(status.get('ledger') or {}).get('workflowState'),
     )
-    session_record_id = session_meta.get('record_id') or ensured.get('acpxRecordId')
+    session_record_id = session_meta.get('record_id') or _object_value(ensured, "record_id", "recordId", "acpxRecordId")
     try:
         prompt_result = run_prompt_fn(
             worktree=worktree,
@@ -262,27 +297,66 @@ def run_dispatch_lane_turn(
             resume_session_id=None,
         )
         session_meta = show_acpx_session_fn(worktree=worktree, session_name=session_name) or session_meta
-        session_record_id = session_meta.get('record_id') or ensured.get('acpxRecordId')
+        session_record_id = session_meta.get('record_id') or _object_value(ensured, "record_id", "recordId", "acpxRecordId")
         prompt_result = run_prompt_fn(
             worktree=worktree,
             session_name=session_name,
             prompt=prompt,
             codex_model=codex_model,
         )
+    runtime_metrics = _runtime_metrics_payload(prompt_result)
+    if record_runtime_result_fn is not None:
+        runtime_metrics = record_runtime_result_fn(
+            issue=issue,
+            session_name=session_name,
+            runtime_name=runtime_name,
+            runtime_kind=runtime_kind,
+            result=prompt_result,
+            metrics=runtime_metrics,
+            at=attempt_at,
+        ) or runtime_metrics
+    ensured_record_id = _object_value(ensured, "record_id", "recordId", "acpxRecordId")
+    ensured_session_id = _object_value(ensured, "session_id", "sessionId", "acpSessionId", "acpxSessionId")
+    if runtime_kind == "codex-app-server":
+        session_record_id = (
+            runtime_metrics.get("thread_id")
+            or runtime_metrics.get("session_id")
+            or session_meta.get('record_id')
+            or ensured_record_id
+        )
+    else:
+        session_record_id = (
+            session_meta.get('record_id')
+            or ensured_record_id
+            or runtime_metrics.get("thread_id")
+            or runtime_metrics.get("session_id")
+        )
+    resume_session_id = (
+        runtime_metrics.get("thread_id")
+        or runtime_metrics.get("session_id")
+        or session_meta.get('session_id')
+        or ensured_session_id
+    )
     ledger = load_ledger_fn()
     ledger.setdefault('implementation', {})
     ledger['codexModel'] = codex_model
     ledger['workflowActors'] = actor_labels_payload_fn(codex_model)
     ledger['implementation'] = {
         **ledger.get('implementation', {}),
-        'session': session_meta.get('record_id') or ensured.get('acpxRecordId'),
+        'session': session_record_id,
         'previousSession': ledger.get('implementation', {}).get('previousSession'),
-        'sessionRuntime': 'acpx-codex',
+        'sessionRuntime': runtime_kind or 'acpx-codex',
+        'runtimeName': runtime_name,
         'sessionName': session_name,
         'codexModel': codex_model,
         'agentName': coder_agent_name_for_model_fn(codex_model),
         'agentRole': 'coder_agent',
-        'resumeSessionId': session_meta.get('session_id'),
+        'resumeSessionId': resume_session_id,
+        'threadId': runtime_metrics.get("thread_id"),
+        'turnId': runtime_metrics.get("turn_id"),
+        'lastRuntimeEvent': runtime_metrics.get("last_event"),
+        'lastRuntimeMessage': runtime_metrics.get("last_message"),
+        'runtimeMetrics': runtime_metrics,
         'worktree': str(worktree),
         'updatedAt': attempt_at,
         'branch': branch,
@@ -298,22 +372,27 @@ def run_dispatch_lane_turn(
         'dispatched': True,
         'action': action,
         'issueNumber': issue.get('number'),
-        'sessionRuntime': 'acpx-codex',
+        'sessionRuntime': runtime_kind or 'acpx-codex',
+        'runtimeName': runtime_name,
         'sessionName': session_name,
         'codexModel': codex_model,
-        'sessionRecordId': session_meta.get('record_id') or ensured.get('acpxRecordId'),
-        'resumeSessionId': session_meta.get('session_id'),
+        'sessionRecordId': session_record_id,
+        'resumeSessionId': resume_session_id,
+        'threadId': runtime_metrics.get("thread_id"),
+        'turnId': runtime_metrics.get("turn_id"),
+        'metrics': runtime_metrics,
         'worktree': str(worktree),
         'worktreePrepared': worktree_info,
-        'promptResult': prompt_result,
+        'promptResult': _prompt_output(prompt_result),
         'health': reconciled.get('health'),
     }
     audit_fn(
         audit_action,
-        f"Dispatched persistent Codex lane turn via acpx session {session_name}",
+        f"Dispatched persistent Codex lane turn via {runtime_kind or 'acpx-codex'} session {session_name}",
         issueNumber=issue.get('number'),
         sessionName=session_name,
         sessionRecordId=result.get('sessionRecordId'),
+        threadId=result.get('threadId'),
         sessionAction=action,
     )
     return result

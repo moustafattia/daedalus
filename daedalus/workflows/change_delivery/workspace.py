@@ -97,6 +97,7 @@ def _yaml_to_legacy_view(yaml_cfg: dict, workspace_root: "Path | None" = None) -
         "ledgerPath": _abs_or_join(storage.get("ledger", "memory/workflow-status.json"), local_path),
         "healthPath": _abs_or_join(storage.get("health", "memory/workflow-health.json"), local_path),
         "auditLogPath": _abs_or_join(storage.get("audit-log", "memory/workflow-audit.jsonl"), local_path),
+        "schedulerPath": _abs_or_join(storage.get("scheduler", "memory/workflow-scheduler.json"), local_path),
         "activeLaneLabel": repo.get("active-lane-label", "active-lane"),
         "engineOwner": instance.get("engine-owner", "openclaw"),
         "coreJobNames": core_job_names,
@@ -456,6 +457,7 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     migrate_persisted_ledger(ledger_path)
     health_path = Path(config["healthPath"])
     audit_log_path = Path(config["auditLogPath"])
+    scheduler_path = Path(config.get("schedulerPath") or (workspace_root / "memory/workflow-scheduler.json"))
     sessions_state_path = workspace_root / "state/sessions"
 
     # -- config constants ------------------------------------------------
@@ -555,6 +557,12 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     def save_ledger(payload: dict[str, Any]) -> None:
         _write_json(ledger_path, payload)
 
+    def load_scheduler() -> dict[str, Any]:
+        return _load_optional_json(scheduler_path) or {}
+
+    def save_scheduler(payload: dict[str, Any]) -> None:
+        _write_json(scheduler_path, payload)
+
     # Wire the comment publisher (returns None when observability is disabled —
     # the audit hook then becomes a pure log-write with no GitHub I/O).
     _ns_holder: dict[str, Any] = {}
@@ -620,6 +628,7 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         # --- workspace globals ---
         WORKSPACE=workspace_root,
         CONFIG=config,
+        WORKFLOW_YAML=yaml_cfg or {},
         WORKFLOW_POLICY=workflow_policy,
         DEFAULT_CONFIG_PATH=workspace_root / DEFAULT_WORKFLOW_MARKDOWN_FILENAME,
         SESSIONS_STATE_PATH=sessions_state_path,
@@ -630,6 +639,7 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         LEDGER_PATH=ledger_path,
         HEALTH_PATH=health_path,
         AUDIT_LOG_PATH=audit_log_path,
+        SCHEDULER_PATH=scheduler_path,
         ACTIVE_LANE_LABEL=active_lane_label,
         LANE_SELECTION_CFG=lane_selection_cfg,
         ENGINE_OWNER=engine_owner,
@@ -704,8 +714,10 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         _jobs_store_path=_jobs_store_path,
         load_jobs=load_jobs,
         load_ledger=load_ledger,
+        load_scheduler=load_scheduler,
         save_jobs=save_jobs,
         save_ledger=save_ledger,
+        save_scheduler=save_scheduler,
         audit=audit,
     )
     # Bind ns into the publisher's holder so its lambdas can read load_ledger().
@@ -741,12 +753,14 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     ns.reviewer = build_reviewer(ext_reviewer_cfg, ws_context=reviewer_ctx)
 
     # -- runtimes -------------------------------------------------------
-    # Phase 3 bridges runtime profiles from the old-JSON session/review
-    # policy fields. Phase 4 replaces this with YAML-driven instantiation.
+    # Legacy JSON configs synthesize runtime profiles from session/review
+    # policy fields. Repo-owned WORKFLOW.md configs use their top-level
+    # runtimes block directly, so shared runtimes such as codex-app-server are
+    # configured in one place and selected by agents.*.runtime.
     _session_policy = config.get("sessionPolicy", {}) or {}
     _review_policy = config.get("reviewPolicy", {}) or {}
 
-    _runtimes_cfg = {
+    _legacy_runtimes_cfg = {
         "acpx-codex": {
             "kind": "acpx-codex",
             "session-idle-freshness-seconds": int(
@@ -773,8 +787,13 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
             ),
         },
     }
+    _runtimes_cfg = {
+        str(name): dict(profile or {})
+        for name, profile in (((yaml_cfg or {}).get("runtimes") or _legacy_runtimes_cfg).items())
+    }
 
     _runtimes = build_runtimes(_runtimes_cfg, run=ns._run, run_json=ns._run_json)
+    ns.RUNTIME_PROFILES = _runtimes_cfg
 
     def _runtime_accessor(name: str):
         if name not in _runtimes:
@@ -936,6 +955,18 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             job["updated_at"] = ns._ms_to_iso(updated_ms)
 
     def _show_acpx_session(*, worktree, session_name):
+        issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
+        thread_id = ns._codex_thread_for_issue_number(issue_number)
+        if thread_id:
+            entry = ((ns.load_scheduler().get("codex_threads") or {}).get(ns._scheduler_issue_key(issue_number)) or {})
+            return {
+                "name": session_name,
+                "closed": False,
+                "cwd": str(worktree) if worktree is not None else None,
+                "last_used_at": entry.get("updated_at"),
+                "session_id": thread_id,
+                "record_id": thread_id,
+            }
         return ns._load_adapter_sessions_module().show_acpx_session(
             worktree=worktree, session_name=session_name, run_json=ns._run_json,
         )
@@ -946,6 +977,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _close_acpx_session(*, worktree, session_name):
+        issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
+        ns._clear_codex_thread_for_issue_number(issue_number)
         return ns._load_adapter_sessions_module().close_acpx_session(
             worktree=worktree, session_name=session_name, run=ns._run,
         )
@@ -1244,6 +1277,105 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             load_latest_session_meta_fn=ns._load_latest_session_meta,
         )
 
+    def _scheduler_issue_key(issue_number):
+        if issue_number in (None, ""):
+            return None
+        return f"lane:{issue_number}"
+
+    def _scheduler_issue_number_from_session(*, worktree=None, session_name=None):
+        issue_number = ns._issue_number_from_worktree(worktree)
+        if issue_number is not None:
+            return issue_number
+        match = re.search(r"(\d+)", str(session_name or ""))
+        return int(match.group(1)) if match else None
+
+    def _codex_thread_for_issue_number(issue_number):
+        key = ns._scheduler_issue_key(issue_number)
+        if not key:
+            return None
+        entry = ((ns.load_scheduler().get("codex_threads") or {}).get(key) or {})
+        thread_id = str(entry.get("thread_id") or "").strip()
+        return thread_id or None
+
+    def _clear_codex_thread_for_issue_number(issue_number):
+        key = ns._scheduler_issue_key(issue_number)
+        if not key:
+            return False
+        scheduler = ns.load_scheduler()
+        threads = dict(scheduler.get("codex_threads") or {})
+        if key not in threads:
+            return False
+        threads.pop(key, None)
+        scheduler["workflow"] = "change-delivery"
+        scheduler["updatedAt"] = ns._now_iso()
+        scheduler["codex_threads"] = threads
+        scheduler.setdefault("codex_totals", {})
+        ns.save_scheduler(scheduler)
+        return True
+
+    def _record_coder_runtime_result(*, issue, session_name, runtime_name, runtime_kind, result, metrics, at):
+        metrics = dict(metrics or {})
+        if runtime_kind != "codex-app-server":
+            return metrics
+        key = ns._scheduler_issue_key((issue or {}).get("number"))
+        if not key:
+            return metrics
+        scheduler = ns.load_scheduler()
+        threads = dict(scheduler.get("codex_threads") or {})
+        thread_id = str(metrics.get("thread_id") or metrics.get("session_id") or "").strip()
+        if thread_id:
+            threads[key] = {
+                "issue_id": key,
+                "issue_number": (issue or {}).get("number"),
+                "identifier": f"#{(issue or {}).get('number')}",
+                "session_name": session_name,
+                "runtime_name": runtime_name,
+                "runtime_kind": runtime_kind,
+                "thread_id": thread_id,
+                "turn_id": metrics.get("turn_id"),
+                "updated_at": at,
+            }
+        totals = dict(scheduler.get("codex_totals") or {})
+        tokens = metrics.get("tokens") or {}
+        totals["input_tokens"] = int(totals.get("input_tokens") or 0) + int(tokens.get("input_tokens") or 0)
+        totals["output_tokens"] = int(totals.get("output_tokens") or 0) + int(tokens.get("output_tokens") or 0)
+        totals["total_tokens"] = int(totals.get("total_tokens") or 0) + int(tokens.get("total_tokens") or 0)
+        totals["turn_count"] = int(totals.get("turn_count") or 0) + int(metrics.get("turn_count") or 0)
+        if metrics.get("rate_limits") is not None:
+            totals["rate_limits"] = metrics.get("rate_limits")
+        scheduler.update(
+            {
+                "workflow": "change-delivery",
+                "updatedAt": ns._now_iso(),
+                "codex_threads": threads,
+                "codex_totals": totals,
+            }
+        )
+        ns.save_scheduler(scheduler)
+        return metrics
+
+    def _coder_agent_tiers():
+        return (((getattr(ns, "WORKFLOW_YAML", {}) or {}).get("agents") or {}).get("coder") or {})
+
+    def _coder_runtime_name_for_model(model):
+        tiers = ns._coder_agent_tiers()
+        model_text = str(model or "")
+        for tier in tiers.values():
+            if not isinstance(tier, dict):
+                continue
+            if model_text and str(tier.get("model") or "") == model_text and tier.get("runtime"):
+                return str(tier.get("runtime"))
+        default_tier = tiers.get("default") if isinstance(tiers, dict) else {}
+        if isinstance(default_tier, dict) and default_tier.get("runtime"):
+            return str(default_tier.get("runtime"))
+        return "acpx-codex"
+
+    def _runtime_kind(runtime_name):
+        return str(((getattr(ns, "RUNTIME_PROFILES", {}) or {}).get(runtime_name) or {}).get("kind") or runtime_name)
+
+    def _coder_runtime_kind_for_model(model):
+        return ns._runtime_kind(ns._coder_runtime_name_for_model(model))
+
     def _should_escalate_codex_model(*, lane_state=None, workflow_state=None, reviews=None):
         return ns._load_adapter_sessions_module().should_escalate_codex_model(
             lane_state=lane_state,
@@ -1290,21 +1422,29 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _ensure_acpx_session(*, worktree, session_name, codex_model, resume_session_id=None):
-        return ns._load_adapter_sessions_module().ensure_acpx_session(
+        runtime_name = ns._coder_runtime_name_for_model(codex_model)
+        runtime_kind = ns._runtime_kind(runtime_name)
+        if runtime_kind == "codex-app-server":
+            issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
+            resume_session_id = ns._codex_thread_for_issue_number(issue_number) or resume_session_id
+        return ns._load_adapter_sessions_module().ensure_session_via_runtime(
+            workspace=ns,
+            runtime_name=runtime_name,
             worktree=worktree,
             session_name=session_name,
-            codex_model=codex_model,
+            model=codex_model,
             resume_session_id=resume_session_id,
-            run_json=ns._run_json,
         )
 
     def _run_acpx_prompt(*, worktree, session_name, prompt, codex_model):
-        return ns._load_adapter_sessions_module().run_acpx_prompt(
+        runtime_name = ns._coder_runtime_name_for_model(codex_model)
+        return ns._load_adapter_sessions_module().run_prompt_via_runtime(
+            workspace=ns,
+            runtime_name=runtime_name,
             worktree=worktree,
             session_name=session_name,
             prompt=prompt,
-            codex_model=codex_model,
-            run=ns._run,
+            model=codex_model,
         )
 
     # -----------------------------------------------------------------
@@ -1379,19 +1519,25 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _normalize_implementation_for_active_lane(implementation, *, active_lane, open_pr):
+        selected_codex_model = ns._codex_model_for_issue(
+            active_lane,
+            lane_state=(implementation or {}).get("laneState"),
+            workflow_state=(implementation or {}).get("status"),
+        )
+        session_runtime = ns._coder_runtime_kind_for_model(selected_codex_model)
+        resume_session_id = None
+        if session_runtime == "codex-app-server":
+            resume_session_id = ns._codex_thread_for_issue_number((active_lane or {}).get("number"))
         impl = dict(implementation or {})
         if not active_lane:
             return impl
-        selected_codex_model = ns._codex_model_for_issue(
-            active_lane,
-            lane_state=impl.get("laneState"),
-            workflow_state=impl.get("status"),
-        )
         return ns._load_adapter_status_module().normalize_implementation_for_active_lane(
             impl,
             active_lane=active_lane,
             open_pr=open_pr,
             selected_codex_model=selected_codex_model,
+            session_runtime=session_runtime,
+            resume_session_id=resume_session_id,
         )
 
     def _prepare_lane_worktree(*, worktree, branch, open_pr):
@@ -1971,6 +2117,14 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _dispatch_lane_turn(*, status, forced_action=None, audit_action="dispatch-implementation-turn"):
+        impl = status.get("implementation") or {}
+        codex_model = impl.get("codexModel") or ns._codex_model_for_issue(
+            status.get("activeLane"),
+            lane_state=impl.get("laneState"),
+            workflow_state=(status.get("ledger") or {}).get("workflowState"),
+            reviews=status.get("reviews") or {},
+        )
+        runtime_name = ns._coder_runtime_name_for_model(codex_model)
         return ns._load_adapter_actions_module().run_dispatch_lane_turn(
             status=status,
             forced_action=forced_action,
@@ -1991,6 +2145,9 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             reconcile_fn=ns.reconcile,
             audit_fn=ns.audit,
             render_implementation_dispatch_prompt_fn=ns._render_implementation_dispatch_prompt,
+            runtime_name=runtime_name,
+            runtime_kind=ns._runtime_kind(runtime_name),
+            record_runtime_result_fn=ns._record_coder_runtime_result,
             error_cls=subprocess.CalledProcessError,
         )
 

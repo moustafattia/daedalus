@@ -221,6 +221,24 @@ def test_normalize_implementation_for_active_lane_resets_mismatched_lane_to_fres
     }
 
 
+def test_normalize_implementation_for_active_lane_accepts_codex_app_server_runtime():
+    status_module = load_module("daedalus_workflows_change_delivery_status_codex_runtime", "workflows/change_delivery/status.py")
+
+    result = status_module.normalize_implementation_for_active_lane(
+        {"worktree": "/tmp/issue-224", "branch": "codex/issue-224-old"},
+        active_lane={"number": 224, "title": "[A07] Active lane"},
+        open_pr=None,
+        selected_codex_model="gpt-5.5",
+        session_runtime="codex-app-server",
+        resume_session_id="thread-224",
+    )
+
+    assert result["sessionRuntime"] == "codex-app-server"
+    assert result["sessionName"] == "lane-224"
+    assert result["resumeSessionId"] == "thread-224"
+    assert result["codexModel"] == "gpt-5.5"
+
+
 def test_collect_worktree_repo_facts_reads_branch_commit_count_and_head_sha(tmp_path):
     status_module = load_module("daedalus_workflows_change_delivery_status_test", "workflows/change_delivery/status.py")
 
@@ -361,6 +379,33 @@ def test_load_implementation_session_meta_falls_back_to_legacy_session_lookup_wh
 
     assert result == {"name": "session-123", "closed": False}
     assert seen == {"session_name": "session-123"}
+
+
+def test_load_implementation_session_meta_synthesizes_codex_app_server_thread_meta(tmp_path):
+    status_module = load_module("daedalus_workflows_change_delivery_status_codex_meta", "workflows/change_delivery/status.py")
+    worktree = tmp_path / "worktree"
+
+    result = status_module.load_implementation_session_meta(
+        {
+            "sessionRuntime": "codex-app-server",
+            "sessionName": "lane-224",
+            "session": "thread-224",
+            "resumeSessionId": "thread-224",
+            "updatedAt": "2026-04-30T00:00:00Z",
+        },
+        worktree,
+        show_acpx_session_fn=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("acpx lookup should not run")),
+        load_latest_session_meta_fn=lambda _session: (_ for _ in ()).throw(AssertionError("legacy lookup should not run")),
+    )
+
+    assert result == {
+        "name": "lane-224",
+        "closed": False,
+        "cwd": str(worktree),
+        "last_used_at": "2026-04-30T00:00:00Z",
+        "session_id": "thread-224",
+        "record_id": "thread-224",
+    }
 
 
 def test_increment_no_progress_ticks_resets_on_approval_or_merge():

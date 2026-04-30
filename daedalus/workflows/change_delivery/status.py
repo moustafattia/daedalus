@@ -127,6 +127,9 @@ def normalize_implementation_for_active_lane(
     active_lane: dict[str, Any] | None,
     open_pr: dict[str, Any] | None,
     selected_codex_model: str | None,
+    session_runtime: str = "acpx-codex",
+    session_name: str | None = None,
+    resume_session_id: str | None = None,
 ) -> dict[str, Any]:
     impl = dict(implementation or {})
     if not active_lane:
@@ -134,14 +137,17 @@ def normalize_implementation_for_active_lane(
     lane_number = active_lane.get("number")
     expected_worktree = expected_lane_worktree(lane_number)
     expected_branch = (open_pr or {}).get("headRefName") or expected_lane_branch(active_lane)
+    expected_session_name = session_name or lane_acpx_session_name(lane_number)
     if implementation_lane_matches(impl, lane_number):
         if expected_worktree is not None:
             impl["worktree"] = str(expected_worktree)
         if expected_branch:
             impl["branch"] = expected_branch
-        impl.setdefault("sessionRuntime", "acpx-codex")
-        impl.setdefault("sessionName", lane_acpx_session_name(lane_number))
+        impl["sessionRuntime"] = session_runtime or impl.get("sessionRuntime") or "acpx-codex"
+        impl["sessionName"] = expected_session_name
         impl["codexModel"] = selected_codex_model
+        if resume_session_id:
+            impl["resumeSessionId"] = resume_session_id
         return impl
     return {
         "session": None,
@@ -150,10 +156,10 @@ def normalize_implementation_for_active_lane(
         "updatedAt": None,
         "branch": expected_branch,
         "status": "implementing" if not open_pr else impl.get("status"),
-        "sessionRuntime": "acpx-codex",
-        "sessionName": lane_acpx_session_name(lane_number),
+        "sessionRuntime": session_runtime or "acpx-codex",
+        "sessionName": expected_session_name,
         "codexModel": selected_codex_model,
-        "resumeSessionId": None,
+        "resumeSessionId": resume_session_id,
     }
 
 
@@ -228,6 +234,16 @@ def load_implementation_session_meta(
     impl = implementation or {}
     if impl.get("sessionRuntime") == "acpx-codex":
         return show_acpx_session_fn(worktree=worktree, session_name=impl.get("sessionName"))
+    if impl.get("sessionRuntime") == "codex-app-server":
+        thread_id = impl.get("threadId") or impl.get("resumeSessionId") or impl.get("session")
+        return {
+            "name": impl.get("sessionName"),
+            "closed": False,
+            "cwd": str(worktree) if worktree is not None else impl.get("worktree"),
+            "last_used_at": impl.get("updatedAt"),
+            "session_id": thread_id,
+            "record_id": thread_id,
+        }
     return load_latest_session_meta_fn(impl.get("session"))
 
 
@@ -453,6 +469,11 @@ def assemble_status_payload(
             "agentName": coder_agent_name,
             "agentRole": "coder_agent",
             "resumeSessionId": implementation.get("resumeSessionId"),
+            "threadId": implementation.get("threadId"),
+            "turnId": implementation.get("turnId"),
+            "lastRuntimeEvent": implementation.get("lastRuntimeEvent"),
+            "lastRuntimeMessage": implementation.get("lastRuntimeMessage"),
+            "runtimeMetrics": implementation.get("runtimeMetrics"),
             "worktree": implementation.get("worktree"),
             "localHeadSha": local_head_sha,
             "publishStatus": publish_status,
@@ -586,6 +607,11 @@ def apply_ledger_implementation_merge(
         "agentName": coder_agent_name,
         "agentRole": "coder_agent",
         "resumeSessionId": impl.get("resumeSessionId"),
+        "threadId": impl.get("threadId"),
+        "turnId": impl.get("turnId"),
+        "lastRuntimeEvent": impl.get("lastRuntimeEvent"),
+        "lastRuntimeMessage": impl.get("lastRuntimeMessage"),
+        "runtimeMetrics": impl.get("runtimeMetrics"),
         "worktree": impl.get("worktree"),
         "localHeadSha": impl.get("localHeadSha"),
         "publishStatus": impl.get("publishStatus"),

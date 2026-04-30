@@ -281,6 +281,28 @@ def test_build_acp_session_strategy_supports_acpx_and_legacy_runtime_shapes():
     }
 
 
+def test_build_acp_session_strategy_supports_codex_app_server_threads():
+    sessions_module = load_module("daedalus_workflows_change_delivery_sessions_codex_strategy", "workflows/change_delivery/sessions.py")
+
+    result = sessions_module.build_acp_session_strategy(
+        implementation_session_key="legacy-key",
+        session_action={"action": "continue-session"},
+        lane_state={"sessionControl": {"targetSessionKey": "old-target", "resumeSessionId": "old-thread"}},
+        session_runtime="codex-app-server",
+        session_name="lane-224",
+        resume_session_id="thread-224",
+    )
+
+    assert result == {
+        "runtime": "codex-app-server",
+        "spawnMode": "thread",
+        "nudgeTool": "codex app-server turn/start",
+        "targetSessionKey": "lane-224",
+        "resumeSessionId": "thread-224",
+        "preferredAction": "continue-session",
+    }
+
+
 def test_should_nudge_session_blocks_recent_same_head_but_allows_other_cases():
     sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 

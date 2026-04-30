@@ -182,6 +182,12 @@ def _resolve_issue_runner_storage_path(workflow_root: Path, key: str, default: s
     return path
 
 
+def _storage_path(workflow_root: Path | None, key: str, default: str) -> Path | None:
+    if workflow_root is None:
+        return None
+    return _resolve_issue_runner_storage_path(Path(workflow_root), key, default)
+
+
 def _workflow_name(workflow_root: Path | None) -> str | None:
     if workflow_root is None:
         return None
@@ -358,18 +364,21 @@ def state_view(db_path: Path, events_log_path: Path, workflow_root: Path | None 
     lanes = _query_active_lanes(db_path)
     events = _read_events_tail(events_log_path, _RECENT_EVENTS_LIMIT)
     running = [_lane_to_running_entry(lane, events) for lane in lanes]
+    scheduler = _load_optional_json(_storage_path(workflow_root, "scheduler", "memory/workflow-scheduler.json")) or {}
+    codex_totals = dict(scheduler.get("codex_totals") or scheduler.get("codexTotals") or {})
+    rate_limits = codex_totals.pop("rate_limits", None)
     return {
         "generated_at": _now_iso(),
         "counts": {"running": len(running), "retrying": 0},
         "running": running,
         "retrying": [],
         "codex_totals": {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": 0,
+            "input_tokens": int(codex_totals.get("input_tokens") or 0),
+            "output_tokens": int(codex_totals.get("output_tokens") or 0),
+            "total_tokens": int(codex_totals.get("total_tokens") or 0),
             "seconds_running": 0,
         },
-        "rate_limits": None,
+        "rate_limits": rate_limits,
         "recent_events": events,
     }
 

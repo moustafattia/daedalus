@@ -59,9 +59,11 @@ Conforms to Symphony §13.7 / Daedalus spec §6.4:
 }
 ```
 
-`issue-runner` reports aggregate Codex token totals and latest rate-limit data
-from its scheduler state. `change-delivery` still preserves the same response
-shape but does not yet track equivalent per-lane usage totals.
+Both bundled workflows report aggregate Codex token totals and latest
+rate-limit data from scheduler state when their active runtime is
+`codex-app-server`. `change-delivery` still derives running lane rows from its
+SQLite lane model; `issue-runner` derives running and retrying rows directly
+from its scheduler file.
 
 ### `GET /api/v1/<identifier>`
 

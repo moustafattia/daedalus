@@ -198,8 +198,23 @@ def alert_state(workflow_root: Path) -> dict[str, Any]:
 
 def workflow_status(workflow_root: Path) -> dict[str, Any]:
     workflow_root = Path(workflow_root)
-    if _workflow_name(workflow_root) != "issue-runner":
+    workflow_name = _workflow_name(workflow_root)
+    if workflow_name not in {"issue-runner", "change-delivery"}:
         return {}
+    if workflow_name == "change-delivery":
+        scheduler_path = _resolve_issue_runner_storage_path(workflow_root, "scheduler", "memory/workflow-scheduler.json")
+        scheduler_payload = _load_optional_json(scheduler_path) or {}
+        totals = scheduler_payload.get("codex_totals") or scheduler_payload.get("codexTotals") or {}
+        return {
+            "workflow": "change-delivery",
+            "health": None,
+            "updated_at": scheduler_payload.get("updatedAt"),
+            "running_count": 0,
+            "retry_count": 0,
+            "selected_issue": None,
+            "total_tokens": int(totals.get("total_tokens") or 0),
+            "rate_limits": totals.get("rate_limits"),
+        }
     status_path = _resolve_issue_runner_storage_path(workflow_root, "status", "memory/workflow-status.json")
     scheduler_path = _resolve_issue_runner_storage_path(workflow_root, "scheduler", "memory/workflow-scheduler.json")
     status_payload = _load_optional_json(status_path) or {}

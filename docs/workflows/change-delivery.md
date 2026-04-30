@@ -41,6 +41,35 @@ flow.
 `change-delivery` composes the shared `runtimes/` backends with workflow-specific
 prompts, reviewers, GitHub behavior, and merge policy.
 
+## Codex Runtime Options
+
+The default template uses `acpx-codex` for the coder role. To run the coder
+through Codex app-server instead, change only `runtimes` and
+`agents.coder.*.runtime` in `WORKFLOW.md`:
+
+```yaml
+runtimes:
+  coder-runtime:
+    kind: codex-app-server
+    mode: external
+    endpoint: ws://127.0.0.1:4500
+    ephemeral: false
+    approval_policy: never
+    thread_sandbox: workspace-write
+    turn_sandbox_policy: workspace-write
+
+agents:
+  coder:
+    default:
+      name: Internal_Coder_Agent
+      model: gpt-5.5
+      runtime: coder-runtime
+```
+
+When `codex-app-server` is selected, Daedalus stores
+`lane:<issue-number> -> thread_id` plus token/rate-limit totals in
+`memory/workflow-scheduler.json` and resumes that thread on later ticks.
+
 ## Operator path
 
 Default onboarding:

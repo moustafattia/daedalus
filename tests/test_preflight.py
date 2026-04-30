@@ -38,6 +38,15 @@ def test_happy_path_returns_ok():
     assert result.can_reconcile is True
 
 
+def test_codex_app_server_runtime_kind_returns_ok():
+    cfg = _minimal_ok_config()
+    cfg["runtimes"]["r1"]["kind"] = "codex-app-server"
+
+    result = run_preflight(cfg)
+
+    assert result.ok is True
+
+
 def test_non_dict_config_yields_front_matter_error():
     result = run_preflight("not-a-dict")  # type: ignore[arg-type]
     assert result.ok is False

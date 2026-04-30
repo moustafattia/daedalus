@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
@@ -509,6 +510,118 @@ def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
     assert callable(ws.runtime)
     assert hasattr(ws.runtime("acpx-codex"), "ensure_session")
     assert hasattr(ws.runtime("claude-cli"), "run_prompt")
+
+
+def test_workspace_yaml_can_select_codex_app_server_coder_runtime(tmp_path):
+    from workflows.change_delivery.workspace import make_workspace
+
+    cfg = _workflow_yaml_config(tmp_path)
+    cfg["runtimes"] = {
+        "coder-runtime": {
+            "kind": "codex-app-server",
+            "command": "codex app-server",
+            "mode": "managed",
+            "ephemeral": False,
+            "approval_policy": "never",
+            "thread_sandbox": "workspace-write",
+            "turn_sandbox_policy": "workspace-write",
+        },
+        "reviewer-runtime": {
+            "kind": "claude-cli",
+            "max-turns-per-invocation": 24,
+            "timeout-seconds": 1200,
+        },
+    }
+    cfg["agents"]["coder"]["default"]["runtime"] = "coder-runtime"
+    cfg["agents"]["internal-reviewer"]["runtime"] = "reviewer-runtime"
+
+    ws = make_workspace(workspace_root=tmp_path, config=cfg)
+
+    assert ws._coder_runtime_name_for_model("gpt-5.3-codex-spark/high") == "coder-runtime"
+    assert ws._coder_runtime_kind_for_model("gpt-5.3-codex-spark/high") == "codex-app-server"
+    assert hasattr(ws.runtime("coder-runtime"), "run_prompt_result")
+
+
+def test_workspace_records_change_delivery_codex_threads_and_totals(tmp_path):
+    from workflows.change_delivery.workspace import make_workspace
+
+    cfg = _workflow_yaml_config(tmp_path)
+    cfg["storage"]["scheduler"] = "memory/workflow-scheduler.json"
+    ws = make_workspace(workspace_root=tmp_path, config=cfg)
+
+    metrics = ws._record_coder_runtime_result(
+        issue={"number": 224},
+        session_name="lane-224",
+        runtime_name="coder-runtime",
+        runtime_kind="codex-app-server",
+        result=SimpleNamespace(),
+        metrics={
+            "session_id": "thread-224",
+            "thread_id": "thread-224",
+            "turn_id": "turn-1",
+            "turn_count": 1,
+            "tokens": {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+            "rate_limits": {"requests_remaining": 99},
+        },
+        at="2026-04-30T00:00:00Z",
+    )
+
+    scheduler = json.loads((tmp_path / "memory" / "workflow-scheduler.json").read_text(encoding="utf-8"))
+    assert metrics["thread_id"] == "thread-224"
+    assert scheduler["workflow"] == "change-delivery"
+    assert scheduler["codex_threads"]["lane:224"]["thread_id"] == "thread-224"
+    assert scheduler["codex_totals"]["total_tokens"] == 18
+    assert scheduler["codex_totals"]["rate_limits"] == {"requests_remaining": 99}
+    assert ws._codex_thread_for_issue_number(224) == "thread-224"
+
+
+def test_workspace_ensure_coder_session_resumes_persisted_codex_thread(tmp_path):
+    from workflows.change_delivery.workspace import make_workspace
+
+    cfg = _workflow_yaml_config(tmp_path)
+    cfg["runtimes"] = {
+        "coder-runtime": {"kind": "codex-app-server", "command": "codex app-server"},
+        "reviewer-runtime": {
+            "kind": "claude-cli",
+            "max-turns-per-invocation": 24,
+            "timeout-seconds": 1200,
+        },
+    }
+    cfg["agents"]["coder"]["default"]["runtime"] = "coder-runtime"
+    cfg["agents"]["internal-reviewer"]["runtime"] = "reviewer-runtime"
+    ws = make_workspace(workspace_root=tmp_path, config=cfg)
+    ws._record_coder_runtime_result(
+        issue={"number": 224},
+        session_name="lane-224",
+        runtime_name="coder-runtime",
+        runtime_kind="codex-app-server",
+        result=SimpleNamespace(),
+        metrics={
+            "thread_id": "thread-224",
+            "turn_id": "turn-1",
+            "turn_count": 1,
+            "tokens": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        },
+        at="2026-04-30T00:00:00Z",
+    )
+
+    calls = {}
+
+    class FakeRuntime:
+        def ensure_session(self, **kwargs):
+            calls.update(kwargs)
+            return SimpleNamespace(record_id=None, session_id=kwargs.get("resume_session_id"), name=kwargs.get("session_name"))
+
+    ws.runtime = lambda name: FakeRuntime()
+    handle = ws._ensure_acpx_session(
+        worktree=Path("/tmp/issue-224"),
+        session_name="lane-224",
+        codex_model="gpt-5.3-codex-spark/high",
+        resume_session_id=None,
+    )
+
+    assert calls["resume_session_id"] == "thread-224"
+    assert handle.session_id == "thread-224"
 
 
 def test_workspace_raises_on_agent_referencing_unknown_runtime(tmp_path):

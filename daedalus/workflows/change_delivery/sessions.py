@@ -456,6 +456,15 @@ def build_acp_session_strategy(
             "resumeSessionId": resume_session_id or session_control.get("resumeSessionId"),
             "preferredAction": (session_action or {}).get("action"),
         }
+    if session_runtime == "codex-app-server":
+        return {
+            "runtime": "codex-app-server",
+            "spawnMode": "thread",
+            "nudgeTool": "codex app-server turn/start",
+            "targetSessionKey": session_name or session_control.get("targetSessionKey"),
+            "resumeSessionId": resume_session_id or session_control.get("resumeSessionId"),
+            "preferredAction": (session_action or {}).get("action"),
+        }
     return {
         "runtime": "acp",
         "spawnMode": "session",
@@ -581,9 +590,18 @@ def run_prompt_via_runtime(
     session_name: str,
     prompt: str,
     model: str,
-) -> str:
+) -> Any:
     """Runtime-aware version of run_acpx_prompt / the inline claude invocation."""
-    return workspace.runtime(runtime_name).run_prompt(
+    runtime = workspace.runtime(runtime_name)
+    runner = getattr(runtime, "run_prompt_result", None)
+    if callable(runner):
+        return runner(
+            worktree=worktree,
+            session_name=session_name,
+            prompt=prompt,
+            model=model,
+        )
+    return runtime.run_prompt(
         worktree=worktree,
         session_name=session_name,
         prompt=prompt,

@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
@@ -373,6 +374,71 @@ def test_run_dispatch_lane_turn_executes_continue_session_when_healthy(tmp_path)
     assert state["close_calls"] == 0  # continue-session doesn't close
     assert state["run_prompt_calls"]
     assert state["audits"][0]["action"] == "dispatch-implementation-turn"
+
+
+def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path):
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_codex", "workflows/change_delivery/actions.py")
+    state, worktree, deps = _dispatch_deps(tmp_path)
+    status = {
+        "activeLane": {"number": 224, "title": "T", "url": "https://example.test/issue/224"},
+        "implementation": {
+            "worktree": str(worktree),
+            "branch": "issue-224",
+            "sessionName": "lane-224",
+            "codexModel": "gpt-5.5",
+            "resumeSessionId": "thread-existing",
+            "sessionActionRecommendation": {"action": "continue-session"},
+            "laneState": {},
+        },
+        "ledger": {"workflowState": "implementing_local"},
+        "reviews": {},
+        "openPr": None,
+    }
+
+    def run_prompt_fn(*, worktree, session_name, prompt, codex_model):
+        return SimpleNamespace(
+            output="codex ok\n",
+            session_id="thread-1",
+            thread_id="thread-1",
+            turn_id="turn-1",
+            last_event="turn/completed",
+            last_message="done",
+            turn_count=1,
+            tokens={"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+            rate_limits={"requests_remaining": 99},
+        )
+
+    recorded = {}
+
+    def record_runtime_result_fn(**kwargs):
+        recorded.update(kwargs)
+        return kwargs["metrics"]
+
+    result = actions_module.run_dispatch_lane_turn(
+        status=status,
+        forced_action=None,
+        audit_action="dispatch-implementation-turn",
+        **{
+            **deps,
+            "run_prompt_fn": run_prompt_fn,
+            "runtime_name": "coder-runtime",
+            "runtime_kind": "codex-app-server",
+            "record_runtime_result_fn": record_runtime_result_fn,
+        },
+    )
+
+    assert result["sessionRuntime"] == "codex-app-server"
+    assert result["runtimeName"] == "coder-runtime"
+    assert result["threadId"] == "thread-1"
+    assert result["turnId"] == "turn-1"
+    assert result["promptResult"] == "codex ok"
+    assert result["metrics"]["tokens"]["total_tokens"] == 18
+    assert recorded["issue"]["number"] == 224
+    impl = state["save_ledger"][-1]["implementation"]
+    assert impl["sessionRuntime"] == "codex-app-server"
+    assert impl["session"] == "thread-1"
+    assert impl["resumeSessionId"] == "thread-1"
+    assert impl["runtimeMetrics"]["rate_limits"] == {"requests_remaining": 99}
 
 
 def test_run_dispatch_lane_turn_closes_session_for_restart(tmp_path):
