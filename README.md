@@ -71,18 +71,6 @@ For manual scaffold paths, service modes, pip installs, and every lower-level co
 use the full install guide:
 [docs/operator/installation.md](docs/operator/installation.md).
 
-## What Is Stateful
-
-Daedalus is not controlled by Markdown files alone. The workflow contract is
-configuration; runtime truth is persisted separately.
-
-| Surface | Purpose |
-|---|---|
-| `runtime/state/daedalus/daedalus.db` | `change-delivery` leases, lanes, actions, reviews, failures |
-| `memory/workflow-scheduler.json` | running workers, retries, thread mappings, token/rate-limit totals |
-| `memory/workflow-audit.jsonl` | workflow audit history |
-| `memory/workflow-status.json` / `workflow-health.json` | operator and HTTP status projections |
-
 ## Operate It
 
 After installing the plugin, run Hermes from your target repo:
@@ -144,15 +132,29 @@ Stable public boundaries are tracked in [docs/public-contract.md](docs/public-co
 Readiness and generic-surface guardrails are tracked in
 [docs/harness-engineering.md](docs/harness-engineering.md).
 
+## What Is Stateful
+
+Daedalus is not controlled by Markdown files alone. The workflow contract is
+configuration; runtime truth is persisted separately.
+
+| Surface | Purpose |
+|---|---|
+| `runtime/state/daedalus/daedalus.db` | `change-delivery` leases, lanes, actions, reviews, failures |
+| `memory/workflow-scheduler.json` | running workers, retries, thread mappings, token/rate-limit totals |
+| `memory/workflow-audit.jsonl` | workflow audit history |
+| `memory/workflow-status.json` / `workflow-health.json` | operator and HTTP status projections |
+
 ## Documentation
 
-- [docs/operator/installation.md](docs/operator/installation.md) — full install, bootstrap, service, and troubleshooting path.
-- [docs/workflows/workflow-contract.md](docs/workflows/workflow-contract.md) — `WORKFLOW.md` structure and examples.
-- [docs/workflows/README.md](docs/workflows/README.md) — workflow comparison and templates.
-- [docs/architecture.md](docs/architecture.md) — engine/workflow boundary and durable runtime model.
-- [docs/operator/cheat-sheet.md](docs/operator/cheat-sheet.md) — day-2 commands and debugging.
-- [docs/symphony-conformance.md](docs/symphony-conformance.md) — Symphony alignment and remaining gaps.
-- [docs/security.md](docs/security.md) — trust model, shell/runtime posture, and secrets.
+| Doc | Purpose |
+|---|---|
+| [Installation](docs/operator/installation.md) | Full install, bootstrap, service, and troubleshooting path. |
+| [WORKFLOW.md guide](docs/workflows/workflow-contract.md) | Workflow contract structure and examples. |
+| [Bundled workflows](docs/workflows/README.md) | Workflow comparison and templates. |
+| [Architecture](docs/architecture.md) | Engine/workflow boundary and durable runtime model. |
+| [Operator cheat sheet](docs/operator/cheat-sheet.md) | Day-2 commands and debugging. |
+| [Symphony conformance](docs/symphony-conformance.md) | Symphony alignment and remaining gaps. |
+| [Security](docs/security.md) | Trust model, shell/runtime posture, and secrets. |
 
 ## Name
 
