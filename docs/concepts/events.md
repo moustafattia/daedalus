@@ -1,13 +1,19 @@
 # Events
 
-Append-only history of everything that happened. Events are written to `daedalus-events.jsonl` (one JSON object per line) and consumed by:
+Append-only history of what the runtime and workflows did. Daedalus writes runtime events to `runtime/memory/daedalus-events.jsonl`; workflows may also write their own audit files such as `memory/workflow-audit.jsonl`.
+
+These event streams are consumed by:
 
 - the operator dashboard (recent-event tail)
 - the alerting layer
 - post-hoc auditing
 - regression tests that snapshot lifecycles
 
-State is in SQLite. **History is in events.** Never reconstruct current state by replaying events — that's what the lanes table is for.
+State is workflow-specific. **History is in events.** Never reconstruct current state by replaying events.
+
+- `change-delivery` current state is in SQLite: lanes, actions, reviews, failures, and leases.
+- `issue-runner` current state is in persisted JSON: status, health, scheduler, running workers, retry queue, and Codex thread mappings.
+- Runtime events and workflow audit events are for debugging, alerting, tests, and post-hoc archaeology.
 
 ## Anatomy of an event
 
@@ -68,17 +74,17 @@ flowchart LR
 
 ## Event writer
 
-Events are appended by `daedalus/runtime.py::append_daedalus_event`. The function:
+Runtime events are appended by `daedalus/runtime.py::append_daedalus_event`. The function:
 
 1. Builds the event dict with `type`, `lane_id`, `at`, and `payload`
-2. Atomically appends one JSON line to `daedalus-events.jsonl`
+2. Atomically appends one JSON line to `runtime/memory/daedalus-events.jsonl`
 3. Never blocks on a full disk — if the write fails, the event is dropped and a warning is emitted
 
 ### File rotation
 
 The JSONL file is **not rotated automatically**. For long-lived deployments:
 
-- Archive old logs: `mv daedalus-events.jsonl daedalus-events-$(date +%Y%m%d).jsonl`
+- Archive old logs: `mv runtime/memory/daedalus-events.jsonl runtime/memory/daedalus-events-$(date +%Y%m%d).jsonl`
 - The next event write creates a fresh `daedalus-events.jsonl`
 - No data is lost if you archive while the process is running (append is atomic)
 
@@ -108,11 +114,12 @@ All events share a common envelope:
 
 ## Reading events efficiently
 
-The dashboard tails the last 20 events on every HTTP hit. Naïve `readlines()` is O(file size); the implementation in `daedalus/workflows/change_delivery/server/views.py::_read_events_tail` uses an 8 KiB reverse-chunked seek so request cost is bounded regardless of how big the log gets. Same algorithm if you write your own consumer.
+The dashboard tails the last 20 events on every HTTP hit. Naïve `readlines()` is O(file size); the implementation in `daedalus/workflows/change_delivery/server/views.py::_read_events_tail` uses an 8 KiB reverse-chunked seek so request cost is bounded regardless of how big the log gets. The shared watch surface also tails the workflow audit path resolved from the workflow contract.
 
 ## Where this lives in code
 
 - Taxonomy constants: `daedalus/workflows/change_delivery/event_taxonomy.py`
 - Writer: `daedalus/runtime.py::append_daedalus_event`
 - Reader (tail): `daedalus/workflows/change_delivery/server/views.py::_read_events_tail`
+- Watch source aggregation: `daedalus/watch_sources.py`
 - AST regression test: `tests/test_event_taxonomy.py` ensures `daedalus/runtime.py` only emits known event types

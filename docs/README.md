@@ -13,6 +13,12 @@ Entry point for everything that won't fit on the [project landing page](../READM
 - **[release-readiness.md](release-readiness.md)** — public-beta scorecard, launch gates, and next hardening slice.
 - **[security.md](security.md)** — the trust model, shell/network posture, and secret-handling expectations.
 
+## How to read these docs
+
+- Generic docs describe the plugin engine: contracts, state stores, runtimes, trackers, service supervision, and observability.
+- Workflow docs describe lifecycle policy. `change-delivery` is the opinionated GitHub issue-to-merge path; `issue-runner` is the smaller generic tracker-driven path.
+- Operator docs describe installed deployments. SQL examples usually apply to `change-delivery`; `issue-runner` uses persisted status, scheduler, and audit files instead.
+
 ## Concepts
 
 What each abstraction *means* — read these before reading code.
@@ -22,7 +28,7 @@ What each abstraction *means* — read these before reading code.
 | [Lanes](concepts/lanes.md) | The unit of work. State machine, lifecycle, terminal states. |
 | [Leases & heartbeats](concepts/leases.md) | How a single owner stays responsible for a lane. |
 | [Runtimes](concepts/runtimes.md) | The shared execution backends: `claude-cli`, `acpx-codex`, `hermes-agent`, `codex-app-server`. |
-| [Events](concepts/events.md) | The append-only history. Symphony §10.4 taxonomy + `daedalus.*` namespace. |
+| [Events](concepts/events.md) | Runtime JSONL events plus workflow audit files. Symphony §10.4 taxonomy + `daedalus.*` namespace. |
 | [Stalls](concepts/stalls.md) | `last_activity_ts()` + `stall.timeout_ms` (Symphony §8.5). |
 | [Hot-reload & preflight](concepts/hot-reload.md) | Workflow-contract reload (`WORKFLOW.md` first, legacy `workflow.yaml` still loadable) + per-tick preflight (Symphony §6.2 + §6.3). |
 | [Shadow → active](concepts/shadow-active.md) | The promotion gate from observation to execution. |

@@ -13,6 +13,13 @@ metadata:
 
 Use this when a user wants to evolve a cron/polling workflow into a Hermes-native, long-running orchestration system with explicit role handoffs and one visible control surface.
 
+Current Daedalus shape:
+- repo-owned workflow contracts live in `WORKFLOW.md` or `WORKFLOW-<workflow>.md`
+- plugin code is the source of truth under `~/.hermes/plugins/daedalus`
+- workflow instance data lives under `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`
+- shared runtimes live under `daedalus/runtimes/`; shared trackers live under `daedalus/trackers/`
+- `change-delivery` uses SQLite lane/action state; `issue-runner` uses persisted status/scheduler/audit JSON/JSONL state
+
 ## Core decision model
 
 Do not model the system as:
@@ -62,8 +69,8 @@ Current practical note:
 - also query the runtime lease row directly; do not trust `latest_heartbeat_at` alone
 - compute operator-facing freshness fields from both heartbeat and lease state: heartbeat age, lease expiry, stale boolean, stale reasons
 - this avoids two dumb failure modes: (1) idempotent action persistence returns no newly inserted action so your report falsely says Daedalus has no current opinion, and (2) the DB says `running` while the lease is actually expired and the operator gets a false sense of health
-- for post-publish findings-open lanes, do not derive `dispatch_repair_handoff` from review verdict alone; match the wrapper's real gating: actionable repair brief for the current head, routable session, and no already-recorded repair handoff for that exact review/head pair
-- otherwise Daedalus shadow parity lies and operators get a fake mismatch where Daedalus screams "dispatch repair" while the wrapper correctly returns `noop` because the repair handoff already went out or no repair brief exists yet
+- for post-publish findings-open lanes, do not derive `dispatch_repair_handoff` from review verdict alone; match the workflow package's real gating: actionable repair brief for the current head, routable session, and no already-recorded repair handoff for that exact review/head pair
+- otherwise Daedalus shadow parity lies and operators get a fake mismatch where Daedalus screams "dispatch repair" while the workflow correctly returns `noop` because the repair handoff already went out or no repair brief exists yet
 - the natural next operator command after `shadow-report` is `doctor`: classify stale runtime, missing lease, split-brain risk, active-lane inconsistency, shadow-parity drift, and unresolved active-execution failures as explicit checks with status/severity/summary/details
 - once shadow parity is trustworthy, the next operational upgrade is a supervised service layer (for example a systemd user service) instead of an ad-hoc background shell process
 - for systemd user supervision, generate/install dedicated units instead of one overloaded service: a shadow observer unit running `python3 scripts/daedalus.py run-shadow ...` and an active executor unit running `python3 scripts/daedalus.py run-active ...`
@@ -369,15 +376,15 @@ Recommended order:
 8. emit shadow action events and compare Daedalus-derived actions against legacy `nextAction`
 9. add heartbeat / lease refresh and a one-shot shadow iteration loop shell
 10. only then build the long-running service loop and plugin control surface
-11. first active-execution slice should usually wrap the existing workflow brain's side-effect command (for example the wrapper's `dispatch-implementation-turn`) while Daedalus owns leases, action rows, and execution accounting
-12. when expanding active execution beyond the first slice, keep the same pattern: add or reuse a dedicated wrapper CLI subcommand per side effect (for example `dispatch-claude-review`, `dispatch-repair-handoff`, `push-pr-update`, or `publish-ready-pr`) and route Daedalus execution through a small action-runner registry keyed by Daedalus `action_type`
-- when the next active slice is a repair-handoff path, do not route Daedalus through a generic implementation command and hope wrapper internals happen to do the right thing; add a dedicated wrapper command (for example `dispatch-repair-handoff`) backed by a shared helper that both direct execution and reconcile/tick can call
-- that shared-helper extraction matters because duplicated repair-handoff logic across reconcile and direct execution will drift, and then Daedalus active mode and the legacy wrapper will disagree in deeply annoying ways
+11. first active-execution slice should usually wrap the existing workflow package's side-effect command (for example `dispatch-implementation-turn`) while Daedalus owns leases, action rows, and execution accounting
+12. when expanding active execution beyond the first slice, keep the same pattern: add or reuse a dedicated workflow CLI subcommand per side effect (for example `dispatch-claude-review`, `dispatch-repair-handoff`, `push-pr-update`, or `publish-ready-pr`) and route Daedalus execution through a small action-runner registry keyed by Daedalus `action_type`
+- when the next active slice is a repair-handoff path, do not route Daedalus through a generic implementation command and hope workflow internals happen to do the right thing; add a dedicated workflow command (for example `dispatch-repair-handoff`) backed by a shared helper that both direct execution and reconcile/tick can call
+- that shared-helper extraction matters because duplicated repair-handoff logic across reconcile and direct execution will drift, and then Daedalus active mode and workflow-derived status will disagree in deeply annoying ways
 
 Rule:
 - runtime and shadow parity before UI polish
 - plugin/control surface after the orchestrator has something real to control
-- first active execution should prefer Daedalus-owned action records plus wrapper-backed side-effect execution over prematurely reimplementing every side effect from scratch
+- first active execution should prefer Daedalus-owned action records plus workflow-backed side-effect execution over prematurely reimplementing every side effect from scratch
 - for the next active slices, do not pile on bespoke one-off execution branches forever; use a bounded runner map so each new action type is an incremental wrapper-backed addition instead of another spaghetti conditional
 - not every active action belongs to the coder actor: review requests should target `Internal_Reviewer_Agent`, while orchestration-owned side effects like merge/promotion should target `Workflow_Orchestrator` directly rather than pretending the coder owns them
 - before auto-executing any active action, the runtime should enforce a real gate instead of vibes: Daedalus marked as desired primary owner, active execution explicitly enabled, runtime actually running in `active` mode, legacy watchdog disabled, and current Daedalus-vs-legacy action parity still compatible. If any of those fail, block the iteration and say why.
@@ -393,25 +400,26 @@ Current proven implementation sequence from an early Daedalus bootstrap:
 3. start with a minimal but real core: SQLite init, WAL pragmas, runtime lease acquisition, JSONL event append, and shadow-mode bootstrap
 4. add tests first for the runtime skeleton before expanding features; the first useful slice is DB init, lease enforcement, and bootstrap event creation
 5. next add `status` and `ingest-live` commands so Daedalus can observe the legacy workflow and canonically ingest the current active lane, actor backend, and normalized review rows without executing side effects
-6. keep shadow derivation logic intentionally narrow at first (for example one internal-review request rule), then expand it incrementally to mirror the legacy wrapper policy
+6. keep shadow derivation logic intentionally narrow at first (for example one internal-review request rule), then expand it incrementally to mirror workflow policy
 
 Useful early file layout proven in practice:
 - specs under `docs/specs/`
 - side-by-side runtime under `scripts/daedalus.py`
 - phase bootstrap tests under `tests/test_daedalus_phase1_skeleton.py`
-- canonical DB under `state/daedalus/daedalus.db`
-- append-only event log under `memory/daedalus-events.jsonl`
+- canonical DB under `runtime/state/daedalus/daedalus.db` for current workflow roots
+- append-only runtime event log under `runtime/memory/daedalus-events.jsonl`
+- workflow-owned scheduler/audit files under `memory/` unless a workflow explicitly configures different storage paths
 
 Practical lessons learned:
 - do not trust a huge timed-out tarball just because the file exists; validate with `gzip -t` and checksum or it is garbage
 - the active lane can move while architecture work is happening; Daedalus shadow ingestion must tolerate live drift and treat imported legacy state as observation, not authority over GitHub/worktree truth
 - if `sqlite3` CLI is unavailable on the host, Python-based verification plus tests are enough; do not block on missing shell conveniences
-- do not assume the legacy wrapper's managed jobs live only in `coreJobNames`; on some live configs, `coreJobNames` can be empty while the real watchdog/notification jobs are listed under `hermesJobNames`
-- therefore wrapper pause/resume/status logic should operate on a managed-job union/fallback (`coreJobNames` + `hermesJobNames`) or Daedalus cutover gating will lie that the watchdog is still enabled even after a pause
+- do not assume historical managed jobs live only in `coreJobNames`; on some old configs, `coreJobNames` can be empty while the real watchdog/notification jobs are listed under `hermesJobNames`
+- therefore migration-era pause/resume/status logic should operate on a managed-job union (`coreJobNames` + `hermesJobNames`) or Daedalus cutover gating will lie that the watchdog is still enabled even after a pause
 - when importing legacy review state, normalize it into stable internal/external reviewer rows immediately so Daedalus policy can remain role-based while still recording backend-specific fields like `claudeCode` and `codexCloud`
 - once active execution starts creating retry or recovery actions, `request_active_actions_for_lane()` must return already-requested active rows before deriving new ones, or queued retries become invisible and the loop falsely reports `no-active-actions`
 - for deterministic actor-side failures, a good v1 recovery policy is: first failure of coder-side actions (`dispatch_implementation_turn` / `dispatch_repair_handoff`) gets one bounded automatic same-action retry; if that retry also fails, queue a dedicated `restart_actor_session` recovery action; only after the restart action fails should Daedalus mark operator attention
-- that restart slice wants a dedicated wrapper command (for example `restart-actor-session`) instead of overloading generic implementation dispatch through hidden prompt conventions
+- that restart slice wants a dedicated workflow command (for example `restart-actor-session`) instead of overloading generic implementation dispatch through hidden prompt conventions
 - when a queued recovery action succeeds, resolve the prior failure row (`resolved_at`, `resolution_action_id`) or your doctor report will keep screaming about dead failures that were already recovered
 - once deterministic recovery runs out, ambiguous failures should move into a bounded `Workflow_Error_Analyst` path instead of jumping straight to vibes or human panic: build a compact analysis input (lane snapshot, actor health, recent event window, last action payload, retry/failure counters, narrow allowed actions), persist that evidence, and emit `error_analysis_requested` / `error_analysis_completed`
 - treat the analyst like an untrusted structured-output component: validate every required field (`failure_class`, `root_cause`, `confidence`, `recommended_action`, `reasoning_summary`, `evidence_refs`, `escalate`), reject outputs outside the allowed action subset, and fall back to `mark_operator_attention` on invalid output or analyst execution failure

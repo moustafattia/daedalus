@@ -37,7 +37,7 @@ sequenceDiagram
 - Default TTL is configured per-instance via `--ttl-seconds` (typical: 60s).
 - A lease that's missed `> ttl` seconds of heartbeats is considered expired.
 - `daedalus doctor` reports expired leases as recoverable, not as errors.
-- When B claims a lease previously held by A, the action row's `current_action_id` is **not** automatically reset — the workflow wrapper decides whether to resume or restart based on state.
+- When B claims a lease previously held by A, the action row's `current_action_id` is **not** automatically reset — the workflow package decides whether to resume or restart based on state.
 
 ## Split-brain check
 

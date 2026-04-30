@@ -42,21 +42,22 @@ flowchart LR
   E -- no --> G[abort tick]
 ```
 
-`PREFLIGHT_GATED_COMMANDS` is declared on the workflow module (`daedalus/workflows/change_delivery/__init__.py`). Today it gates `tick`, `dispatch-implementation-turn`, `dispatch-internal-review-turn`, `dispatch-external-review-turn`, and `dispatch-merge-turn`. Read-only commands (`status`, `inspect`) bypass the gate.
+`PREFLIGHT_GATED_COMMANDS` is declared on each workflow module. `change-delivery` gates dispatching commands such as `tick`, `dispatch-implementation-turn`, `dispatch-claude-review`, `publish-ready-pr`, `merge-and-promote`, and `resume`. `issue-runner` gates `tick` and `run`. Read-only commands such as `status`, `doctor`, and inspection helpers bypass the gate.
 
 ### What preflight actually checks
 
 - The workflow contract parses
-- The projected workflow config matches `schema.yaml`
-- Every referenced runtime kind (`runtimes.<name>.kind`, `agents.external-reviewer.kind`) is registered
-- Lane-selection config, if present, is internally consistent
+- The projected workflow config matches the selected workflow's `schema.yaml`
+- Every referenced runtime kind is registered
+- Workflow-specific references are internally consistent, such as `change-delivery` lane selection or `issue-runner` tracker/runtime storage paths
 
 `PreflightResult.can_reconcile=True` (the default) means: dispatch is unsafe but reconciliation (lease recovery, stall detection, status reads) is still safe. That's the rule that keeps a bad edit from killing the loop.
 
 ## Where this lives in code
 
-- `ConfigSnapshot` + `AtomicRef`: `daedalus/workflows/change_delivery/config_snapshot.py`
-- Watcher: `daedalus/workflows/change_delivery/config_watcher.py`
-- Preflight: `daedalus/workflows/change_delivery/preflight.py`
+- `ConfigSnapshot` + `AtomicRef`: `daedalus/workflows/shared/config_snapshot.py`
+- Watcher: `daedalus/workflows/shared/config_watcher.py`
+- `change-delivery` compatibility re-exports: `daedalus/workflows/change_delivery/config_snapshot.py`, `daedalus/workflows/change_delivery/config_watcher.py`
+- Preflight: `daedalus/workflows/change_delivery/preflight.py`, `daedalus/workflows/issue_runner/preflight.py`
 - Gating: `daedalus/workflows/__init__.py::run_cli` reads `PREFLIGHT_GATED_COMMANDS`
 - Tests: `tests/test_config_snapshot.py`, `tests/test_config_watcher.py`, `tests/test_workflows_preflight_cli_integration.py`

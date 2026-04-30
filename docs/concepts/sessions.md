@@ -1,6 +1,6 @@
 # Sessions
 
-A **session** is the runtime's handle to a persistent or one-shot actor process. Daedalus tracks sessions per lane so it knows which actor owns which worktree, whether the session is still alive, and when it last did something useful.
+A **session** is the runtime's handle to a persistent or one-shot actor process. Daedalus tracks sessions per work item so it knows which actor owns which worktree, whether the session is still alive, and when it last did something useful.
 
 ---
 
@@ -26,7 +26,7 @@ stateDiagram-v2
 | Property | Meaning |
 |---|---|
 | `session_name` | Human-readable name, e.g. `coder-claude-1`. |
-| `session_id` | Runtime-specific handle. For acpx-codex: the Codex session UUID. For claude-cli: always `None` (one-shot). |
+| `session_id` | Runtime-specific handle. For `acpx-codex`: the Codex session UUID. For `codex-app-server`: the Codex `thread_id`. For one-shot runtimes: usually `None`. |
 | `worktree` | Path to the lane's workspace clone. |
 | `model` | Model string used for this session. |
 | `resume_session_id` | If restarting, the old session ID to resume from. |
@@ -58,6 +58,15 @@ stateDiagram-v2
 - Requires a `command:` override in `WORKFLOW.md`.
 - `assess_health` always returns healthy.
 - `last_activity_ts` records subprocess start/end timestamps.
+
+### `codex-app-server` (resumable thread)
+
+- Persistent Codex thread across turns when `ephemeral: false`.
+- Managed stdio mode starts `codex app-server` for the run; external mode connects to a long-running WebSocket listener.
+- Workflows persist mappings so later ticks call `thread/resume` instead of `thread/start`.
+- `issue-runner` stores `issue_id -> thread_id`; `change-delivery` stores `lane:<issue-number> -> thread_id`.
+- Token totals and latest rate-limit payloads are persisted in scheduler state.
+- Cooperative cancellation sends `turn/interrupt` for the active turn when the service stops or the work item becomes terminal.
 
 ---
 
@@ -91,8 +100,9 @@ Sessions are named per lane and role:
 Examples:
 - `coder-claude-220` — Coder session for lane 220
 - `reviewer-codex-220` — External reviewer session for lane 220
+- `issue-runner-42` — Generic issue runner session for issue 42
 
-The `lane_short_id` is the issue number (or a hash if the lane has no issue). This makes session names human-readable and unique.
+The short id is usually the issue number (or a hash if there is no issue number). This makes session names human-readable and unique.
 
 ---
 
@@ -120,7 +130,8 @@ where can_continue = false
 ## Where this lives in code
 
 - Session protocol: `daedalus/workflows/change_delivery/sessions.py`
-- Runtime adapters: `daedalus/workflows/change_delivery/runtimes/{claude_cli,acpx_codex,hermes_agent}.py`
+- Shared runtime adapters: `daedalus/runtimes/{claude_cli,acpx_codex,hermes_agent,codex_app_server}.py`
+- Workflow compatibility shims: `daedalus/workflows/change_delivery/runtimes/`
 - Health checks: `daedalus/workflows/change_delivery/health.py`
-- Stall detection: `daedalus/workflows/change_delivery/stall.py`
+- Stall detection: `daedalus/workflows/shared/stall.py`, `daedalus/workflows/change_delivery/stall.py`
 - Tests: `tests/test_workflows_change_delivery_sessions.py`, `tests/test_workflows_change_delivery_session_runtime.py`

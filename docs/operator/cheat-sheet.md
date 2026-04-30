@@ -25,8 +25,8 @@ It is specifically written for the opinionated `change-delivery` workflow.
 
 ```
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│   GitHub     │───►│   Wrapper    │───►│   Daedalus   │
-│   (truth)    │    │   (brain)    │    │   (runtime)  │
+│   GitHub     │───►│ Workflow pkg │───►│   Daedalus   │
+│   (truth)    │    │   (policy)   │    │   (runtime)  │
 └──────────────┘    └──────────────┘    └──────────────┘
        │                    │                    │
        │                    │                    │
@@ -41,7 +41,7 @@ It is specifically written for the opinionated `change-delivery` workflow.
 | Layer | Command | Answers |
 |:---|:---|:---|
 | **GitHub** | `gh issue view 220`, `gh pr view 42` | Labels, head, draft, review threads |
-| **Wrapper** | `workflow status --json` | `nextAction`, `health`, `derivedReviewLoopState` |
+| **Workflow** | `/workflow change-delivery status --json` | `nextAction`, `health`, `derivedReviewLoopState` |
 | **Daedalus** | `/daedalus doctor` | Runtime freshness, ownership, action compatibility, failures |
 
 ---
@@ -132,10 +132,11 @@ systemctl --user restart \
 
 | File | Purpose |
 |:---|:---|
-| `~/.hermes/workflows/<profile>/state/daedalus/daedalus.db` | Canonical runtime state (SQLite) |
-| `~/.hermes/workflows/<profile>/memory/daedalus-events.jsonl` | Append-only event history |
-| `~/.hermes/workflows/<profile>/memory/workflow-status.json` | Wrapper status projection |
-| `~/.hermes/workflows/<profile>/memory/workflow-health.json` | Wrapper health projection |
+| `~/.hermes/workflows/<profile>/runtime/state/daedalus/daedalus.db` | `change-delivery` runtime state (SQLite) |
+| `~/.hermes/workflows/<profile>/runtime/memory/daedalus-events.jsonl` | Daedalus runtime event history |
+| `~/.hermes/workflows/<profile>/memory/workflow-status.json` | Workflow status projection |
+| `~/.hermes/workflows/<profile>/memory/workflow-health.json` | Workflow health projection |
+| `~/.hermes/workflows/<profile>/memory/workflow-scheduler.json` | Scheduler state, Codex thread mappings, token/rate-limit totals |
 | `/tmp/issue-<N>/.lane-state.json` | Lane-local handoff state |
 | `/tmp/issue-<N>/.lane-memo.md` | Lane-local handoff notes |
 | `~/.config/systemd/user/daedalus-active@<profile>.service` | Service unit file |
@@ -205,12 +206,12 @@ Orchestrator ──► Coder ──► Internal Reviewer (Claude) ──► Publ
      └─► restart session (if stale)
 ```
 
-| Step | Wrapper Action | Daedalus Action |
+| Step | Workflow Action | Daedalus Action |
 |:---|:---|:---|
 | 1. Orchestrator → Coder | `dispatch-implementation-turn` | `dispatch_implementation_turn` |
 | 2. Coder → Claude | `run_claude_review` | `request_internal_review` |
 | 3. Claude → Coder repair | local findings → lane session | `dispatch_repair_handoff` |
-| 4. Claude → Publish | wrapper derives publish | `publish_pr` |
+| 4. Claude → Publish | workflow derives publish | `publish_pr` |
 | 5. Publish → Codex Cloud | external review triggered | — |
 | 6. Codex Cloud → Coder repair | post-publish findings | `dispatch_repair_handoff` |
 | 7. Clean → Merge | `merge_and_promote` | `merge_pr` |
@@ -236,7 +237,7 @@ Orchestrator ──► Coder ──► Internal Reviewer (Claude) ──► Publ
 
 ## Common Failure Signatures
 
-### A. Wrapper says `run_claude_review`, Daedalus returns `[]`
+### A. Workflow says `run_claude_review`, Daedalus returns `[]`
 
 **Likely cause:** Failed active `request_internal_review` for the same head wedged the idempotency key.
 
@@ -252,7 +253,7 @@ order by requested_at desc;
 
 ---
 
-### B. Wrapper says review is `running` but nothing is actually running
+### B. Workflow says review is `running` but nothing is actually running
 
 **Likely cause:** `dispatch_claude_review()` failed after marking review as running.
 
@@ -280,7 +281,7 @@ order by requested_at desc;
 - Is the coder session stale?
 - Did a repair handoff already go out?
 - Is the local head ahead of PR head?
-- Are you looking at wrapper truth or Daedalus truth?
+- Are you looking at workflow-derived truth or Daedalus runtime truth?
 
 ---
 
@@ -324,7 +325,7 @@ where lane_id='lane:220';
 ### Show recent events
 ```bash
 # Tail JSONL event log
-tail -n 50 ~/.hermes/workflows/<profile>/memory/daedalus-events.jsonl | jq .
+tail -n 50 ~/.hermes/workflows/<profile>/runtime/memory/daedalus-events.jsonl | jq .
 ```
 
 ---

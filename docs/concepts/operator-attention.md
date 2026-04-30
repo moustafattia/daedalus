@@ -1,6 +1,6 @@
 # Operator Attention
 
-**Operator attention** is the state a lane enters when the workflow can no longer make forward progress automatically. It is a deliberate escalation — not a crash — that signals a human needs to look at the lane and decide what happens next.
+**Operator attention** is the state a `change-delivery` lane enters when the workflow can no longer make forward progress automatically. It is a deliberate escalation — not a crash — that signals a human needs to look at the lane and decide what happens next.
 
 ---
 
@@ -16,9 +16,9 @@ A lane enters `operator_attention_required` when **either** threshold is crossed
 Both thresholds are configurable in `WORKFLOW.md`:
 
 ```yaml
-policy:
-  lane-operator-attention-retry-threshold: 5
-  lane-operator-attention-no-progress-threshold: 5
+escalation:
+  operator-attention-retry-threshold: 5
+  operator-attention-no-progress-threshold: 5
 ```
 
 ---
@@ -70,21 +70,21 @@ operator-attention-required:<kind>=<value>
 
 ## Ingestion protection
 
-A critical design rule: **ingesting legacy status must not clear relay-set operator attention**.
+A critical design rule: **ingesting workflow status must not clear runtime-set operator attention**.
 
-When `ingest_legacy_status` runs (every tick), it updates the lane row from the wrapper's read model. The `ON CONFLICT DO UPDATE` has special logic:
+When `ingest_legacy_status` runs (every tick), it updates the lane row from the `change-delivery` read model. The `ON CONFLICT DO UPDATE` has special logic:
 
 ```sql
 operator_attention_required = CASE
   WHEN lanes.operator_attention_reason LIKE 'active-action-failed:%'
        AND excluded.operator_attention_required = 0
-  THEN lanes.operator_attention_required   -- preserve relay-set attention
+  THEN lanes.operator_attention_required   -- preserve runtime-set attention
   ELSE excluded.operator_attention_required
 END,
 operator_attention_reason = CASE
   WHEN lanes.operator_attention_reason LIKE 'active-action-failed:%'
        AND excluded.operator_attention_required = 0
-  THEN lanes.operator_attention_reason     -- preserve relay-set reason
+  THEN lanes.operator_attention_reason     -- preserve runtime-set reason
   WHEN excluded.operator_attention_required = 1
   THEN excluded.operator_attention_reason
   ELSE NULL
@@ -92,11 +92,11 @@ END,
 ```
 
 This means:
-- If Daedalus (relay) set operator attention due to an active action failure, the wrapper cannot clear it.
-- If the wrapper sets operator attention, that is respected.
+- If Daedalus runtime state set operator attention due to an active action failure, the workflow read model cannot clear it.
+- If the workflow read model sets operator attention, that is respected.
 - If neither side sets it, the field is cleared.
 
-This prevents the wrapper's stale read model from silently overriding the runtime's failure tracking.
+This prevents stale workflow status from silently overriding the runtime's failure tracking.
 
 ---
 

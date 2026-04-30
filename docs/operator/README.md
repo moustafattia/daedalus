@@ -63,6 +63,11 @@
 |:---|:---|:---|
 | [**Cheat Sheet**](./cheat-sheet.md) | Quick-reference commands, SQL queries for direct DB inspection, common failure patterns, and recovery procedures for the managed `change-delivery` workflow. | ...you need to debug a stuck lane, find a failed action, or verify lease health. |
 
+SQL examples are `change-delivery`-specific because that workflow stores lanes,
+actions, reviews, and failures in SQLite. `issue-runner` stores current worker
+state in `memory/workflow-status.json`, `memory/workflow-health.json`, and
+`memory/workflow-scheduler.json`.
+
 **The narrative arc:** *Observe symptoms* → *Query state* → *Identify root cause* → *Apply fix* → *Verify recovery*.
 
 ---

@@ -18,7 +18,7 @@ workflow exposes the richer `change-delivery` command surface.
 |---|---|
 | `/daedalus status` | Runtime row + lane count + paths (DB, event log) |
 | `/daedalus doctor` | Full health check across all subsystems |
-| `/daedalus shadow-report` | Shadow-mode action proposal vs legacy comparison |
+| `/daedalus shadow-report` | `change-delivery` shadow-mode action proposal vs active/runtime state |
 | `/daedalus active-gate-status` | Active-execution gate state and blockers |
 
 ### Inspection output format
@@ -51,7 +51,7 @@ Active execution gate
   ✓ ownership posture  primary_owner = daedalus
   ✓ active execution   enabled
   ✓ runtime mode       running in active
-  ✓ legacy watchdog    retired (engine_owner = hermes)
+  ✓ previous scheduler retired (engine_owner = hermes)
 
 → gate is open: actions can dispatch
 ```
@@ -63,7 +63,7 @@ Active execution gate
   ✓ ownership posture  primary_owner = daedalus
   ✗ active execution   DISABLED  set via /daedalus set-active-execution --enabled true
   ✓ runtime mode       running in active
-  ✓ legacy watchdog    retired (engine_owner = hermes)
+  ✓ previous scheduler retired (engine_owner = hermes)
 
 → gate is BLOCKED: no actions will dispatch
 ```
@@ -75,7 +75,7 @@ Daedalus doctor
   ✓ overall  PASS
   checks
     ✓ missing_lease       Runtime lease present
-    ✓ shadow_compatible   Shadow decision matches legacy
+    ✓ shadow_compatible   Shadow decision matches active policy
     ✓ active_execution_failures  No active execution failures
 ```
 
@@ -90,7 +90,7 @@ Daedalus shadow-report
     lease expires   22:44:00 UTC (in 42s)
   ownership
     primary owner       daedalus
-    relay primary       yes
+    daedalus primary    yes
     ✓ active execution  yes
     ✓ gate allowed      yes
   service
@@ -103,8 +103,8 @@ Daedalus shadow-report
     lane id   lane-329
     state     under_review / pass / pending
   next action
-    legacy        publish_pr   head-clean
-    relay         publish_pr   head-clean
+    workflow      publish_pr   head-clean
+    daedalus      publish_pr   head-clean
     ✓ compatible  yes
 ```
 

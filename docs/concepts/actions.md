@@ -1,12 +1,14 @@
 # Actions
 
-An **action** is the atomic unit of work Daedalus queues, executes, and tracks. The wrapper decides *what should happen*; Daedalus decides *how to orchestrate it durably* by translating wrapper semantic actions into execution actions.
+An **action** is the atomic unit of work `change-delivery` queues, executes, and tracks in SQLite. The workflow package decides *what should happen*; Daedalus decides *how to orchestrate it durably* by translating workflow semantic actions into execution actions.
+
+This page describes the `change-delivery` action queue. `issue-runner` uses a scheduler file with running-worker and retry entries instead of the `lane_actions` table.
 
 ---
 
 ## Two vocabularies
 
-| Wrapper semantic action | Daedalus execution action |
+| Workflow semantic action | Daedalus execution action |
 |---|---|
 | `run_claude_review` | `request_internal_review` |
 | `publish_ready_pr` | `publish_pr` |
@@ -15,7 +17,7 @@ An **action** is the atomic unit of work Daedalus queues, executes, and tracks. 
 | `restart_actor_session` | `restart_actor_session` |
 | `dispatch_repair_handoff` | `dispatch_repair_handoff` |
 
-That translation boundary is deliberate. The wrapper speaks **workflow semantics**; Daedalus speaks **execution semantics**.
+That translation boundary is deliberate. The workflow package speaks **workflow semantics**; Daedalus speaks **execution semantics**.
 
 ---
 
@@ -120,7 +122,7 @@ See [failures.md](failures.md) for the full failure/retry model. At the action l
 
 - `retry_count` starts at `0`.
 - Each retry attempt increments it.
-- `max_retries` is configured in `WORKFLOW.md` (default: `3`).
+- the retry budget comes from `change-delivery` escalation policy in `WORKFLOW.md` (default: `3`).
 - The retry reason is recorded: `stall_timeout`, `runtime_error`, `operator_reset`, etc.
 
 ---

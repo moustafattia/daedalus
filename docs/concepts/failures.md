@@ -1,6 +1,8 @@
 # Failures
 
-Daedalus models failures as **first-class runtime state**, not as log lines to grep later. When an active action fails, the system persists enough context to decide — automatically or with operator guidance — what happens next.
+Daedalus models failures as **first-class runtime state**, not as log lines to grep later. When an active `change-delivery` action fails, the system persists enough context to decide — automatically or with operator guidance — what happens next.
+
+This page documents the `change-delivery` SQLite action/failure model. `issue-runner` stores retry/backoff state in `memory/workflow-scheduler.json`; see [issue-runner](../workflows/issue-runner.md) for that scheduler model.
 
 ---
 
@@ -76,9 +78,9 @@ States with no outgoing arrows (other than terminal `archived`) keep the lane al
 
 Two hardening fixes during lane 220 work changed how failures interact with the action queue:
 
-### Fix 1: Failed internal review no longer wedges wrapper state
+### Fix 1: Failed internal review no longer wedges workflow state
 
-**Before:** `dispatch_claude_review()` failed after marking review `running` in the wrapper. The wrapper stayed stuck at `running` forever.
+**Before:** `dispatch_claude_review()` failed after marking review `running` in the workflow read model. The lane stayed stuck at `running` forever.
 
 **After:** Failure resets the Claude review back to a retryable `pending` state.
 
@@ -92,20 +94,22 @@ Two hardening fixes during lane 220 work changed how failures interact with the 
 
 ## Retry policy
 
-Retries are governed by `WORKFLOW.md`:
+Retries are governed by the `change-delivery` escalation policy in `WORKFLOW.md`:
 
 ```yaml
-retry:
-  max-retries: 3
-  backoff-seconds: 60
+escalation:
+  lane-failure-retry-budget: 3
+  operator-attention-retry-threshold: 5
+  operator-attention-no-progress-threshold: 5
 ```
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `retry.max-retries` | int ≥ 0 | `3` | `0` disables retries entirely. |
-| `retry.backoff-seconds` | int ≥ 0 | `60` | Minimum wall-clock seconds between retry attempts. |
+| `escalation.lane-failure-retry-budget` | int ≥ 0 | `3` | Number of bounded automatic retries for failed lane actions. |
+| `escalation.operator-attention-retry-threshold` | int ≥ 0 | `5` | Retry count that marks a lane as requiring operator attention. |
+| `escalation.operator-attention-no-progress-threshold` | int ≥ 0 | `5` | Consecutive no-progress ticks before operator attention. |
 
-The backoff is **minimum**, not exact. The next tick after the backoff window expires will retry — so actual delay is `backoff-seconds` plus however long until the next tick.
+`issue-runner` uses a different policy: 1s continuation retries and exponential worker-failure backoff capped by `agent.max_retry_backoff_ms`.
 
 ---
 

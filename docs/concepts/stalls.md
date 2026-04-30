@@ -1,6 +1,8 @@
 # Stall detection
 
-Symphony §8.5. A wedged worker that's still holding a lease but producing no signal will eventually be terminated by the reconciler, and the lane gets queued for retry.
+Symphony §8.5. A wedged worker that's still holding a lease but producing no signal will eventually be terminated by the reconciler, and the work item gets queued for retry.
+
+`change-delivery` applies this through lane/action retries. `issue-runner` applies the same runtime activity concept through scheduler worker state and cooperative Codex turn cancellation.
 
 ## The two signals
 
@@ -51,8 +53,9 @@ The retry reason is always `stall_timeout` so it's distinguishable from regular 
 
 ## Where this lives in code
 
-- Pure decision function: `daedalus/workflows/change_delivery/stall.py::reconcile_stalls`
+- Pure decision function: `daedalus/workflows/shared/stall.py::reconcile_stalls`
+- `change-delivery` compatibility wrapper: `daedalus/workflows/change_delivery/stall.py`
 - Runtime hook: `Runtime.last_activity_ts()` — see [runtimes.md](runtimes.md)
-- Tick wiring: `daedalus/watch.py::reconcile_stalls_tick`
-- Schema: `daedalus/workflows/change_delivery/schema.yaml`
+- Active service wiring: `daedalus/runtime.py`, `daedalus/workflows/issue_runner/workspace.py`
+- Schema: `daedalus/workflows/change_delivery/schema.yaml`, `daedalus/workflows/issue_runner/schema.yaml`
 - Tests: `tests/test_stall_detection.py`

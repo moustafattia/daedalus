@@ -26,10 +26,21 @@ Daedalus was previously known as **hermes-relay**. The rename introduced new sta
 /daedalus migrate-filesystem
 ```
 
-This renames relay-era state files to daedalus paths:
+This renames relay-era state files to Daedalus paths:
 - `relay.db` → `daedalus.db`
 - `relay-events.jsonl` → `daedalus-events.jsonl`
 - Legacy control schema JSON → new ownership schema
+
+For current workflow roots, state and runtime event files live under
+`runtime/`:
+
+```text
+runtime/state/daedalus/daedalus.db
+runtime/memory/daedalus-events.jsonl
+```
+
+Pure legacy roots without `runtime/`, `config/`, `workspace/`, or `docs/`
+markers keep the old top-level `state/` and `memory/` layout.
 
 It is **idempotent** — running it twice is safe.
 
@@ -44,6 +55,9 @@ mv ~/.hermes/workflows/<owner>-<repo>-<workflow-type>/state/relay/relay.db \
 mv ~/.hermes/workflows/<owner>-<repo>-<workflow-type>/memory/relay-events.jsonl \
    ~/.hermes/workflows/<owner>-<repo>-<workflow-type>/memory/daedalus-events.jsonl
 ```
+
+For a current workflow root, insert `runtime/` after the workflow root in those
+paths.
 
 ---
 

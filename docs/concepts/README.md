@@ -2,7 +2,7 @@
 
 > **The mental model of Daedalus, broken into bite-sized, interconnected ideas.**
 >
-> Each concept below is a self-contained document. Read them in any order — they cross-reference each other where it matters.
+> Each concept below is a self-contained document. Some pages are engine-level; some use `change-delivery` as the concrete workflow because that is where the richer lane/action model lives.
 
 ---
 
@@ -17,23 +17,23 @@
 │  │  CORE RUNTIME    │◄────►│  FAILURE &       │◄────►│  EXECUTION       │  │
 │  │                  │      │  RECOVERY        │      │  MODEL           │  │
 │  │  • Leases        │      │                  │      │                  │  │
-│  │  • Lanes         │      │  • Failures      │      │  • Runtimes      │  │
-│  │  • Actions       │      │  • Stalls        │      │  • Sessions      │  │
-│  │  • Shadow/Active │      │  • Operator      │      │  • Reviewers     │  │
-│  │  • Hot-reload    │      │    Attention     │      │                  │  │
+│  │  • Hot-reload    │      │  • Failures      │      │  • Runtimes      │  │
+│  │  • Service loops │      │  • Stalls        │      │  • Sessions      │  │
+│  │  • State stores  │      │  • Operator      │      │  • Trackers      │  │
+│  │  • Contracts     │      │    Attention     │      │                  │  │
 │  └────────┬─────────┘      └────────┬─────────┘      └────────┬─────────┘  │
 │           │                         │                         │            │
 │           └─────────────────────────┼─────────────────────────┘            │
 │                                     │                                      │
 │                                     ▼                                      │
 │  ┌──────────────────┐      ┌──────────────────┐      ┌──────────────────┐  │
-│  │  OBSERVABILITY   │◄────►│  OPERATIONS      │      │  (You are here)  │  │
-│  │  & INTEGRATION   │      │                  │      │                  │  │
-│  │                  │      │  • Migration     │      │                  │  │
-│  │  • Events        │      │                  │      │                  │  │
-│  │  • Observability │      │                  │      │                  │  │
-│  │  • Webhooks      │      │                  │      │                  │  │
-│  │  • Comments      │      │                  │      │                  │  │
+│  │  WORKFLOW MODELS │◄────►│  OBSERVABILITY   │      │  OPERATIONS      │  │
+│  │                  │      │  & INTEGRATION   │      │                  │  │
+│  │                  │      │                  │      │                  │  │
+│  │  • Lanes         │      │  • Events        │      │  • Migration     │  │
+│  │  • Actions       │      │  • Observability │      │                  │  │
+│  │  • Reviewers     │      │  • Webhooks      │      │                  │  │
+│  │  • Shadow/Active │      │  • Comments      │      │                  │  │
 │  └──────────────────┘      └──────────────────┘      └──────────────────┘  │
 │                                                                            │
 └────────────────────────────────────────────────────────────────────────────┘
@@ -43,16 +43,16 @@
 
 ## Engine concepts
 
-The beating heart of Daedalus. These five concepts explain how the engine keeps lanes alive, decides what to do, and survives restarts.
+The beating heart of Daedalus. These concepts explain how the engine keeps work owned, decides what to do, and survives restarts.
 
 | Concept | One-Liner | Read This If... |
 |:---|:---|:---|
 | [**Leases**](./leases.md) | The thread Theseus carried into the labyrinth. Heartbeat-based ownership with automatic recovery. | ...you want to understand how Daedalus prevents split-brain and claims dead lanes. |
-| [**Actions**](./actions.md) | The atomic unit of work. Queued, idempotent, tracked with composite keys. | ...you want to know how Daedalus guarantees exactly-once execution. |
+| [**Actions**](./actions.md) | The `change-delivery` active/shadow action queue. Queued, idempotent, tracked with composite keys. | ...you want to know how the opinionated workflow guarantees exactly-once execution. |
 | [**Shadow → Active**](./shadow-active.md) | Two execution modes: observe safely, then promote to real side effects. | ...you want to validate Daedalus parity before letting it touch real PRs. |
 | [**Hot-reload**](./hot-reload.md) | Edit `WORKFLOW.md`, save, next tick picks it up. Bad edits are ignored, not fatal. | ...you want to change policy without restarting the service. |
 
-**The narrative arc:** *Leases* give you ownership → *Actions* give you execution → *Shadow/Active* gives you safety → *Hot-reload* gives you agility.
+**The narrative arc:** *Leases* give you ownership → workflow state gives you continuity → *Shadow/Active* gives `change-delivery` safety → *Hot-reload* gives you agility.
 
 ## Workflow-specific concepts
 
@@ -63,8 +63,8 @@ example. They are useful, but they are not the generic engine contract.
 |:---|:---|:---|
 | [**Lanes**](./lanes.md) | The `change-delivery` unit of work. One labeled GitHub issue becomes one lane carried through code/review/merge. | ...you want to see the full lifecycle of the opinionated SDLC workflow. |
 | [**Reviewers**](./reviewers.md) | The multi-stage review pipeline used by `change-delivery`. | ...you want to see how publish/merge gates are structured. |
-| [**Failures**](./failures.md) | Runtime failure handling shown through the current managed workflow. | ...you want to know what happens when a review or merge step fails. |
-| [**Operator Attention**](./operator-attention.md) | How the managed workflow escalates when automation reaches its limit. | ...you want to know when Daedalus asks for help. |
+| [**Failures**](./failures.md) | `change-delivery` failure/action state. `issue-runner` retry state is documented in its workflow page. | ...you want to know what happens when a review or merge step fails. |
+| [**Operator Attention**](./operator-attention.md) | How `change-delivery` escalates when automation reaches its limit. | ...you want to know when Daedalus asks for help. |
 
 ---
 
@@ -74,9 +74,9 @@ Daedalus does not pretend failures don't happen. It models them as first-class s
 
 | Concept | One-Liner | Read This If... |
 |:---|:---|:---|
-| [**Failures**](./failures.md) | First-class runtime state with retry budgets, recovery actions, and superseding logic. | ...you want to know what happens when a review or merge fails. |
+| [**Failures**](./failures.md) | First-class `change-delivery` runtime state with retry budgets, recovery actions, and superseding logic. | ...you want to know what happens when a review or merge fails. |
 | [**Stalls**](./stalls.md) | A wedged worker holding a lease but making no progress. Detected and terminated automatically. | ...you want to understand how Daedalus kills zombies. |
-| [**Operator Attention**](./operator-attention.md) | The state a lane enters when the wrapper decides human judgment is required. | ...you want to know when and why Daedalus asks for help. |
+| [**Operator Attention**](./operator-attention.md) | The state a `change-delivery` lane enters when human judgment is required. | ...you want to know when and why Daedalus asks for help. |
 
 **The narrative arc:** *Failures* are tracked → *Stalls* are detected → *Operator Attention* is the graceful off-ramp when automation hits its limit.
 
@@ -121,7 +121,7 @@ The boring-but-critical stuff that keeps the lights on during transitions.
 
 ---
 
-## How These Connect
+## How These Connect In `change-delivery`
 
 ```
 GitHub Issue ──► [Lanes] ──► [Leases] claim ownership
@@ -162,10 +162,10 @@ GitHub Issue ──► [Lanes] ──► [Leases] claim ownership
 
 1. [**Architecture**](../architecture.md) — understand the engine/workflow boundary
 2. [**Leases**](./leases.md) — understand how Daedalus stays alive
-3. [**Actions**](./actions.md) — understand what Daedalus actually does
-4. [**Shadow → Active**](./shadow-active.md) — understand how to deploy safely
-5. [**Hot-reload**](./hot-reload.md) — understand how policy changes land
-6. [**Workflow docs**](../workflows/README.md) — choose the bundled workflow that matches your use case
+3. [**Runtimes**](./runtimes.md) — understand how turns execute
+4. [**Hot-reload**](./hot-reload.md) — understand how policy changes land
+5. [**Workflow docs**](../workflows/README.md) — choose the bundled workflow that matches your use case
+6. [**Actions**](./actions.md) — read this when operating `change-delivery`
 
 **Operating Daedalus day-to-day?** Keep these open:
 

@@ -2,9 +2,9 @@
 
 <div align="center">
 
-![Daedalus Architecture Diagram](assets/daedalus-architecture-diagram.png)
+![Daedalus Architecture Diagram](assets/daedalus-architecture-diagram.svg)
 
-> **Daedalus is a durable orchestration runtime that wraps an SDLC workflow brain with leases, canonical state, action queues, role handoffs, retries, and operator tooling so agentic lanes can run continuously without turning into invisible cron-driven chaos.**
+> **Daedalus is a durable orchestration runtime that runs repo-owned SDLC workflows with leases, persisted state, action/scheduler queues, role handoffs, retries, and operator tooling so agentic work can run continuously without turning into invisible cron-driven chaos.**
 
 </div>
 
@@ -16,7 +16,7 @@
 |---|---|
 | **What is it?** | A plugin that turns fragile cron-loop automation into explicit, durable 24/7 workflow orchestration. |
 | **What problem does it solve?** | Agentic SDLC breaks because policy is buried in prompts, state is scattered, failures are logged but not modeled, and handoffs are implicit. |
-| **How?** | Leases. SQLite canonical state. JSONL event history. Shadow/active execution. Workflow packages with explicit contracts. |
+| **How?** | Leases. Workflow-specific durable state. JSON/JSONL audit history. Shadow/active execution where supported. Workflow packages with explicit contracts. |
 | **Who owns what?** | The **workflow package** decides *what* should happen. **Daedalus** decides *how* to orchestrate it durably. |
 
 ---
@@ -39,8 +39,8 @@
 │                                      │  │  Workflow State Machine              │
 │  Leases (heartbeat · TTL · recovery) │  │  Handoffs (explicit, durable)        │
 │                                      │  │                                      │
-│  SQLite ──► lanes · actions ·        │  │  Semantic Actions                    │
-│             reviews · failures       │  │    select_issue                      │
+│  Durable State ─► SQLite / JSON       │  │  Semantic Actions                    │
+│                 scheduler files      │  │    select_issue                      │
 │                                      │  │    render_prompt                     │
 │  JSONL ───► turn_started ·           │  │    publish_ready_pr                  │
 │             turn_completed · stall   │  │                                      │
@@ -96,8 +96,8 @@ Examples:
 
 Daedalus is the **execution engine**. It knows about:
 - Leases and heartbeats
-- SQLite canonical state
-- Action queues and idempotency keys
+- workflow-specific durable state stores
+- action queues / scheduler queues and idempotency keys
 - Retry bookkeeping and failure tracking
 - Shadow vs active execution modes
 
@@ -156,12 +156,14 @@ This prevents:
 
 | Layer | Storage | Purpose |
 |---|---|---|
-| **SQLite** | `daedalus.db` | Canonical runtime state now |
-| **JSONL** | `daedalus-events.jsonl` | Append-only history |
-| **Lane files** | `.lane-state.json` | Lane-local handoff artifacts |
-| **Lane memos** | `.lane-memo.md` | Human-readable handoff notes |
+| **Runtime DB** | `runtime/state/daedalus/daedalus.db` | `change-delivery` leases, lanes, actions, reviews, failures |
+| **Scheduler JSON** | `memory/workflow-scheduler.json` | `issue-runner` workers/retries and Codex thread mappings for both workflows |
+| **Runtime JSONL** | `runtime/memory/daedalus-events.jsonl` | Daedalus orchestration events |
+| **Workflow JSONL** | `memory/workflow-audit.jsonl` | workflow-specific audit trail |
+| **Lane files** | `.lane-state.json` | `change-delivery` lane-local handoff artifacts |
+| **Lane memos** | `.lane-memo.md` | human-readable handoff notes |
 
-Never reconstruct current state by replaying events. That's what the `lanes` table is for.
+Never reconstruct current state by replaying events. For `change-delivery`, current lane state is in SQLite. For `issue-runner`, current worker state is in the persisted scheduler/status files.
 
 ### 4. Bad Edits Don't Crash the Loop
 
@@ -262,7 +264,7 @@ Each tick:
 1. **Load** — Read the workflow contract plus the workflow package's current state
 2. **Derive** — Ask the workflow package what operation should happen next
 3. **Dispatch** — If the derived action is new and its idempotency key is free, dispatch to runtime
-4. **Record** — Write result (success/failure/retry) to SQLite + JSONL
+4. **Record** — Write result (success/failure/retry) to the workflow's state store plus JSONL audit events
 5. **Heartbeat** — Refresh lease to prove liveness
 
 ---
@@ -303,7 +305,7 @@ daedalus/
 ├── watch.py                 # TUI frame renderer
 ├── watch_sources.py         # Lane + alert + event aggregation
 ├── formatters.py            # Human-readable inspection output
-├── migration.py             # relay→daedalus filesystem migration
+├── migration.py             # historical filesystem migration helpers
 ├── observability_overrides.py  # Operator config overrides
 ├── runtimes/                # Shared execution backends (Codex, Claude, Hermes)
 ├── trackers/                # Shared tracker clients (GitHub, local-json, Linear experimental, ...)
@@ -332,19 +334,19 @@ daedalus/
 
 ---
 
-## Example Transitional Deployment
+## Current Deployment Shape
 
-One practical deployment shape is a **sensible transitional architecture**:
+The supported community shape keeps code, policy, and state separated:
 
 | Layer | Owner | Role |
 |---|---|---|
-| **Workflow module** | Project workflow | Semantic policy engine |
-| **Daedalus active service** | systemd | Recurring dispatcher |
-| **Workflow `tick`** | Manual fallback | Operator override |
-| **Milestone notifier** | Hermes cron | Support job (not orchestrator) |
-| **Outage alerts** | Daedalus alerts | Support surface (not scheduler) |
+| **Plugin** | `~/.hermes/plugins/daedalus` | engine, workflow packages, shared runtimes/trackers |
+| **Repo contract** | `WORKFLOW.md` / `WORKFLOW-<workflow>.md` | workflow policy and operator config |
+| **Workflow root** | `~/.hermes/workflows/<owner>-<repo>-<workflow-type>` | durable runtime data and workspace-local state |
+| **Daedalus service** | systemd user unit | recurring dispatcher/supervisor |
+| **Operator surfaces** | Hermes slash/CLI, watch, HTTP | inspection, diagnosis, manual override |
 
-It is not fully pure yet, but it is sane.
+Manual ticks remain useful for debugging, but the service loop is the supported long-running path.
 
 ---
 
@@ -360,7 +362,7 @@ That means:
 - Humans observe or intervene without becoming the scheduler
 - The system runs 24/7 without degrading into prompt spaghetti
 
-**Daedalus is the control-plane skeleton for that future.**
+**Daedalus is the control plane for that future.**
 
 ---
 
@@ -384,4 +386,4 @@ That means:
 
 ## Architecture in One Sentence
 
-**Daedalus is a durable orchestration runtime that wraps an SDLC workflow brain with leases, canonical state, action queues, role handoffs, retries, and operator tooling so agentic lanes can run continuously without turning into invisible cron-driven chaos.**
+**Daedalus is a durable orchestration runtime that runs repo-owned SDLC workflows with leases, persisted state, action/scheduler queues, role handoffs, retries, and operator tooling so agentic work can run continuously without turning into invisible cron-driven chaos.**

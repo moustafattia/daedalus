@@ -50,8 +50,9 @@ configured token/shared-secret file is missing.
 
 ## Thread Mapping Checks
 
-Daedalus persists Codex `issue_id -> thread_id` mappings in the workflow
-scheduler state, normally:
+Daedalus persists Codex thread mappings in the workflow scheduler state:
+`issue-runner` stores `issue_id -> thread_id`, and `change-delivery` stores
+`lane:<issue-number> -> thread_id`. The default scheduler path is:
 
 ```text
 <workflow-root>/memory/workflow-scheduler.json
