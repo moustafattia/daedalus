@@ -32,7 +32,7 @@ def _derive_instance_name(*, github_slug: str, new_path: Path, old: dict) -> str
     if legacy_name:
         return legacy_name
     owner, repo = _parse_github_slug(github_slug)
-    return f"{_normalize_segment(owner)}-{_normalize_segment(repo)}-code-review"
+    return f"{_normalize_segment(owner)}-{_normalize_segment(repo)}-change-delivery"
 
 
 def _parse_github_slug(value: str) -> tuple[str, str]:
@@ -110,7 +110,7 @@ def convert(
         }
 
     return {
-        "workflow": "code-review",
+        "workflow": "change-delivery",
         "schema-version": 1,
 
         "instance": {
