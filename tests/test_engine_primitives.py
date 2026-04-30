@@ -238,3 +238,105 @@ def test_engine_state_persists_scheduler_snapshot_in_sqlite(tmp_path):
     assert loaded["codex_threads"]["ISSUE-1"]["thread_id"] == "thread-1"
     assert loaded["codex_totals"]["total_tokens"] == 7
     assert readonly == loaded
+
+
+def test_engine_store_wraps_scheduler_state_and_doctor(tmp_path):
+    from engine.store import EngineStore
+
+    db_path = tmp_path / "runtime" / "state" / "daedalus.db"
+    store = EngineStore(
+        db_path=db_path,
+        workflow="issue-runner",
+        now_iso=lambda: "2026-04-30T00:00:20Z",
+        now_epoch=lambda: 120.0,
+    )
+    store.save_scheduler(
+        running_entries={
+            "ISSUE-1": {
+                "issue_id": "ISSUE-1",
+                "identifier": "DAE-1",
+                "state": "open",
+                "worker_id": "worker-1",
+                "attempt": 1,
+                "started_at_epoch": 100.0,
+                "heartbeat_at_epoch": 110.0,
+            }
+        },
+        retry_entries={},
+        codex_threads={
+            "ISSUE-1": {
+                "issue_id": "ISSUE-1",
+                "identifier": "DAE-1",
+                "thread_id": "thread-1",
+            }
+        },
+        codex_totals={"total_tokens": 3},
+    )
+
+    snapshot = store.load_scheduler()
+    checks = {check["name"]: check for check in store.doctor(stale_running_seconds=60)}
+
+    assert snapshot["running"][0]["issue_id"] == "ISSUE-1"
+    assert snapshot["codex_threads"]["ISSUE-1"]["thread_id"] == "thread-1"
+    assert checks["engine-schema"]["status"] == "pass"
+    assert checks["engine-running-work"]["status"] == "pass"
+    assert checks["engine-retry-queue"]["detail"] == "0 queued retry item(s)"
+    assert checks["engine-runtime-sessions"]["status"] == "pass"
+
+
+def test_engine_store_lease_lifecycle_and_stale_status(tmp_path):
+    from engine.store import EngineStore
+
+    db_path = tmp_path / "runtime" / "state" / "daedalus.db"
+    store = EngineStore(
+        db_path=db_path,
+        workflow="change-delivery",
+        now_iso=lambda: "2026-04-30T00:00:00Z",
+        now_epoch=lambda: 1777507200.0,
+    )
+
+    acquired = store.acquire_lease(
+        lease_scope="runtime",
+        lease_key="primary",
+        owner_instance_id="owner-1",
+        owner_role="Workflow_Orchestrator",
+        ttl_seconds=60,
+    )
+    blocked = store.acquire_lease(
+        lease_scope="runtime",
+        lease_key="primary",
+        owner_instance_id="owner-2",
+        owner_role="Workflow_Orchestrator",
+        ttl_seconds=60,
+    )
+    status = store.lease_status(
+        lease_scope="runtime",
+        lease_key="primary",
+        heartbeat_at="2026-04-30T00:00:00Z",
+        active_owner_instance_id="owner-1",
+    )
+    released = store.release_lease(
+        lease_scope="runtime",
+        lease_key="primary",
+        owner_instance_id="owner-1",
+        release_reason="shutdown",
+    )
+    released_status = store.lease_status(
+        lease_scope="runtime",
+        lease_key="primary",
+        heartbeat_at="2026-04-29T23:55:00Z",
+        active_owner_instance_id="owner-1",
+    )
+
+    assert acquired["acquired"] is True
+    assert acquired["expires_at"] == "2026-04-30T00:01:00Z"
+    assert blocked == {
+        "acquired": False,
+        "lease_id": "lease:runtime:primary",
+        "owner_instance_id": "owner-1",
+    }
+    assert status["stale"] is False
+    assert released["released"] is True
+    assert released_status["stale"] is True
+    assert "lease-released" in released_status["stale_reasons"]
+    assert "heartbeat-old" in released_status["stale_reasons"]
