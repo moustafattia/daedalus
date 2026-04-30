@@ -1,46 +1,48 @@
 # Daedalus projects
 
-Each subdirectory under `projects/` is one **project pack** — optional
-playground material for a specific repository or operator setup.
+Each subdirectory under `projects/` is source-repo **playground material** for
+one specific repository or operator environment.
 
-Project packs are not the public workflow contract. The engine is
-configured from `<workflow-root>/WORKFLOW.md`; `projects/` is
-where you keep project-specific docs, helper skills, and local metadata
-that you do not want in the generic plugin surface.
+This tree is **not** part of the public plugin contract and is **not shipped**
+in the install payload. The public engine is configured from
+`<workflow-root>/WORKFLOW.md`, and the canonical repo checkout is the one the
+operator bootstraps from.
 
-The published repo keeps `yoyopod_core/` here as an example pack and
-local playground, not as an engine default.
+That means:
 
-## Layout
+- agents should work against the user's real repo checkout recorded in
+  `repository.local-path`
+- workflow instance state lives under
+  `~/.hermes/workflows/<owner>-<repo>-<workflow-type>/`
+- `projects/` is only for source-controlled notes, legacy skills, and local
+  playground reference material
 
-```
-projects/
-├── README.md                # this file
-└── <project-slug>/          # one directory per project pack
-    ├── config/              # project metadata
-    │   └── project.json     # {projectSlug, displayName, workspaceRepoName}
-    ├── docs/                # project-scoped runbooks and specs
-    ├── runtime/             # mutable runtime state (gitignored)
-    │   ├── memory/          # event log, alert state, status projections
-    │   ├── state/           # sqlite + durable runtime state
-    │   └── logs/            # local runtime/service logs
-    ├── skills/              # project-only skills kept out of the public root
-    └── workspace/           # cloned source repo (gitignored)
-        └── <repo-name>/     # the actual git checkout the agents work in
-```
+The repo currently keeps `yoyopod_core/` here as historical/example material.
+Treat it as archived playground content, not as a recommended deployment model.
 
-`runtime/` and `workspace/` are excluded from git — only the README
-stubs inside them are tracked, so the directory shape is preserved on a
-fresh clone.
+## What belongs here
 
-## Adding a new project pack
+Keep only source-controlled reference material:
 
-1. Create `projects/<your-slug>/config/project.json` with the three
-   keys: `projectSlug`, `displayName`, `workspaceRepoName`.
-2. Add `projects/<your-slug>/runtime/README.md` and
-   `projects/<your-slug>/workspace/README.md` placeholders.
-3. Add `projects/<your-slug>/docs/` and `projects/<your-slug>/skills/`
-   if you need project-only runbooks or automations.
-4. Point your real workflow root's `WORKFLOW.md` at the repo
-   and policy for that project. Daedalus selects work by
-   `--workflow-root`, not by project-pack slug.
+- project-specific docs or migration notes
+- local-only skills that should not appear in the public plugin root
+- archived example metadata if it helps explain older layouts
+
+Do not treat `projects/` as:
+
+- the canonical product checkout
+- the default place where agents edit code
+- a packaged plugin runtime surface
+- a loader contract the engine resolves at runtime
+
+## Current model
+
+The supported public model is:
+
+1. clone or open the real product repo
+2. run `hermes daedalus bootstrap` from that checkout
+3. edit the generated workflow root's `WORKFLOW.md`
+4. run `hermes daedalus service-up`
+
+If a project pack is useful, it should help humans understand or migrate that
+project. It should not replace the workflow root or the user checkout.

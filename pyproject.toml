@@ -37,5 +37,8 @@ daedalus = "daedalus"
 [tool.setuptools]
 include-package-data = true
 
+[tool.setuptools.exclude-package-data]
+daedalus = ["projects/*", "projects/**/*"]
+
 [tool.setuptools.packages.find]
 include = ["daedalus*"]

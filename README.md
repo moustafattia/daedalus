@@ -78,68 +78,22 @@ If you want the exact operator contract we support, read [docs/public-contract.m
 ## Install & quick start
 
 ```bash
-# 1. Make sure host python has the runtime deps
-# Debian/Ubuntu example:
 sudo apt install python3-yaml python3-jsonschema
-
-# 2. Install and enable the plugin
 hermes plugins install attmous/daedalus --enable
-
-# 3. Bootstrap one workflow instance from your repo checkout
 cd /path/to/your/repo
 hermes daedalus bootstrap
 ```
 
-`bootstrap` infers the git repo root, derives `github-slug` from `origin`, and
-creates:
-
-```text
-~/.hermes/workflows/<owner>-<repo>-<workflow-type>
-```
-
-It also writes a repo-local pointer at:
-
-```text
-./.hermes/daedalus/workflow-root
-```
-
-So later `hermes daedalus ...` commands can resolve the workflow root directly
-from the repo checkout.
-
-If you need explicit control, the lower-level command is still available:
+Edit the generated workflow contract:
 
 ```bash
-hermes daedalus scaffold-workflow \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
-  --github-slug your-org/your-repo
+$EDITOR ~/.hermes/workflows/your-org-your-repo-code-review/WORKFLOW.md
 ```
 
-Edit `~/.hermes/workflows/your-org-your-repo-code-review/WORKFLOW.md` before starting the engine:
-
-- set `repository.local-path`
-- confirm the runtime kinds you actually have installed
-- tune agents/models/gates for your repo
-
-The YAML front matter is the machine config. The Markdown body below it is the
-shared workflow policy Daedalus applies across its role-specific prompts.
-
-Then initialize, verify, and supervise it:
+Then bring it up:
 
 ```bash
 hermes daedalus service-up
-```
-
-`service-up` initializes the runtime, validates `WORKFLOW.md`, installs the
-user systemd unit, enables it, and starts it. If you want to inspect before
-starting, the lower-level commands still exist:
-
-```bash
-hermes daedalus init \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review
-
-hermes daedalus doctor \
-  --workflow-root ~/.hermes/workflows/your-org-your-repo-code-review \
-  --format json
 ```
 
 Start Hermes in your repo:
@@ -149,43 +103,22 @@ cd /path/to/your/repo
 hermes
 ```
 
-Daedalus resolves the workflow root from the repo-local pointer written by
-`bootstrap`. `DAEDALUS_WORKFLOW_ROOT` remains available when you need to
-override it explicitly.
+`bootstrap` infers the repo root and GitHub slug, creates
+`~/.hermes/workflows/<owner>-<repo>-<workflow-type>/WORKFLOW.md`, and wires the
+repo checkout to that workflow root. The YAML front matter is the machine
+config; the Markdown body is the shared workflow policy.
 
 Inside Hermes:
 
 ```text
-
 /daedalus status
 /daedalus doctor
 /workflow code-review status
 ```
 
-The full supported install path is documented in [docs/operator/installation.md](docs/operator/installation.md).
-
-Daedalus also ships a standard Hermes pip entry point. From a local checkout or
-published package, Hermes can discover it through `hermes_agent.plugins`:
-
-```bash
-python3 -m pip install .
-hermes plugins enable daedalus
-```
-
-The Git install path above remains the primary community path because it is the
-most direct operator story and handles install + enable in one command.
-
-Need a local-dev fallback instead of `hermes plugins install`?
-
-```bash
-git clone https://github.com/attmous/daedalus.git
-cd daedalus
-./scripts/install.sh --hermes-home /path/to/hermes-home    # custom Hermes home
-./scripts/install.sh --destination /tmp/daedalus           # arbitrary destination
-hermes plugins enable daedalus
-```
-
-`HERMES_ENABLE_PROJECT_PLUGINS=true` is only for project-local plugins under `./.hermes/plugins/`. It is not required for the supported global install path above.
+For manual scaffold paths, pip installs, local-dev installation, service modes,
+and every lower-level command, read
+[docs/operator/installation.md](docs/operator/installation.md).
 
 The full operator surface is in the [cheat sheet](docs/operator/cheat-sheet.md); every slash command is catalogued in [slash-commands.md](docs/operator/slash-commands.md).
 

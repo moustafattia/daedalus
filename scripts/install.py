@@ -25,7 +25,6 @@ PAYLOAD_ITEMS = [
     "watch.py",
     "watch_sources.py",
     "workflows",
-    "projects",
     "skills",
 ]
 

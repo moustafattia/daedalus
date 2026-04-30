@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -22,6 +23,9 @@ def _load_module(module_name: str, path: Path):
 
 
 def _build_wheel(tmp_path: Path) -> Path:
+    shutil.rmtree(REPO_ROOT / "build", ignore_errors=True)
+    for egg_info in REPO_ROOT.glob("*.egg-info"):
+        shutil.rmtree(egg_info, ignore_errors=True)
     dist_dir = tmp_path / "dist"
     completed = subprocess.run(
         [
@@ -80,10 +84,12 @@ def test_wheel_contains_runtime_loaded_plugin_payload(tmp_path):
         "daedalus/workflows/code_review/schema.yaml",
         "daedalus/workflows/code_review/workflow.template.md",
         "daedalus/workflows/code_review/prompts/coder.md",
-        "daedalus/projects/yoyopod_core/config/project.json",
     }
     missing = sorted(path for path in expected if path not in names)
     assert not missing, f"wheel missing runtime payload files: {missing}"
+    assert not any(name.startswith("daedalus/projects/") for name in names), (
+        "wheel should not ship source-only project packs"
+    )
 
 
 def test_wheel_extracts_to_working_plugin_package(tmp_path):

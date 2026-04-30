@@ -11,6 +11,14 @@ metadata:
 
 # Daedalus Model 1 Project Layout
 
+Historical note: this skill captures an older Model 1 repo layout where
+`projects/<project>/runtime/` and `projects/<project>/workspace/` were treated
+as the default project-local homes. The supported public model is now:
+
+- real repo checkout as the canonical codebase
+- `WORKFLOW.md` under the workflow instance root as the contract
+- runtime state under `~/.hermes/workflows/<owner>-<repo>-<workflow-type>/`
+
 Use this when reorganizing Daedalus before a full two-plugin split.
 
 ## Goal

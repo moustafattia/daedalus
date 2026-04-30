@@ -1,6 +1,13 @@
 # yoyopod_core runtime data
 
-This directory is the live mutable home for `yoyopod-core` runtime state.
+This directory documents the older project-pack layout and is kept only as
+historical playground material.
+
+It is not part of the shipped plugin payload, and it is not the supported home
+for public workflow-instance runtime state. Public runtime state lives under
+the real workflow root:
+
+- `~/.hermes/workflows/<owner>-<repo>-<workflow-type>/runtime/`
 
 Expected contents over time:
 

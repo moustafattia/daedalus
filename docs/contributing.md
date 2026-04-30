@@ -36,8 +36,10 @@ pytest tests/test_pip_plugin_packaging.py -v
 ```
 
 If you touch files loaded at runtime via `Path(__file__).parent` — prompts,
-skills, workflow templates, project packs, or `plugin.yaml` — keep the package
-metadata in `pyproject.toml` / `MANIFEST.in` and the packaging test green.
+skills, workflow templates, or `plugin.yaml` — keep the package metadata in
+`pyproject.toml` / `MANIFEST.in` and the packaging test green. `daedalus/projects/**`
+is source-repo playground material and is intentionally not shipped in the
+public plugin payload.
 
 ---
 

@@ -26,7 +26,7 @@ def test_install_into_default_hermes_home_copies_plugin_tree(tmp_path):
     assert (plugin_dir / "alerts.py").exists()
     assert (plugin_dir / "workflows" / "code_review" / "status.py").exists()
     assert (plugin_dir / "workflows" / "code_review" / "workflow.template.md").exists()
-    assert list((plugin_dir / "projects").glob("*/config/project.json"))
+    assert not (plugin_dir / "projects").exists()
     assert (plugin_dir / "skills" / "operator" / "SKILL.md").exists()
 
 
@@ -41,7 +41,7 @@ def test_install_into_explicit_destination_uses_given_path(tmp_path):
     assert (target / "plugin.yaml").exists()
     assert (target / "tools.py").exists()
     assert (target / "workflows" / "code_review" / "workflow.py").exists()
-    assert list((target / "projects").glob("*/workspace/README.md"))
+    assert not (target / "projects").exists()
 
 
 def test_install_replaces_legacy_symlink_destination_with_real_directory(tmp_path):

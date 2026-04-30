@@ -1,5 +1,11 @@
 # `yoyopod-core` Model 1 implementation spec
 
+> **Historical note:** This document describes an earlier Model 1 layout where
+> project-local runtime data and cloned workspace state lived under
+> `daedalus/projects/yoyopod_core/`. That is no longer the supported public
+> model. Public installs now use the operator's real repo checkout plus a
+> workflow instance root under `~/.hermes/workflows/<owner>-<repo>-<workflow-type>/`.
+>
 > **Goal:** Move the `yoyopod-core` workflow brain into the `daedalus` plugin repo with a hard internal boundary between generic Daedalus engine code, project adapter code, and project runtime assets.
 
 ## 1. Scope
