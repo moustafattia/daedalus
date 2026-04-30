@@ -298,9 +298,9 @@ def extract_linear_blockers(payload: dict[str, Any]) -> list[dict[str, Any]]:
 def issue_priority_sort_key(issue: dict[str, Any]) -> tuple[int, str, str]:
     priority = issue.get("priority")
     priority_key = int(priority) if isinstance(priority, int) else 999999
-    updated_key = str(issue.get("updated_at") or issue.get("created_at") or "")
+    created_key = str(issue.get("created_at") or "")
     identifier = str(issue.get("identifier") or issue.get("id") or "")
-    return (priority_key, updated_key, identifier)
+    return (priority_key, created_key, identifier)
 
 
 def chunk(values: list[str], size: int) -> list[list[str]]:

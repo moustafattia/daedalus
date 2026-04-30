@@ -206,7 +206,7 @@ def test_state_view_empty_when_no_db(tmp_path: Path) -> None:
     assert view["counts"] == {"running": 0, "retrying": 0}
     assert view["running"] == []
     assert view["retrying"] == []
-    assert view["totals"]["total_tokens"] == 0
+    assert view["codex_totals"]["total_tokens"] == 0
     assert view["rate_limits"] is None
     assert "generated_at" in view
 
@@ -279,7 +279,7 @@ def test_issue_runner_state_view_reads_scheduler_and_audit_files(tmp_path: Path)
     assert view["counts"] == {"running": 1, "retrying": 1}
     assert view["running"][0]["issue_identifier"] == "#123"
     assert view["retrying"][0]["issue_identifier"] == "#124"
-    assert view["totals"]["total_tokens"] == 18
+    assert view["codex_totals"]["total_tokens"] == 18
     assert view["rate_limits"] == {"requests_remaining": 88}
     assert view["recent_events"][0]["event"] == "issue_runner.tick.completed"
 
@@ -373,7 +373,7 @@ def test_render_dashboard_escapes_html(tmp_path: Path) -> None:
             }
         ],
         "retrying": [],
-        "totals": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "seconds_running": 0},
+        "codex_totals": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "seconds_running": 0},
         "rate_limits": None,
         "recent_events": [],
     }

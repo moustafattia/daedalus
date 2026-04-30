@@ -10,8 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+import yaml
+from jsonschema import Draft7Validator
+from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
+
 from runtimes import PromptRunResult, Runtime, build_runtimes
-from workflows.contract import WORKFLOW_POLICY_KEY, load_workflow_contract
+from workflows.contract import WORKFLOW_POLICY_KEY, WorkflowContractError, load_workflow_contract
 from workflows.shared.config_snapshot import AtomicRef, ConfigSnapshot
 from workflows.issue_runner.tracker import (
     TrackerClient,
@@ -76,6 +80,43 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _schema_path() -> Path:
+    return Path(__file__).with_name("schema.yaml")
+
+
+def _validate_issue_runner_config(config: dict[str, Any]) -> None:
+    schema = yaml.safe_load(_schema_path().read_text(encoding="utf-8"))
+    Draft7Validator(schema).validate(config)
+
+
+def _is_relative_to(child: Path, parent: Path) -> bool:
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _safe_issue_workspace_path(workspace_root: Path, issue: dict[str, Any]) -> Path:
+    root = workspace_root.expanduser().resolve()
+    workspace_key = issue_workspace_slug(issue)
+    path = root / workspace_key
+    lexical_path = path.resolve(strict=False)
+    if lexical_path == root or not _is_relative_to(lexical_path, root):
+        raise RuntimeError(
+            f"invalid workspace path for issue {issue.get('identifier') or issue.get('id')!r}: "
+            f"{lexical_path} is not a child of {root}"
+        )
+    return path
+
+
+def _assert_workspace_inside_root(workspace_root: Path, issue_workspace: Path) -> None:
+    root = workspace_root.expanduser().resolve()
+    resolved = issue_workspace.expanduser().resolve()
+    if resolved == root or not _is_relative_to(resolved, root):
+        raise RuntimeError(f"invalid workspace path: {resolved} is not a child of {root}")
 
 
 def _retry_due_at(entry: dict[str, Any] | None, *, default: float | None = None) -> float:
@@ -164,6 +205,12 @@ def _runtime_profiles_from_config(config: dict[str, Any]) -> dict[str, dict[str,
             continue
         for key in (
             "command",
+            "mode",
+            "endpoint",
+            "healthcheck_path",
+            "ws_token_env",
+            "ws_token_file",
+            "ephemeral",
             "approval_policy",
             "thread_sandbox",
             "turn_sandbox_policy",
@@ -236,6 +283,7 @@ class IssueRunnerWorkspace:
     _run_json: Callable[..., dict[str, Any]]
     retry_entries: dict[str, dict[str, Any]]
     running_entries: dict[str, dict[str, Any]]
+    codex_threads: dict[str, dict[str, Any]]
     running_issue_id: str | None = None
     codex_totals: dict[str, Any] | None = None
 
@@ -307,6 +355,7 @@ class IssueRunnerWorkspace:
                 "running": self._running_snapshot(),
                 "retry_queue": self._retry_queue_snapshot(),
                 "codex_totals": dict(self.codex_totals or {}),
+                "codex_threads": self._codex_threads_snapshot(),
             },
             "selectedIssue": selected,
             "workspaceRoot": str(self.issue_workspace_root),
@@ -356,6 +405,7 @@ class IssueRunnerWorkspace:
                 "retry_queue": self._retry_queue_snapshot(),
                 "running": self._running_snapshot(),
                 "codex_totals": dict(self.codex_totals or {}),
+                "codex_threads": self._codex_threads_snapshot(),
             },
         )
 
@@ -398,6 +448,7 @@ class IssueRunnerWorkspace:
         self.retry_entries = retry_entries
         self.running_entries = {}
         self.codex_totals = dict(payload.get("codex_totals") or payload.get("codexTotals") or {})
+        self.codex_threads = self._restore_codex_threads(payload.get("codex_threads") or {})
         self.running_issue_id = None
 
         if recovered_running:
@@ -451,6 +502,65 @@ class IssueRunnerWorkspace:
         entries.sort(key=lambda item: (item["due_in_ms"], item["attempt"], item["identifier"] or item["issue_id"]))
         return entries
 
+    def _restore_codex_threads(self, raw: Any) -> dict[str, dict[str, Any]]:
+        if not isinstance(raw, dict):
+            return {}
+        restored: dict[str, dict[str, Any]] = {}
+        for issue_id, item in raw.items():
+            if not isinstance(item, dict):
+                continue
+            normalized_issue_id = str(item.get("issue_id") or issue_id or "").strip()
+            thread_id = str(item.get("thread_id") or "").strip()
+            if not normalized_issue_id or not thread_id:
+                continue
+            restored[normalized_issue_id] = {
+                "issue_id": normalized_issue_id,
+                "identifier": item.get("identifier"),
+                "session_name": item.get("session_name"),
+                "thread_id": thread_id,
+                "turn_id": item.get("turn_id"),
+                "updated_at": item.get("updated_at"),
+            }
+        return restored
+
+    def _codex_threads_snapshot(self) -> dict[str, dict[str, Any]]:
+        return {
+            issue_id: dict(entry)
+            for issue_id, entry in sorted(self.codex_threads.items(), key=lambda item: item[0])
+        }
+
+    def _codex_thread_for_issue(self, issue: dict[str, Any]) -> str | None:
+        issue_id = str(issue.get("id") or "").strip()
+        if not issue_id:
+            return None
+        entry = self.codex_threads.get(issue_id) or {}
+        thread_id = str(entry.get("thread_id") or "").strip()
+        return thread_id or None
+
+    def _record_codex_thread(
+        self,
+        *,
+        issue: dict[str, Any],
+        session_name: str,
+        metrics: dict[str, Any],
+    ) -> None:
+        issue_id = str(issue.get("id") or "").strip()
+        thread_id = str(metrics.get("thread_id") or "").strip()
+        if not issue_id or not thread_id:
+            return
+        self.codex_threads[issue_id] = {
+            "issue_id": issue_id,
+            "identifier": issue.get("identifier"),
+            "session_name": session_name,
+            "thread_id": thread_id,
+            "turn_id": metrics.get("turn_id"),
+            "updated_at": _now_iso(),
+        }
+
+    def _clear_codex_thread(self, issue_id: str | None) -> None:
+        if issue_id:
+            self.codex_threads.pop(issue_id, None)
+
     def _due_retry_issue(self, *, issues_by_id: dict[str, dict[str, Any]]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         now_epoch = _now_epoch()
         due_entries = sorted(
@@ -471,12 +581,21 @@ class IssueRunnerWorkspace:
             return issue, entry
         return None, None
 
-    def _schedule_retry(self, *, issue: dict[str, Any], error: str, current_attempt: int | None) -> dict[str, Any]:
-        scheduler = _scheduler_state_from_config(self.config)
+    def _schedule_retry(
+        self,
+        *,
+        issue: dict[str, Any],
+        error: str,
+        current_attempt: int | None,
+        delay_type: str = "failure",
+    ) -> dict[str, Any]:
         max_backoff_ms = int((self.config.get("agent") or {}).get("max_retry_backoff_ms") or 300000)
-        retry_attempt = int((self.retry_entries.get(issue["id"]) or {}).get("attempt") or 0) + 1
-        base_delay_ms = max(int(scheduler["poll_interval_ms"]), 1000)
-        delay_ms = min(max_backoff_ms, base_delay_ms * (2 ** max(retry_attempt - 1, 0)))
+        if delay_type == "continuation":
+            retry_attempt = 1
+            delay_ms = 1000
+        else:
+            retry_attempt = int((self.retry_entries.get(issue["id"]) or {}).get("attempt") or 0) + 1
+            delay_ms = min(max_backoff_ms, 10000 * (2 ** max(retry_attempt - 1, 0)))
         due_at = _now_epoch() + (delay_ms / 1000.0)
         entry = {
             "issue_id": issue.get("id"),
@@ -485,6 +604,7 @@ class IssueRunnerWorkspace:
             "due_at_epoch": due_at,
             "error": error,
             "current_attempt": current_attempt,
+            "delay_type": delay_type,
         }
         self.retry_entries[str(issue.get("id"))] = entry
         self._emit_event(
@@ -494,6 +614,7 @@ class IssueRunnerWorkspace:
                 "identifier": issue.get("identifier"),
                 "retry_attempt": retry_attempt,
                 "delay_ms": delay_ms,
+                "delay_type": delay_type,
                 "error": error,
             },
         )
@@ -502,6 +623,7 @@ class IssueRunnerWorkspace:
             "identifier": issue.get("identifier"),
             "retry_attempt": retry_attempt,
             "delay_ms": delay_ms,
+            "delay_type": delay_type,
         }
 
     def _clear_retry(self, issue_id: str | None) -> None:
@@ -647,30 +769,37 @@ class IssueRunnerWorkspace:
         issue: dict[str, Any],
         retry_entry: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        issue_workspace = self.issue_workspace_root / issue_workspace_slug(issue)
-        issue_workspace.mkdir(parents=True, exist_ok=True)
-        daemon_dir = issue_workspace / ".daedalus"
-        daemon_dir.mkdir(parents=True, exist_ok=True)
-        created_workspace = not (daemon_dir / "created.marker").exists()
-        if created_workspace:
-            (daemon_dir / "created.marker").write_text(_now_iso() + "\n", encoding="utf-8")
-
-        attempt = self._issue_attempt(issue=issue, retry_entry=retry_entry)
-        prompt = _render_prompt(
-            prompt_template=self.prompt_template or str(self.config.get(WORKFLOW_POLICY_KEY) or ""),
-            issue=issue,
-            attempt=None if attempt <= 1 else attempt,
-        )
-        prompt_path = daemon_dir / "prompt.txt"
-        prompt_path.write_text(prompt, encoding="utf-8")
-        output_path = daemon_dir / "last-output.txt"
-        env = self._hook_env(issue=issue, issue_workspace=issue_workspace, prompt_path=prompt_path, output_path=output_path)
         hook_results: list[dict[str, Any]] = []
         runtime: Runtime | None = None
+        runtime_name: str | None = None
+        runtime_cfg: dict[str, Any] = {}
+        issue_workspace: Path | None = None
+        output_path: Path | None = None
+        env: dict[str, str] | None = None
+        created_workspace = False
+        attempt = self._issue_attempt(issue=issue, retry_entry=retry_entry)
 
         try:
+            issue_workspace = _safe_issue_workspace_path(self.issue_workspace_root, issue)
+            issue_workspace.mkdir(parents=True, exist_ok=True)
+            _assert_workspace_inside_root(self.issue_workspace_root, issue_workspace)
+            daemon_dir = issue_workspace / ".daedalus"
+            daemon_dir.mkdir(parents=True, exist_ok=True)
+            created_marker = daemon_dir / "created.marker"
+            created_workspace = not created_marker.exists()
+
+            prompt = _render_prompt(
+                prompt_template=self.prompt_template or str(self.config.get(WORKFLOW_POLICY_KEY) or ""),
+                issue=issue,
+                attempt=None if attempt <= 1 else attempt,
+            )
+            prompt_path = daemon_dir / "prompt.txt"
+            prompt_path.write_text(prompt, encoding="utf-8")
+            output_path = daemon_dir / "last-output.txt"
+            env = self._hook_env(issue=issue, issue_workspace=issue_workspace, prompt_path=prompt_path, output_path=output_path)
             if created_workspace:
                 hook_results.append(self._run_hook("after_create", issue_workspace, env))
+                created_marker.write_text(_now_iso() + "\n", encoding="utf-8")
             hook_results.append(self._run_hook("before_run", issue_workspace, env))
 
             agent_cfg = self.config.get("agent") or {}
@@ -680,7 +809,15 @@ class IssueRunnerWorkspace:
             runtime = _build_runtimes_from_config(self.config, run=self._run, run_json=self._run_json)[runtime_name]
             session_name = issue_session_name(issue)
             model = str(agent_cfg.get("model") or "")
-            runtime.ensure_session(worktree=issue_workspace, session_name=session_name, model=model)
+            resume_thread_id = None
+            if str(runtime_cfg.get("kind") or "").strip() == "codex-app-server":
+                resume_thread_id = self._codex_thread_for_issue(issue)
+            runtime.ensure_session(
+                worktree=issue_workspace,
+                session_name=session_name,
+                model=model,
+                resume_session_id=resume_thread_id,
+            )
 
             command = agent_cfg.get("command")
             if command is None:
@@ -718,19 +855,24 @@ class IssueRunnerWorkspace:
                 "hookResults": hook_results,
                 "outputPath": str(output_path),
                 "metrics": self._metrics_payload(run_result),
+                "runtime": runtime_name,
+                "runtimeKind": runtime_cfg.get("kind"),
             }
         except Exception as exc:
-            hook_results.append(self._run_hook("after_run", issue_workspace, env, ignore_failure=True))
+            if issue_workspace is not None and env is not None:
+                hook_results.append(self._run_hook("after_run", issue_workspace, env, ignore_failure=True))
             return {
                 "ok": False,
                 "issue": issue,
                 "attempt": attempt,
-                "workspace": str(issue_workspace),
+                "workspace": str(issue_workspace) if issue_workspace is not None else None,
                 "createdWorkspace": created_workspace,
                 "hookResults": hook_results,
-                "outputPath": str(output_path),
+                "outputPath": str(output_path) if output_path is not None else None,
                 "error": f"{type(exc).__name__}: {exc}",
                 "metrics": self._metrics_from_exception(exc, runtime=runtime),
+                "runtime": runtime_name if runtime is not None else None,
+                "runtimeKind": runtime_cfg.get("kind") if runtime is not None else None,
             }
 
     def tick(self) -> dict[str, Any]:
@@ -814,9 +956,22 @@ class IssueRunnerWorkspace:
                             rate_limits=metrics.get("rate_limits"),
                         )
                     )
+                    if result.get("runtimeKind") == "codex-app-server":
+                        self._record_codex_thread(
+                            issue=issue,
+                            session_name=issue_session_name(issue),
+                            metrics=recorded_metrics,
+                        )
                     tick_metrics.append(recorded_metrics)
                 if result.get("ok"):
                     self._clear_retry(issue_id)
+                    retry = self._schedule_retry(
+                        issue=issue,
+                        error="continuation",
+                        current_attempt=result.get("attempt"),
+                        delay_type="continuation",
+                    )
+                    result["retry"] = retry
                     self._emit_event(
                         "issue_runner.tick.completed",
                         {
@@ -824,6 +979,8 @@ class IssueRunnerWorkspace:
                             "attempt": result.get("attempt"),
                             "workspace": result.get("workspace"),
                             "output_path": result.get("outputPath"),
+                            "continuation_retry_attempt": retry.get("retry_attempt"),
+                            "continuation_retry_delay_ms": retry.get("delay_ms"),
                         },
                     )
                 else:
@@ -883,10 +1040,13 @@ class IssueRunnerWorkspace:
             state = str(issue.get("state") or "").strip().lower()
             if state not in terminal_states:
                 continue
-            self._clear_retry(str(issue.get("id") or ""))
-            issue_workspace = self.issue_workspace_root / issue_workspace_slug(issue)
+            issue_id = str(issue.get("id") or "")
+            self._clear_retry(issue_id)
+            self._clear_codex_thread(issue_id)
+            issue_workspace = _safe_issue_workspace_path(self.issue_workspace_root, issue)
             if not issue_workspace.exists():
                 continue
+            _assert_workspace_inside_root(self.issue_workspace_root, issue_workspace)
             daemon_dir = issue_workspace / ".daedalus"
             env = self._hook_env(
                 issue=issue,
@@ -1120,7 +1280,25 @@ class IssueRunnerWorkspace:
         }
 
     def reload_contract(self) -> None:
-        contract = load_workflow_contract(self.path)
+        try:
+            contract = load_workflow_contract(self.path)
+            _validate_issue_runner_config(dict(contract.config))
+        except (
+            FileNotFoundError,
+            WorkflowContractError,
+            JsonSchemaValidationError,
+            OSError,
+            UnicodeDecodeError,
+            yaml.YAMLError,
+        ) as exc:
+            self._emit_event(
+                "daedalus.config_reload_failed",
+                {
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "contract_path": str(self.contract_path),
+                },
+            )
+            return
         st = contract.source_path.stat()
         current = self.snapshot_ref.get()
         key = (st.st_mtime, st.st_size, str(contract.source_path))
@@ -1242,6 +1420,7 @@ def load_workspace_from_config(
         _run_json=runner_json,
         retry_entries={},
         running_entries={},
+        codex_threads={},
         codex_totals={},
     )
     workspace._restore_scheduler_state()

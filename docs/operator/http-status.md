@@ -53,7 +53,7 @@ Conforms to Symphony §13.7 / Daedalus spec §6.4:
   "counts":   { "running": 3, "retrying": 0 },
   "running":  [ { "issue_id": "01HF…", "issue_identifier": "#42", "state": "coding_dispatched", "session_id": "claude-coder-1", "turn_count": 0, "last_event": "turn_started", "started_at": "…", "last_event_at": "…", "tokens": { "input_tokens": 1200, "output_tokens": 480, "total_tokens": 1680 } } ],
   "retrying": [],
-  "totals":   { "input_tokens": 1200, "output_tokens": 480, "total_tokens": 1680, "seconds_running": 43 },
+  "codex_totals": { "input_tokens": 1200, "output_tokens": 480, "total_tokens": 1680, "seconds_running": 43 },
   "rate_limits": { "requests_remaining": 47 },
   "recent_events": [ /* up to 20, newest first */ ]
 }

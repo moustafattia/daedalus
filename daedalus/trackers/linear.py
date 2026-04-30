@@ -7,7 +7,6 @@ from . import (
     DEFAULT_ACTIVE_STATES,
     DEFAULT_TERMINAL_STATES,
     TrackerConfigError,
-    cfg_list,
     chunk,
     http_post_json,
     issue_priority_sort_key,
@@ -19,13 +18,21 @@ from . import (
 )
 
 
+def _configured_states(tracker_cfg: dict[str, Any], *keys: str, default: tuple[str, ...]) -> list[str]:
+    for key in keys:
+        if key in tracker_cfg:
+            value = tracker_cfg.get(key)
+            return list(value) if isinstance(value, list) else []
+    return list(default)
+
+
 LINEAR_ISSUES_BY_STATES_QUERY = """
 query IssueRunnerIssuesByStates($projectSlug: String!, $states: [String!], $after: String) {
   issues(
-    first: 100,
+    first: 50,
     after: $after,
     filter: {
-      project: { slug: { eq: $projectSlug } },
+      project: { slugId: { eq: $projectSlug } },
       state: { name: { in: $states } }
     }
   ) {
@@ -63,9 +70,9 @@ query IssueRunnerIssuesByStates($projectSlug: String!, $states: [String!], $afte
 """.strip()
 
 LINEAR_ISSUES_BY_IDS_QUERY = """
-query IssueRunnerIssuesByIds($ids: [String!], $after: String) {
+query IssueRunnerIssuesByIds($ids: [ID!], $after: String) {
   issues(
-    first: 100,
+    first: 50,
     after: $after,
     filter: {
       id: { in: $ids }
@@ -135,7 +142,12 @@ class LinearTrackerClient:
         from workflows.issue_runner.tracker import eligible_issues
 
         raw_issues = self._query_issues_by_states(
-            list(cfg_list(self._tracker_cfg, "active_states", "active-states") or DEFAULT_ACTIVE_STATES)
+            _configured_states(
+                self._tracker_cfg,
+                "active_states",
+                "active-states",
+                default=DEFAULT_ACTIVE_STATES,
+            )
         )
         return eligible_issues(
             tracker_cfg=self._tracker_cfg,
@@ -154,11 +166,21 @@ class LinearTrackerClient:
 
     def list_terminal(self) -> list[dict[str, Any]]:
         raw_issues = self._query_issues_by_states(
-            list(cfg_list(self._tracker_cfg, "terminal_states", "terminal-states") or DEFAULT_TERMINAL_STATES)
+            _configured_states(
+                self._tracker_cfg,
+                "terminal_states",
+                "terminal-states",
+                default=DEFAULT_TERMINAL_STATES,
+            )
         )
         terminal_states = {
             str(value).strip().lower()
-            for value in (cfg_list(self._tracker_cfg, "terminal_states", "terminal-states") or DEFAULT_TERMINAL_STATES)
+            for value in _configured_states(
+                self._tracker_cfg,
+                "terminal_states",
+                "terminal-states",
+                default=DEFAULT_TERMINAL_STATES,
+            )
             if str(value).strip()
         }
         out = []
@@ -169,6 +191,8 @@ class LinearTrackerClient:
         return out
 
     def _query_issues_by_states(self, states: list[str]) -> list[dict[str, Any]]:
+        if not states:
+            return []
         return self._paginate_query(
             LINEAR_ISSUES_BY_STATES_QUERY,
             lambda after: {
@@ -180,7 +204,7 @@ class LinearTrackerClient:
 
     def _query_issues_by_ids(self, issue_ids: list[str]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
-        for batch in chunk(issue_ids, 100):
+        for batch in chunk(issue_ids, 50):
             out.extend(
                 self._paginate_query(
                     LINEAR_ISSUES_BY_IDS_QUERY,
@@ -219,5 +243,5 @@ class LinearTrackerClient:
                 break
             after = str(page_info.get("endCursor") or "").strip() or None
             if not after:
-                break
+                raise TrackerConfigError("Linear GraphQL pagination reported hasNextPage without endCursor")
         return nodes

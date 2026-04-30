@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +20,7 @@ from trackers.linear import LinearTrackerClient
 from trackers.local_json import LocalJsonTrackerClient
 
 
-_SLUG_RE = re.compile(r"[^a-z0-9]+")
+_WORKSPACE_KEY_ALLOWED = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
 
 
 def eligible_issues(*, tracker_cfg: dict[str, Any], issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -77,9 +76,10 @@ def select_issue(*, tracker_cfg: dict[str, Any], issues: list[dict[str, Any]]) -
 
 
 def issue_workspace_slug(issue: dict[str, Any]) -> str:
-    identifier = str(issue.get("identifier") or issue.get("id") or "issue").strip().lower()
+    identifier = str(issue.get("identifier") or issue.get("id") or "issue").strip()
     raw = identifier or "issue"
-    return _SLUG_RE.sub("-", raw).strip("-") or "issue"
+    sanitized = "".join(char if char in _WORKSPACE_KEY_ALLOWED else "_" for char in raw)
+    return sanitized or "issue"
 
 
 def issue_session_name(issue: dict[str, Any]) -> str:

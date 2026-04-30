@@ -34,9 +34,10 @@ def _config(tmp_path: Path) -> dict:
         },
         "codex": {
             "command": "codex app-server",
-            "approval_policy": "auto",
+            "ephemeral": False,
+            "approval_policy": "never",
             "thread_sandbox": "workspace-write",
-            "turn_sandbox_policy": "auto",
+            "turn_sandbox_policy": "workspace-write",
             "turn_timeout_ms": 3600000,
             "read_timeout_ms": 5000,
             "stall_timeout_ms": 300000,
@@ -55,6 +56,71 @@ def _config(tmp_path: Path) -> dict:
             "audit-log": "memory/workflow-audit.jsonl",
         },
     }
+
+
+def _write_fake_codex_app_server(path: Path, *, requests_path: Path, fail: bool = False) -> None:
+    thread_id = "thread-2" if fail else "thread-1"
+    turn_id = "turn-2" if fail else "turn-1"
+    input_tokens = 5 if fail else 11
+    output_tokens = 2 if fail else 7
+    total_tokens = input_tokens + output_tokens
+    requests_remaining = 88 if fail else 99
+    message_delta = "" if fail else "handled prompt"
+    script = [
+        "import json",
+        "import sys",
+        f"requests_path = {str(requests_path)!r}",
+        f"thread_id = {thread_id!r}",
+        f"turn_id = {turn_id!r}",
+        f"input_tokens = {input_tokens!r}",
+        f"output_tokens = {output_tokens!r}",
+        f"total_tokens = {total_tokens!r}",
+        f"requests_remaining = {requests_remaining!r}",
+        f"message_delta = {message_delta!r}",
+        "",
+        "def emit(payload):",
+        "    print(json.dumps(payload), flush=True)",
+        "",
+        "def record(payload):",
+        "    with open(requests_path, 'a', encoding='utf-8') as fh:",
+        "        fh.write(json.dumps(payload) + '\\n')",
+        "",
+        "for line in sys.stdin:",
+        "    payload = json.loads(line)",
+        "    record(payload)",
+        "    method = payload.get('method')",
+        "    request_id = payload.get('id')",
+        "    if method == 'initialize':",
+        "        emit({'id': request_id, 'result': {'userAgent': 'fake-codex', 'codexHome': '/tmp/codex'}})",
+        "    elif method == 'initialized':",
+        "        continue",
+        "    elif method == 'thread/start':",
+        "        emit({'id': request_id, 'result': {'thread': {'id': thread_id, 'status': 'running', 'turns': []}}})",
+        "    elif method == 'thread/resume':",
+        "        thread_id = payload.get('params', {}).get('threadId') or thread_id",
+        "        emit({'id': request_id, 'result': {'thread': {'id': thread_id, 'status': 'running', 'turns': []}}})",
+        "    elif method == 'turn/start':",
+        "        turn = {'id': turn_id, 'status': 'running', 'items': []}",
+        "        usage_base = {'cachedInputTokens': 0, 'reasoningOutputTokens': 0}",
+        "        usage = dict(usage_base)",
+        "        usage.update(inputTokens=input_tokens, outputTokens=output_tokens, totalTokens=total_tokens)",
+        "        item = {'threadId': thread_id, 'turnId': turn_id, 'itemId': 'item-1'}",
+        "        emit({'id': request_id, 'result': {'turn': turn}})",
+        "        emit({'method': 'turn/started', 'params': {'threadId': thread_id, 'turn': turn}})",
+        "        token_usage = {'last': usage, 'total': usage}",
+        "        emit({'method': 'thread/tokenUsage/updated', 'params': {**item, 'tokenUsage': token_usage}})",
+        "        rate_limits = {'requests_remaining': requests_remaining}",
+        "        emit({'method': 'account/rateLimits/updated', 'params': {'rateLimits': rate_limits}})",
+        "        if message_delta:",
+        "            emit({'method': 'agent/message_delta', 'params': {**item, 'delta': message_delta}})",
+        "            completed_turn = {'id': turn_id, 'status': 'completed', 'items': []}",
+        "            emit({'method': 'turn/completed', 'params': {'threadId': thread_id, 'turn': completed_turn}})",
+        "            break",
+        "        error = {'message': 'tool call rejected'}",
+        "        emit({'method': 'error', 'params': {**item, 'willRetry': False, 'error': error}})",
+        "        raise SystemExit(1)",
+    ]
+    path.write_text("\n".join(script) + "\n", encoding="utf-8")
 
 
 def test_issue_runner_tick_runs_selected_issue_and_writes_artifacts(tmp_path):
@@ -109,7 +175,7 @@ def test_issue_runner_tick_runs_selected_issue_and_writes_artifacts(tmp_path):
         ),
         encoding="utf-8",
     )
-    stale_terminal_workspace = workflow_root / "workspace" / "issues" / "issue-2"
+    stale_terminal_workspace = workflow_root / "workspace" / "issues" / "ISSUE-2"
     stale_terminal_workspace.mkdir(parents=True)
     (stale_terminal_workspace / "stale.txt").write_text("stale\n", encoding="utf-8")
 
@@ -142,6 +208,8 @@ def test_issue_runner_tick_runs_selected_issue_and_writes_artifacts(tmp_path):
 
     assert result["ok"] is True
     assert result["selectedIssue"]["id"] == "ISSUE-1"
+    assert result["results"][0]["retry"]["delay_type"] == "continuation"
+    assert result["results"][0]["retry"]["delay_ms"] == 1000
     output_path = Path(result["outputPath"])
     assert output_path.exists()
     assert output_path.read_text(encoding="utf-8") == "agent finished\n"
@@ -153,10 +221,11 @@ def test_issue_runner_tick_runs_selected_issue_and_writes_artifacts(tmp_path):
     assert (issue_workspace / "created.txt").exists()
     assert (issue_workspace / "before.txt").exists()
     assert (issue_workspace / "after.txt").exists()
-    assert not (workflow_root / "workspace" / "issues" / "issue-2").exists()
+    assert not (workflow_root / "workspace" / "issues" / "ISSUE-2").exists()
     status = workspace.build_status()
     assert status["selectedIssue"]["id"] == "ISSUE-1"
     assert status["tracker"]["eligibleCount"] == 1
+    assert status["scheduler"]["retry_queue"][0]["error"] == "continuation"
 
 
 def test_issue_runner_tick_uses_codex_app_server_and_persists_metrics(tmp_path):
@@ -167,21 +236,8 @@ def test_issue_runner_tick_uses_codex_app_server_and_persists_metrics(tmp_path):
     cfg.pop("daedalus", None)
 
     runtime_script = tmp_path / "fake_codex_app_server.py"
-    runtime_script.write_text(
-        "\n".join(
-            [
-                "import json",
-                "import sys",
-                "prompt = sys.stdin.read()",
-                'print(json.dumps({"event": "session_started", "session_id": "sess-1", "thread_id": "thread-1"}))',
-                'print(json.dumps({"event": "turn_started", "turn_id": "turn-1"}))',
-                'print(json.dumps({"text": "handled prompt", "message": "handled prompt"}))',
-                'print(json.dumps({"event": "turn_completed", "turn_id": "turn-1", "usage": {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18}, "rate_limits": {"requests_remaining": 99, "tokens_remaining": 9000}}))',
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    requests_path = tmp_path / "fake_codex_requests.jsonl"
+    _write_fake_codex_app_server(runtime_script, requests_path=requests_path)
     cfg["codex"]["command"] = f"{shlex.quote(sys.executable)} {shlex.quote(str(runtime_script))}"
 
     workflow_root = tmp_path / "attmous-daedalus-issue-runner"
@@ -220,7 +276,7 @@ def test_issue_runner_tick_uses_codex_app_server_and_persists_metrics(tmp_path):
     result = workspace.tick()
 
     assert result["ok"] is True
-    assert result["metrics"]["session_id"] == "sess-1"
+    assert result["metrics"]["session_id"] == "thread-1"
     assert result["metrics"]["thread_id"] == "thread-1"
     assert result["metrics"]["turn_id"] == "turn-1"
     assert result["metrics"]["tokens"] == {
@@ -230,13 +286,84 @@ def test_issue_runner_tick_uses_codex_app_server_and_persists_metrics(tmp_path):
     }
     assert result["metrics"]["rate_limits"] == {
         "requests_remaining": 99,
-        "tokens_remaining": 9000,
     }
     assert Path(result["outputPath"]).read_text(encoding="utf-8") == "handled prompt\n"
+    requests = [json.loads(line) for line in requests_path.read_text(encoding="utf-8").splitlines()]
+    turn_start = next(item for item in requests if item.get("method") == "turn/start")
+    assert turn_start["params"]["input"] == [{"type": "text", "text": "Issue: ISSUE-1\nAttempt:\n"}]
+    assert turn_start["params"]["sandboxPolicy"] == {
+        "type": "workspaceWrite",
+        "writableRoots": [str(workflow_root / "workspace" / "issues" / "ISSUE-1")],
+    }
 
     status = workspace.build_status()
     assert status["metrics"]["tokens"]["total_tokens"] == 18
     assert status["metrics"]["rate_limits"]["requests_remaining"] == 99
+    assert status["scheduler"]["codex_threads"]["ISSUE-1"]["thread_id"] == "thread-1"
+
+
+def test_issue_runner_codex_thread_mapping_persists_and_resumes(tmp_path):
+    from workflows.issue_runner.workspace import load_workspace_from_config
+
+    cfg = _config(tmp_path)
+    cfg["agent"].pop("runtime", None)
+    cfg.pop("daedalus", None)
+
+    runtime_script = tmp_path / "fake_codex_app_server.py"
+    requests_path = tmp_path / "fake_codex_requests.jsonl"
+    _write_fake_codex_app_server(runtime_script, requests_path=requests_path)
+    cfg["codex"]["command"] = f"{shlex.quote(sys.executable)} {shlex.quote(str(runtime_script))}"
+
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    (workflow_root / "config").mkdir()
+    (workflow_root / "config" / "issues.json").write_text(
+        json.dumps(
+            {
+                "issues": [
+                    {
+                        "id": "ISSUE-1",
+                        "identifier": "ISSUE-1",
+                        "title": "First issue",
+                        "description": "Do the thing.",
+                        "priority": 1,
+                        "state": "todo",
+                        "branch_name": "issue-1-first-issue",
+                        "url": "https://tracker.example/issues/ISSUE-1",
+                        "labels": ["sample"],
+                        "blocked_by": [],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (workflow_root / "WORKFLOW.md").write_text(
+        render_workflow_markdown(
+            config=cfg,
+            prompt_template="Issue: {{ issue.identifier }}\nAttempt: {{ attempt }}",
+        ),
+        encoding="utf-8",
+    )
+
+    first_workspace = load_workspace_from_config(workspace_root=workflow_root)
+    first = first_workspace.tick()
+    assert first["ok"] is True
+    assert first_workspace.build_status()["scheduler"]["codex_threads"]["ISSUE-1"]["thread_id"] == "thread-1"
+
+    reloaded = load_workspace_from_config(workspace_root=workflow_root)
+    assert reloaded.build_status()["scheduler"]["codex_threads"]["ISSUE-1"]["thread_id"] == "thread-1"
+    reloaded.retry_entries["ISSUE-1"]["due_at_epoch"] = 0.0
+
+    second = reloaded.tick()
+    assert second["ok"] is True
+
+    requests = [json.loads(line) for line in requests_path.read_text(encoding="utf-8").splitlines()]
+    methods = [item.get("method") for item in requests]
+    assert methods.count("thread/start") == 1
+    assert methods.count("thread/resume") == 1
+    thread_resume = next(item for item in requests if item.get("method") == "thread/resume")
+    assert thread_resume["params"]["threadId"] == "thread-1"
 
 
 def test_issue_runner_retry_queue_retries_failed_issue_on_next_due_tick(tmp_path):
@@ -306,13 +433,16 @@ def test_issue_runner_retry_queue_retries_failed_issue_on_next_due_tick(tmp_path
     failed = workspace.tick()
     assert failed["ok"] is False
     assert failed["retry"]["retry_attempt"] == 1
+    assert failed["retry"]["delay_ms"] == 10000
     assert workspace.build_status()["scheduler"]["retry_queue"]
 
     workspace.retry_entries["ISSUE-1"]["due_at_monotonic"] = 0.0
     recovered = workspace.tick()
     assert recovered["ok"] is True
     assert recovered["selectedIssue"]["id"] == "ISSUE-1"
-    assert workspace.build_status()["scheduler"]["retry_queue"] == []
+    retry_queue = workspace.build_status()["scheduler"]["retry_queue"]
+    assert retry_queue[0]["attempt"] == 1
+    assert retry_queue[0]["error"] == "continuation"
     assert workspace.build_status()["scheduler"]["codex_totals"]["total_tokens"] == 0
 
 
@@ -392,7 +522,9 @@ def test_issue_runner_retry_queue_persists_across_workspace_reload(tmp_path):
     reloaded.retry_entries["ISSUE-1"]["due_at_epoch"] = 0.0
     recovered = reloaded.tick()
     assert recovered["ok"] is True
-    assert reloaded.build_status()["scheduler"]["retry_queue"] == []
+    retry_queue = reloaded.build_status()["scheduler"]["retry_queue"]
+    assert retry_queue[0]["attempt"] == 1
+    assert retry_queue[0]["error"] == "continuation"
 
 
 def test_issue_runner_tick_dispatches_batch_up_to_max_concurrent_agents(tmp_path):
@@ -481,19 +613,8 @@ def test_issue_runner_codex_failure_preserves_partial_metrics(tmp_path):
     cfg.pop("daedalus", None)
 
     runtime_script = tmp_path / "fake_codex_app_server_fail.py"
-    runtime_script.write_text(
-        "\n".join(
-            [
-                "import json",
-                'print(json.dumps({"event": "session_started", "session_id": "sess-2", "thread_id": "thread-2"}))',
-                'print(json.dumps({"event": "turn_started", "turn_id": "turn-2"}))',
-                'print(json.dumps({"event": "turn_failed", "turn_id": "turn-2", "message": "tool call rejected", "usage": {"input_tokens": 5, "output_tokens": 2, "total_tokens": 7}, "rate_limits": {"requests_remaining": 88}}))',
-                "raise SystemExit(1)",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    requests_path = tmp_path / "fake_codex_fail_requests.jsonl"
+    _write_fake_codex_app_server(runtime_script, requests_path=requests_path, fail=True)
     cfg["codex"]["command"] = f"{shlex.quote(sys.executable)} {shlex.quote(str(runtime_script))}"
 
     workflow_root = tmp_path / "attmous-daedalus-issue-runner"
@@ -532,3 +653,114 @@ def test_issue_runner_codex_failure_preserves_partial_metrics(tmp_path):
     assert result["metrics"]["tokens"]["total_tokens"] == 7
     assert result["metrics"]["rate_limits"]["requests_remaining"] == 88
     assert workspace.build_status()["scheduler"]["codex_totals"]["total_tokens"] == 7
+
+
+def test_issue_runner_run_loop_keeps_last_known_good_on_invalid_reload(tmp_path):
+    from workflows.issue_runner.workspace import load_workspace_from_config
+
+    cfg = _config(tmp_path)
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    (workflow_root / "config").mkdir()
+    (workflow_root / "config" / "issues.json").write_text(
+        json.dumps(
+            {
+                "issues": [
+                    {
+                        "id": "ISSUE-1",
+                        "identifier": "ISSUE-1",
+                        "title": "First issue",
+                        "description": "Do the thing.",
+                        "priority": 1,
+                        "state": "todo",
+                        "labels": [],
+                        "blocked_by": [],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    workflow_file = workflow_root / "WORKFLOW.md"
+    workflow_file.write_text(
+        render_workflow_markdown(config=cfg, prompt_template="Issue: {{ issue.identifier }}"),
+        encoding="utf-8",
+    )
+
+    def fake_run(command, *, cwd=None, timeout=None, env=None):
+        if command[:2] == ["bash", "-lc"]:
+            class HookResult:
+                stdout = ""
+                stderr = ""
+                returncode = 0
+
+            return HookResult()
+
+        class Result:
+            stdout = "agent finished\n"
+            stderr = ""
+            returncode = 0
+
+        return Result()
+
+    workspace = load_workspace_from_config(
+        workspace_root=workflow_root,
+        run=fake_run,
+        run_json=lambda *args, **kwargs: {},
+    )
+    workflow_file.write_text("---\nworkflow: [unclosed\n", encoding="utf-8")
+
+    result = workspace.run_loop(interval_seconds=1, max_iterations=1, sleep_fn=lambda _seconds: None)
+
+    assert result["loop_status"] == "completed"
+    assert result["last_result"]["ok"] is True
+    events = (workflow_root / "memory" / "workflow-audit.jsonl").read_text(encoding="utf-8")
+    assert "daedalus.config_reload_failed" in events
+
+
+def test_issue_runner_rejects_workspace_symlink_escape(tmp_path):
+    from workflows.issue_runner.workspace import load_workspace_from_config
+
+    cfg = _config(tmp_path)
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    (workflow_root / "config").mkdir()
+    (workflow_root / "config" / "issues.json").write_text(
+        json.dumps(
+            {
+                "issues": [
+                    {
+                        "id": "ISSUE-1",
+                        "identifier": "ISSUE-1",
+                        "title": "Escape issue",
+                        "description": "Should not run outside root.",
+                        "priority": 1,
+                        "state": "todo",
+                        "labels": [],
+                        "blocked_by": [],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (workflow_root / "WORKFLOW.md").write_text(
+        render_workflow_markdown(config=cfg, prompt_template="Issue: {{ issue.identifier }}"),
+        encoding="utf-8",
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    issue_root = workflow_root / "workspace" / "issues"
+    issue_root.mkdir(parents=True)
+    (issue_root / "ISSUE-1").symlink_to(outside, target_is_directory=True)
+
+    workspace = load_workspace_from_config(
+        workspace_root=workflow_root,
+        run=lambda *args, **kwargs: None,
+        run_json=lambda *args, **kwargs: {},
+    )
+
+    result = workspace.tick()
+
+    assert result["ok"] is False
+    assert "not a child" in result["error"]

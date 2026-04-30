@@ -8,7 +8,7 @@ JSONL events log on disk per request.
 Shape conforms to Symphony §13.7 (spec §6.4):
 
 - ``state_view`` returns a snapshot of running + retrying work plus a
-  ``totals`` block. `change-delivery` keeps the legacy lane-backed model;
+  ``codex_totals`` block. `change-delivery` keeps the legacy lane-backed model;
   `issue-runner` projects from scheduler/status JSON files.
 - ``issue_view`` returns the per-lane shape, or ``None`` if the
   identifier is unknown.
@@ -317,7 +317,7 @@ def _issue_runner_state_view(workflow_root: Path, events_log_path: Path) -> dict
         "counts": {"running": len(running_rows), "retrying": len(retry_rows)},
         "running": running_rows,
         "retrying": retry_rows,
-        "totals": totals,
+        "codex_totals": totals,
         "rate_limits": rate_limits,
         "recent_events": recent_events,
     }
@@ -363,7 +363,7 @@ def state_view(db_path: Path, events_log_path: Path, workflow_root: Path | None 
         "counts": {"running": len(running), "retrying": 0},
         "running": running,
         "retrying": [],
-        "totals": {
+        "codex_totals": {
             "input_tokens": 0,
             "output_tokens": 0,
             "total_tokens": 0,

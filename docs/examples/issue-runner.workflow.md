@@ -39,9 +39,10 @@ agent:
 
 codex:
   command: codex app-server
-  approval_policy: auto
+  ephemeral: false
+  approval_policy: never
   thread_sandbox: workspace-write
-  turn_sandbox_policy: auto
+  turn_sandbox_policy: workspace-write
   turn_timeout_ms: 3600000
   read_timeout_ms: 5000
   stall_timeout_ms: 300000

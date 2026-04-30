@@ -63,6 +63,13 @@ def test_local_json_tracker_client_lists_candidates_terminal_and_refresh(tmp_pat
     assert refreshed["ISSUE-1"]["title"] == "Higher priority"
 
 
+def test_issue_workspace_slug_matches_symphony_sanitization():
+    from workflows.issue_runner.tracker import issue_workspace_slug
+
+    assert issue_workspace_slug({"identifier": "ABC-123"}) == "ABC-123"
+    assert issue_workspace_slug({"identifier": "ABC/123 needs work"}) == "ABC_123_needs_work"
+
+
 def test_linear_tracker_client_normalizes_graphql_payload(monkeypatch, tmp_path):
     from workflows.issue_runner.tracker import build_tracker_client
 
@@ -107,6 +114,7 @@ def test_linear_tracker_client_normalizes_graphql_payload(monkeypatch, tmp_path)
         assert endpoint == "https://api.linear.app/graphql"
         assert api_key == "linear-token"
         if "IssueRunnerIssuesByIds" in query:
+            assert "$ids: [ID!]" in query
             return {
                 "data": {
                     "issues": {
@@ -115,6 +123,7 @@ def test_linear_tracker_client_normalizes_graphql_payload(monkeypatch, tmp_path)
                     }
                 }
             }
+        assert "project: { slugId: { eq: $projectSlug } }" in query
         states = {state.lower() for state in (variables.get("states") or [])}
         nodes = [active_issue] if "in progress" in states else [terminal_issue]
         return {
@@ -148,6 +157,61 @@ def test_linear_tracker_client_normalizes_graphql_payload(monkeypatch, tmp_path)
     assert candidates[0]["blocked_by"][0]["identifier"] == "ABC-122"
     assert terminals[0]["state"] == "Done"
     assert refreshed["lin-1"]["branch_name"] == "abc-123-important-work"
+
+
+def test_linear_tracker_client_empty_state_fetch_does_not_call_api(monkeypatch, tmp_path):
+    from workflows.issue_runner.tracker import build_tracker_client
+
+    monkeypatch.setenv("LINEAR_API_KEY", "linear-token")
+
+    def fail_post_json(*args, **kwargs):
+        raise AssertionError("empty state fetch should not call Linear")
+
+    client = build_tracker_client(
+        workflow_root=tmp_path,
+        tracker_cfg={
+            "kind": "linear",
+            "api_key": "$LINEAR_API_KEY",
+            "project_slug": "core",
+            "active_states": [],
+            "terminal_states": [],
+        },
+        post_json=fail_post_json,
+    )
+
+    assert client.list_candidates() == []
+    assert client.list_terminal() == []
+
+
+def test_linear_tracker_client_errors_when_pagination_cursor_missing(monkeypatch, tmp_path):
+    from workflows.issue_runner.tracker import TrackerConfigError, build_tracker_client
+
+    monkeypatch.setenv("LINEAR_API_KEY", "linear-token")
+
+    def fake_post_json(endpoint, *, query, variables, api_key):
+        del endpoint, query, variables, api_key
+        return {
+            "data": {
+                "issues": {
+                    "nodes": [],
+                    "pageInfo": {"hasNextPage": True, "endCursor": None},
+                }
+            }
+        }
+
+    client = build_tracker_client(
+        workflow_root=tmp_path,
+        tracker_cfg={
+            "kind": "linear",
+            "api_key": "$LINEAR_API_KEY",
+            "project_slug": "core",
+            "active_states": ["Todo"],
+        },
+        post_json=fake_post_json,
+    )
+
+    with pytest.raises(TrackerConfigError, match="endCursor"):
+        client.list_candidates()
 
 
 def test_linear_tracker_client_requires_api_key(monkeypatch, tmp_path):

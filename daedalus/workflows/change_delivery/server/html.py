@@ -118,7 +118,7 @@ def render_dashboard(state: dict[str, Any]) -> str:
     running = state.get("running") or []
     retrying = state.get("retrying") or []
     events = state.get("recent_events") or []
-    totals = state.get("totals") or {}
+    totals = state.get("codex_totals") or {}
     rate_limits = state.get("rate_limits")
 
     parts: list[str] = [_PAGE_HEAD]

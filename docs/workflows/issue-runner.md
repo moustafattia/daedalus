@@ -15,7 +15,7 @@ For each eligible tracker issue:
 5. render the Markdown workflow body as the issue prompt template
 6. invoke the configured runtime/agent
 7. persist output and audit state
-8. persist scheduler state for retries, running workers, and token totals
+8. persist scheduler state for continuation retries, failure backoff, running-worker recovery, and token totals
 
 ## Use it when
 
@@ -35,7 +35,7 @@ For each eligible tracker issue:
 - `workspace`: per-issue workspace root
 - `hooks`: `after_create`, `before_run`, `after_run`, `before_remove`
 - `agent`: model/runtime plus scheduler-facing limits
-- `codex`: spec-shaped Codex runner settings
+- `codex`: spec-shaped Codex runner settings; set `mode: external` and `endpoint: ws://127.0.0.1:<port>` to connect to an already-running app-server, and keep `ephemeral: false` if you want Codex threads to remain inspectable
 - `daedalus.runtimes`: shared runtime backend profiles used by the current implementation when you are not using the top-level `codex` block
 
 Supported tracker kinds today:
@@ -48,8 +48,11 @@ Supported tracker kinds today:
 eligibility, ordering, retry, and workspace policy.
 
 Scheduler state is persisted under `storage.scheduler` (default:
-`memory/workflow-scheduler.json`) so retry queues, running-worker recovery, and
-aggregate Codex token totals survive loop restarts.
+`memory/workflow-scheduler.json`) so continuation retries, failure backoff,
+running-worker recovery, aggregate Codex token totals, and Codex
+`issue_id -> thread_id` mappings survive loop restarts. When a mapped thread
+exists, the Codex app-server adapter resumes it with `thread/resume` before
+starting the next turn.
 
 ## Operator path
 
@@ -102,9 +105,10 @@ tables.
 
 ## Current limitation
 
-- The Linear adapter is first-pass. It is useful for issue selection and reconciliation, but it has not been hardened against every Linear schema edge yet.
+- The Linear adapter follows the Symphony baseline query shape, but still needs real Linear integration smoke coverage before claiming production-grade Linear support.
 - Managed service mode is `active` only. `shadow` remains specific to `change-delivery`.
-- The bundled Codex app-server adapter now preserves partial metrics on failed turns, but it is still not a full spec-native session protocol yet.
+- The bundled Codex app-server adapter supports managed stdio and external WebSocket transports, including durable thread resume across ticks; full in-flight cancellation remains future work.
+- Worker execution is still synchronous inside each tick; full in-flight cancellation on tracker state changes is the next scheduler hardening step.
 
 ## Related docs
 

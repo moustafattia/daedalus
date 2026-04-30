@@ -30,9 +30,10 @@ def _config() -> dict:
         },
         "codex": {
             "command": "codex app-server",
-            "approval_policy": "auto",
+            "ephemeral": False,
+            "approval_policy": "never",
             "thread_sandbox": "workspace-write",
-            "turn_sandbox_policy": "auto",
+            "turn_sandbox_policy": "workspace-write",
             "turn_timeout_ms": 3600000,
             "read_timeout_ms": 5000,
             "stall_timeout_ms": 300000,
@@ -93,12 +94,36 @@ def test_issue_runner_schema_accepts_linear_tracker_and_codex_runtime():
             "codex": {
                 "kind": "codex-app-server",
                 "command": "codex app-server",
-                "approval_policy": "auto",
+                "approval_policy": "never",
                 "thread_sandbox": "workspace-write",
-                "turn_sandbox_policy": "auto",
+                "turn_sandbox_policy": "workspace-write",
                 "turn_timeout_ms": 3600000,
                 "read_timeout_ms": 5000,
                 "stall_timeout_ms": 300000,
+            }
+        }
+    }
+    jsonschema.validate(cfg, schema)
+
+
+def test_issue_runner_schema_accepts_external_codex_app_server_runtime():
+    schema = yaml.safe_load(
+        (REPO_ROOT / "daedalus" / "workflows" / "issue_runner" / "schema.yaml").read_text(encoding="utf-8")
+    )
+    cfg = _config()
+    cfg["agent"]["runtime"] = "codex"
+    cfg["daedalus"] = {
+        "runtimes": {
+            "codex": {
+                "kind": "codex-app-server",
+                "mode": "external",
+                "endpoint": "ws://127.0.0.1:4500",
+                "healthcheck_path": "/readyz",
+                "ws_token_env": "CODEX_APP_SERVER_TOKEN",
+                "ephemeral": False,
+                "approval_policy": "never",
+                "thread_sandbox": "workspace-write",
+                "turn_sandbox_policy": "workspace-write",
             }
         }
     }

@@ -136,9 +136,27 @@ properties:
     type: object
     properties:
       command: {type: string}
-      approval_policy: {type: string}
-      thread_sandbox: {type: string}
-      turn_sandbox_policy: {type: string}
+      mode:
+        type: string
+        enum: [managed, external]
+      endpoint: {type: string}
+      healthcheck_path: {type: string}
+      ws_token_env: {type: string}
+      ws_token_file: {type: string}
+      ephemeral: {type: boolean}
+      approval_policy:
+        oneOf:
+          - type: string
+            enum: [untrusted, on-failure, on-request, never]
+          - type: object
+      thread_sandbox:
+        type: string
+        enum: [read-only, workspace-write, danger-full-access]
+      turn_sandbox_policy:
+        oneOf:
+          - type: string
+            enum: [read-only, workspace-write, danger-full-access]
+          - type: object
       turn_timeout_ms:
         type: integer
         minimum: 1
@@ -222,9 +240,27 @@ definitions:
           - type: array
             minItems: 1
             items: {type: string}
-      approval_policy: {type: string}
-      thread_sandbox: {type: string}
-      turn_sandbox_policy: {type: string}
+      mode:
+        type: string
+        enum: [managed, external]
+      endpoint: {type: string}
+      healthcheck_path: {type: string}
+      ws_token_env: {type: string}
+      ws_token_file: {type: string}
+      ephemeral: {type: boolean}
+      approval_policy:
+        oneOf:
+          - type: string
+            enum: [untrusted, on-failure, on-request, never]
+          - type: object
+      thread_sandbox:
+        type: string
+        enum: [read-only, workspace-write, danger-full-access]
+      turn_sandbox_policy:
+        oneOf:
+          - type: string
+            enum: [read-only, workspace-write, danger-full-access]
+          - type: object
       turn_timeout_ms:
         type: integer
         minimum: 1
