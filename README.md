@@ -125,8 +125,6 @@ how to use it. See the full [WORKFLOW.md guide](docs/workflows/workflow-contract
 
 ## Bundled Workflows
 
----
-
 ### `issue-runner`
 
 <div align="center">
