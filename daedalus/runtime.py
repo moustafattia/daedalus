@@ -1,10 +1,12 @@
 import argparse
 import calendar
 import concurrent.futures
+import inspect
 import importlib.util
 import json
 import sqlite3
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,7 @@ from workflows.shared.paths import (
     workflow_cli_argv,
 )
 from workflows.change_delivery.event_taxonomy import (
+    DAEDALUS_ACTIVE_ACTION_CANCELED,
     DAEDALUS_ACTIVE_ACTION_COMPLETED,
     DAEDALUS_ACTIVE_ACTION_FAILED,
     DAEDALUS_ACTIVE_ACTION_REQUESTED,
@@ -1616,16 +1619,76 @@ def _run_legacy_restart_actor_session(*, workflow_root: Path) -> dict[str, Any]:
     return _run_workflow_cli_json(workflow_root=workflow_root, command="restart-actor-session")
 
 
+def _run_workspace_action(
+    *,
+    workflow_root: Path,
+    action_name: str,
+    cancel_event: Any | None = None,
+) -> dict[str, Any]:
+    workspace = _load_legacy_workflow_module(workflow_root)
+    set_cancel_event = getattr(workspace, "set_active_cancel_event", None)
+    if callable(set_cancel_event):
+        set_cancel_event(cancel_event)
+    try:
+        action = getattr(workspace, action_name)
+        return action()
+    finally:
+        if callable(set_cancel_event):
+            set_cancel_event(None)
+
+
 def _default_active_action_runners(*, workflow_root: Path) -> dict[str, Any]:
     return {
-        "dispatch_implementation_turn": lambda: _run_legacy_dispatch_implementation_turn(workflow_root=workflow_root),
-        "dispatch_repair_handoff": lambda: _run_legacy_dispatch_repair_handoff(workflow_root=workflow_root),
-        "restart_actor_session": lambda: _run_legacy_restart_actor_session(workflow_root=workflow_root),
-        "push_pr_update": lambda: _run_legacy_push_pr_update(workflow_root=workflow_root),
-        "publish_pr": lambda: _run_legacy_publish_pr(workflow_root=workflow_root),
-        "request_internal_review": lambda: _run_legacy_request_internal_review(workflow_root=workflow_root),
-        "merge_pr": lambda: _run_legacy_merge_pr(workflow_root=workflow_root),
+        "dispatch_implementation_turn": lambda cancel_event=None: _run_workspace_action(
+            workflow_root=workflow_root,
+            action_name="dispatch_implementation_turn",
+            cancel_event=cancel_event,
+        ),
+        "dispatch_repair_handoff": lambda cancel_event=None: _run_workspace_action(
+            workflow_root=workflow_root,
+            action_name="dispatch_repair_handoff",
+            cancel_event=cancel_event,
+        ),
+        "restart_actor_session": lambda cancel_event=None: _run_workspace_action(
+            workflow_root=workflow_root,
+            action_name="restart_actor_session",
+            cancel_event=cancel_event,
+        ),
+        "push_pr_update": lambda cancel_event=None: _run_workspace_action(
+            workflow_root=workflow_root,
+            action_name="push_pr_update",
+            cancel_event=cancel_event,
+        ),
+        "publish_pr": lambda cancel_event=None: _run_workspace_action(
+            workflow_root=workflow_root,
+            action_name="publish_ready_pr",
+            cancel_event=cancel_event,
+        ),
+        "request_internal_review": lambda cancel_event=None: _run_workspace_action(
+            workflow_root=workflow_root,
+            action_name="dispatch_inter_review_agent_review",
+            cancel_event=cancel_event,
+        ),
+        "merge_pr": lambda cancel_event=None: _run_workspace_action(
+            workflow_root=workflow_root,
+            action_name="merge_and_promote",
+            cancel_event=cancel_event,
+        ),
     }
+
+
+def _invoke_action_runner(runner: Any, *, cancel_event: Any | None = None) -> dict[str, Any]:
+    try:
+        signature = inspect.signature(runner)
+    except (TypeError, ValueError):
+        return runner()
+    parameters = signature.parameters
+    accepts_cancel_event = "cancel_event" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+    )
+    if accepts_cancel_event:
+        return runner(cancel_event=cancel_event)
+    return runner()
 
 
 def _summarize_active_action_result(*, action_type: str, result: dict[str, Any]) -> str:
@@ -2996,6 +3059,7 @@ def execute_requested_action(
     now_iso: str | None = None,
     action_runners: dict[str, Any] | None = None,
     failure_analyst: Any | None = None,
+    cancel_event: Any | None = None,
 ) -> dict[str, Any]:
     now_iso = now_iso or _now_iso()
     runners = _default_active_action_runners(workflow_root=workflow_root)
@@ -3030,7 +3094,7 @@ def execute_requested_action(
         runner = runners.get(action.get("action_type"))
         if runner is None:
             raise RuntimeError(f"unsupported action_type: {action.get('action_type')}")
-        result = runner()
+        result = _invoke_action_runner(runner, cancel_event=cancel_event)
         post_action_status = result.get("after") if isinstance(result.get("after"), dict) else None
         if post_action_status is None:
             # Post-action status read prefers the plugin-side workspace
@@ -3082,6 +3146,43 @@ def execute_requested_action(
                 )
         conn.commit()
     except Exception as exc:
+        if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
+            cancel_summary = f"active action canceled: {type(exc).__name__}: {exc}"
+            if action:
+                conn.execute(
+                    """
+                    UPDATE lane_actions
+                    SET status='canceled', completed_at=?, result_code=?, result_summary=?, error_payload_json=?
+                    WHERE action_id=?
+                    """,
+                    (
+                        now_iso,
+                        "canceled",
+                        cancel_summary,
+                        json.dumps({"canceled": True, "error": str(exc)}, sort_keys=True),
+                        action_id,
+                    ),
+                )
+                conn.commit()
+                append_daedalus_event(
+                    event_log_path=paths["event_log_path"],
+                    event={
+                        "event_id": f"evt:active_action_canceled:{action_id}:{now_iso}",
+                        "event_type": DAEDALUS_ACTIVE_ACTION_CANCELED,
+                        "event_version": 1,
+                        "created_at": now_iso,
+                        "producer": "Workflow_Orchestrator",
+                        "project_key": _project_key_for(workflow_root),
+                        "lane_id": action.get("lane_id"),
+                        "issue_number": None,
+                        "head_sha": action.get("target_head_sha"),
+                        "causal_event_id": None,
+                        "causal_action_id": action_id,
+                        "dedupe_key": f"active_action_canceled:{action_id}:{now_iso}",
+                        "payload": {"action_type": action.get("action_type"), "result_code": "canceled"},
+                    },
+                )
+            return {"executed": False, "canceled": True, "action_id": action_id, "reason": "cancel-requested", "error": cancel_summary}
         failure_scope = _failure_scope_for_action((action or {}).get("action_type"))
         raw_failure_class = f"{(action or {}).get('action_type') or 'unknown_action'}_failed"
         failure_summary = str(exc)
@@ -3573,7 +3674,15 @@ def run_shadow_loop(
     }
 
 
-def run_active_iteration(*, workflow_root: Path, instance_id: str, legacy_status: dict[str, Any] | None = None, now_iso: str | None = None, action_runners: dict[str, Any] | None = None) -> dict[str, Any]:
+def run_active_iteration(
+    *,
+    workflow_root: Path,
+    instance_id: str,
+    legacy_status: dict[str, Any] | None = None,
+    now_iso: str | None = None,
+    action_runners: dict[str, Any] | None = None,
+    cancel_event: Any | None = None,
+) -> dict[str, Any]:
     now_iso = now_iso or _now_iso()
     heartbeat = refresh_runtime_lease(workflow_root=workflow_root, instance_id=instance_id, now_iso=now_iso)
     if not heartbeat.get("refreshed"):
@@ -3646,6 +3755,7 @@ def run_active_iteration(*, workflow_root: Path, instance_id: str, legacy_status
         action_id=requested_actions[0]["action_id"],
         now_iso=now_iso,
         action_runners=action_runners,
+        cancel_event=cancel_event,
     )
     return {
         "iteration_status": "executed",
@@ -3668,9 +3778,88 @@ def _active_loop_running_snapshot(supervised_iteration: dict[str, Any] | None) -
     now_epoch = int(time.time())
     return {
         "worker_id": supervised_iteration.get("worker_id"),
+        "lane_id": supervised_iteration.get("lane_id"),
+        "issue_number": supervised_iteration.get("issue_number"),
         "started_at": started_at,
         "running_for_seconds": max(now_epoch - started_epoch, 0) if started_epoch is not None else None,
+        "cancel_requested": bool(supervised_iteration.get("cancel_requested")),
+        "cancel_reason": supervised_iteration.get("cancel_reason"),
     }
+
+
+def _active_lane_id_from_status(status: dict[str, Any] | None) -> str | None:
+    active_lane = (status or {}).get("activeLane") or {}
+    issue_number = active_lane.get("number")
+    if not issue_number:
+        return None
+    return _lane_id(issue_number)
+
+
+def _active_issue_number_from_status(status: dict[str, Any] | None) -> int | None:
+    active_lane = (status or {}).get("activeLane") or {}
+    issue_number = active_lane.get("number")
+    try:
+        return int(issue_number) if issue_number is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _active_loop_cancel_reason(
+    *,
+    supervised_iteration: dict[str, Any] | None,
+    legacy_status: dict[str, Any] | None,
+) -> str | None:
+    if not supervised_iteration or supervised_iteration.get("cancel_requested"):
+        return None
+    expected_lane_id = supervised_iteration.get("lane_id")
+    if not expected_lane_id:
+        return None
+    current_lane_id = _active_lane_id_from_status(legacy_status)
+    if current_lane_id == expected_lane_id:
+        return None
+    return "no-active-lane" if current_lane_id is None else "active-lane-changed"
+
+
+def _interrupt_active_loop_codex_turn(
+    *,
+    workflow_root: Path,
+    supervised_iteration: dict[str, Any],
+    reason: str,
+) -> dict[str, Any] | None:
+    try:
+        workspace = _load_legacy_workflow_module(workflow_root)
+        interrupter = getattr(workspace, "_interrupt_active_coder_turn", None)
+        if not callable(interrupter):
+            return None
+        return interrupter(issue_number=supervised_iteration.get("issue_number"), reason=reason)
+    except Exception as exc:
+        return {"interrupted": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
+def _request_active_loop_cancel(
+    *,
+    workflow_root: Path,
+    supervised_iteration: dict[str, Any] | None,
+    reason: str,
+) -> bool:
+    if not supervised_iteration or supervised_iteration.get("cancel_requested"):
+        return False
+    supervised_iteration["cancel_requested"] = True
+    supervised_iteration["cancel_reason"] = reason
+    event = supervised_iteration.get("cancel_event")
+    if hasattr(event, "set"):
+        event.set()
+    future = supervised_iteration.get("future")
+    if isinstance(future, concurrent.futures.Future):
+        future.cancel()
+    interrupt_result = _interrupt_active_loop_codex_turn(
+        workflow_root=workflow_root,
+        supervised_iteration=supervised_iteration,
+        reason=reason,
+    )
+    if interrupt_result is not None:
+        supervised_iteration["cancel_interrupt"] = interrupt_result
+    return True
 
 
 def _reconcile_active_loop_iteration(
@@ -3696,6 +3885,9 @@ def _reconcile_active_loop_iteration(
                 "worker_id": supervised_iteration.get("worker_id"),
                 "started_at": supervised_iteration.get("started_at"),
                 "completed_at": _now_iso(),
+                "cancel_requested": bool(supervised_iteration.get("cancel_requested")),
+                "cancel_reason": supervised_iteration.get("cancel_reason"),
+                "cancel_interrupt": supervised_iteration.get("cancel_interrupt"),
             }
         else:
             result = {
@@ -3704,6 +3896,9 @@ def _reconcile_active_loop_iteration(
                 "worker_id": supervised_iteration.get("worker_id"),
                 "started_at": supervised_iteration.get("started_at"),
                 "completed_at": _now_iso(),
+                "cancel_requested": bool(supervised_iteration.get("cancel_requested")),
+                "cancel_reason": supervised_iteration.get("cancel_reason"),
+                "cancel_interrupt": supervised_iteration.get("cancel_interrupt"),
                 "result": result,
             }
     except BaseException as exc:
@@ -3713,6 +3908,9 @@ def _reconcile_active_loop_iteration(
             "worker_id": supervised_iteration.get("worker_id"),
             "started_at": supervised_iteration.get("started_at"),
             "completed_at": _now_iso(),
+            "cancel_requested": bool(supervised_iteration.get("cancel_requested")),
+            "cancel_reason": supervised_iteration.get("cancel_reason"),
+            "cancel_interrupt": supervised_iteration.get("cancel_interrupt"),
             "error": f"{type(exc).__name__}: {exc}",
         }
     return [result], None
@@ -3758,7 +3956,26 @@ def run_active_loop(
                 last_result = completed[-1]
             if supervised_iteration is not None:
                 heartbeat = refresh_runtime_lease(workflow_root=workflow_root, instance_id=instance_id, now_iso=_now_iso())
+                try:
+                    current_legacy_status = legacy_status_provider() if legacy_status_provider else _load_legacy_workflow_module(workflow_root).build_status()
+                except Exception:
+                    current_legacy_status = None
+                cancel_reason = _active_loop_cancel_reason(
+                    supervised_iteration=supervised_iteration,
+                    legacy_status=current_legacy_status,
+                )
+                if cancel_reason:
+                    _request_active_loop_cancel(
+                        workflow_root=workflow_root,
+                        supervised_iteration=supervised_iteration,
+                        reason=cancel_reason,
+                    )
                 if not heartbeat.get("refreshed"):
+                    _request_active_loop_cancel(
+                        workflow_root=workflow_root,
+                        supervised_iteration=supervised_iteration,
+                        reason="lease-not-refreshed",
+                    )
                     last_result = {
                         "iteration_status": "blocked",
                         "reason": heartbeat.get("reason"),
@@ -3777,17 +3994,30 @@ def run_active_loop(
                 # instead of immediately dispatching a second active iteration.
                 pass
             else:
-                legacy_status = legacy_status_provider() if legacy_status_provider else None
+                if legacy_status_provider:
+                    legacy_status = legacy_status_provider()
+                else:
+                    try:
+                        legacy_status = _load_legacy_workflow_module(workflow_root).build_status()
+                    except Exception:
+                        legacy_status = None
                 started_at = _now_iso()
+                cancel_event = threading.Event()
                 supervised_iteration = {
                     "worker_id": f"active-worker:{instance_id}:{iterations + 1}:{started_at}",
                     "started_at": started_at,
+                    "lane_id": _active_lane_id_from_status(legacy_status),
+                    "issue_number": _active_issue_number_from_status(legacy_status),
+                    "cancel_event": cancel_event,
+                    "cancel_requested": False,
+                    "cancel_reason": None,
                     "future": executor.submit(
                         run_active_iteration,
                         workflow_root=workflow_root,
                         instance_id=instance_id,
                         legacy_status=legacy_status,
                         action_runners=action_runners,
+                        cancel_event=cancel_event,
                     ),
                 }
                 last_result = {
@@ -3801,6 +4031,11 @@ def run_active_loop(
             sleep_fn(interval_seconds)
     except KeyboardInterrupt:
         loop_status = "interrupted"
+        _request_active_loop_cancel(
+            workflow_root=workflow_root,
+            supervised_iteration=supervised_iteration,
+            reason="operator-interrupt",
+        )
     finally:
         completed, supervised_iteration = _reconcile_active_loop_iteration(supervised_iteration, settle_timeout_seconds=0.25)
         if completed:

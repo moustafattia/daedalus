@@ -153,16 +153,21 @@ Bundled workflows persist work-item thread mappings in scheduler state
 (`issue-runner`: `issue_id -> thread_id`; `change-delivery`:
 `lane:<issue-number> -> thread_id`) and resume the existing Codex thread on
 later ticks instead of starting a fresh thread.
-In the supervised `issue-runner run` loop, terminal tracker transitions request
-cooperative cancellation; the Codex adapter sends `turn/interrupt` for the
-active turn before surfacing the cancellation result to the scheduler.
+In supervised service loops, cancellation is cooperative. `issue-runner`
+requests cancellation when a running issue reaches a terminal tracker state.
+`change-delivery` requests cancellation when the active lane disappears,
+changes, the runtime lease is lost, or the service is interrupted. The Codex
+adapter sends `turn/interrupt` for the active turn and records the cancellation
+state in scheduler metadata.
 
 ## Adding a new runtime
 
 1. Subclass nothing — just implement the Protocol shape.
 2. Decorate with `@register("<your-kind>")` from `runtimes`.
 3. Add the kind to `schema.yaml` so config validation accepts it.
-4. Optionally implement `last_activity_ts()` for stall participation.
+4. Optionally implement `set_cancel_event()`, `set_progress_callback()`, and
+   `interrupt_turn()` if the runtime supports cooperative turn cancellation.
+5. Optionally implement `last_activity_ts()` for stall participation.
 
 ## Where this lives in code
 

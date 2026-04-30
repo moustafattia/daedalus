@@ -630,6 +630,7 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         CONFIG=config,
         WORKFLOW_YAML=yaml_cfg or {},
         WORKFLOW_POLICY=workflow_policy,
+        ACTIVE_CANCEL_EVENT=None,
         DEFAULT_CONFIG_PATH=workspace_root / DEFAULT_WORKFLOW_MARKDOWN_FILENAME,
         SESSIONS_STATE_PATH=sessions_state_path,
         REPO_PATH=repo_path,
@@ -836,6 +837,33 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
     means the adapter CLI + orchestrator can call ``ws._name`` without the
     wrapper needing to redeclare them.
     """
+
+    def set_active_cancel_event(event):
+        ns.ACTIVE_CANCEL_EVENT = event
+        return None
+
+    def _object_value(value, *keys):
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                return value.get(key)
+            if hasattr(value, key):
+                return getattr(value, key)
+        return None
+
+    def _runtime_metrics_payload(value):
+        if value is None or isinstance(value, str):
+            return {}
+        tokens = _object_value(value, "tokens")
+        return {
+            "session_id": _object_value(value, "session_id", "sessionId"),
+            "thread_id": _object_value(value, "thread_id", "threadId"),
+            "turn_id": _object_value(value, "turn_id", "turnId"),
+            "last_event": _object_value(value, "last_event", "lastEvent"),
+            "last_message": _object_value(value, "last_message", "lastMessage"),
+            "turn_count": int(_object_value(value, "turn_count", "turnCount") or 0),
+            "tokens": tokens if isinstance(tokens, dict) else {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+            "rate_limits": _object_value(value, "rate_limits", "rateLimits"),
+        }
 
     def _lane_state_path(worktree):
         return ns._load_adapter_paths_module().lane_state_path(worktree)
@@ -1333,6 +1361,9 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
                 "runtime_kind": runtime_kind,
                 "thread_id": thread_id,
                 "turn_id": metrics.get("turn_id"),
+                "status": "completed",
+                "cancel_requested": False,
+                "cancel_reason": None,
                 "updated_at": at,
             }
         totals = dict(scheduler.get("codex_totals") or {})
@@ -1353,6 +1384,100 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
         ns.save_scheduler(scheduler)
         return metrics
+
+    def _record_coder_runtime_progress(*, issue_number, session_name, runtime_name, runtime_kind, worktree, result):
+        if runtime_kind != "codex-app-server":
+            return None
+        metrics = ns._runtime_metrics_payload(result)
+        thread_id = str(metrics.get("thread_id") or metrics.get("session_id") or "").strip()
+        if not thread_id:
+            return None
+        key = ns._scheduler_issue_key(issue_number)
+        if not key:
+            return None
+        scheduler = ns.load_scheduler()
+        threads = dict(scheduler.get("codex_threads") or {})
+        prior = dict(threads.get(key) or {})
+        threads[key] = {
+            **prior,
+            "issue_id": key,
+            "issue_number": issue_number,
+            "identifier": f"#{issue_number}",
+            "session_name": session_name,
+            "runtime_name": runtime_name,
+            "runtime_kind": runtime_kind,
+            "thread_id": thread_id,
+            "turn_id": metrics.get("turn_id") or prior.get("turn_id"),
+            "worktree": str(worktree) if worktree is not None else prior.get("worktree"),
+            "status": "running",
+            "last_event": metrics.get("last_event"),
+            "last_message": metrics.get("last_message"),
+            "updated_at": ns._now_iso(),
+        }
+        scheduler.update(
+            {
+                "workflow": "change-delivery",
+                "updatedAt": ns._now_iso(),
+                "codex_threads": threads,
+                "codex_totals": scheduler.get("codex_totals") or {},
+            }
+        )
+        ns.save_scheduler(scheduler)
+        return metrics
+
+    def _interrupt_active_coder_turn(*, issue_number=None, reason="cancel-requested"):
+        scheduler = ns.load_scheduler()
+        threads = dict(scheduler.get("codex_threads") or {})
+        key = ns._scheduler_issue_key(issue_number) if issue_number is not None else None
+        if key is None:
+            running_entries = [
+                (entry_key, entry)
+                for entry_key, entry in threads.items()
+                if isinstance(entry, dict) and entry.get("status") == "running"
+            ]
+            if len(running_entries) != 1:
+                return {"interrupted": False, "reason": "missing-active-turn"}
+            key, entry = running_entries[0]
+        else:
+            entry = threads.get(key) or {}
+        thread_id = str((entry or {}).get("thread_id") or "").strip()
+        turn_id = str((entry or {}).get("turn_id") or "").strip()
+        runtime_name = str((entry or {}).get("runtime_name") or "").strip()
+        if not thread_id or not turn_id or not runtime_name:
+            return {"interrupted": False, "reason": "missing-active-turn"}
+        runtime = ns.runtime(runtime_name)
+        interrupter = getattr(runtime, "interrupt_turn", None)
+        if not callable(interrupter):
+            return {"interrupted": False, "reason": "runtime-does-not-support-interrupt"}
+        worktree = Path(entry.get("worktree")) if entry.get("worktree") else None
+        try:
+            interrupted = bool(interrupter(thread_id=thread_id, turn_id=turn_id, worktree=worktree))
+        except Exception as exc:
+            return {"interrupted": False, "reason": f"{type(exc).__name__}: {exc}"}
+        updated_entry = {
+            **entry,
+            "status": "canceling" if interrupted else entry.get("status"),
+            "cancel_requested": interrupted,
+            "cancel_reason": reason if interrupted else entry.get("cancel_reason"),
+            "updated_at": ns._now_iso(),
+        }
+        threads[key] = updated_entry
+        scheduler.update(
+            {
+                "workflow": "change-delivery",
+                "updatedAt": ns._now_iso(),
+                "codex_threads": threads,
+                "codex_totals": scheduler.get("codex_totals") or {},
+            }
+        )
+        ns.save_scheduler(scheduler)
+        return {
+            "interrupted": interrupted,
+            "issue_id": key,
+            "thread_id": thread_id,
+            "turn_id": turn_id,
+            "reason": reason,
+        }
 
     def _coder_agent_tiers():
         return (((getattr(ns, "WORKFLOW_YAML", {}) or {}).get("agents") or {}).get("coder") or {})
@@ -1438,6 +1563,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
 
     def _run_acpx_prompt(*, worktree, session_name, prompt, codex_model):
         runtime_name = ns._coder_runtime_name_for_model(codex_model)
+        runtime_kind = ns._runtime_kind(runtime_name)
+        issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
         return ns._load_adapter_sessions_module().run_prompt_via_runtime(
             workspace=ns,
             runtime_name=runtime_name,
@@ -1445,6 +1572,19 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             session_name=session_name,
             prompt=prompt,
             model=codex_model,
+            cancel_event=ns.ACTIVE_CANCEL_EVENT,
+            progress_callback=(
+                lambda result: ns._record_coder_runtime_progress(
+                    issue_number=issue_number,
+                    session_name=session_name,
+                    runtime_name=runtime_name,
+                    runtime_kind=runtime_kind,
+                    worktree=worktree,
+                    result=result,
+                )
+                if runtime_kind == "codex-app-server"
+                else None
+            ),
         )
 
     # -----------------------------------------------------------------

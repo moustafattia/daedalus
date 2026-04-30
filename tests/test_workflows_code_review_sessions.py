@@ -392,6 +392,52 @@ def test_run_prompt_via_runtime_delegates_to_ws_runtime():
     assert out == "stdout-output"
 
 
+def test_run_prompt_via_runtime_wires_cancel_event_and_progress_callback():
+    from pathlib import Path
+    from workflows.change_delivery import sessions
+
+    captured = {}
+    cancel_event = object()
+
+    def progress_callback(_result):
+        captured["progress"] = True
+
+    class FakeRuntime:
+        def set_cancel_event(self, event):
+            captured.setdefault("cancel_events", []).append(event)
+
+        def set_progress_callback(self, callback):
+            captured.setdefault("progress_callbacks", []).append(callback)
+
+        def run_prompt_result(self, *, worktree, session_name, prompt, model):
+            captured["called"] = (worktree, session_name, prompt, model)
+            callback = captured["progress_callbacks"][-1]
+            callback("partial")
+            return "structured-result"
+
+    class FakeWs:
+        def runtime(self, name):
+            captured["runtime_name"] = name
+            return FakeRuntime()
+
+    out = sessions.run_prompt_via_runtime(
+        workspace=FakeWs(),
+        runtime_name="coder-runtime",
+        worktree=Path("/tmp/wt"),
+        session_name="lane-224",
+        prompt="do work",
+        model="gpt-5.5",
+        cancel_event=cancel_event,
+        progress_callback=progress_callback,
+    )
+
+    assert out == "structured-result"
+    assert captured["cancel_events"] == [cancel_event, None]
+    assert captured["progress_callbacks"][0] is progress_callback
+    assert captured["progress_callbacks"][-1] is None
+    assert captured["progress"] is True
+
+
 def test_close_session_via_runtime_delegates_to_ws_runtime():
     from pathlib import Path
     from workflows.change_delivery import sessions

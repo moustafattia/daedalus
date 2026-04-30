@@ -13,7 +13,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from . import PromptRunResult, SessionHandle, SessionHealth, register
@@ -437,6 +437,7 @@ class CodexAppServerRuntime:
         self._last_result: PromptRunResult | None = None
         self._resume_thread_ids: dict[str, str] = {}
         self._cancel_event: threading.Event | None = None
+        self._progress_callback: Callable[[PromptRunResult], None] | None = None
 
     def _record_activity(self) -> None:
         self._last_activity = time.monotonic()
@@ -449,6 +450,30 @@ class CodexAppServerRuntime:
 
     def set_cancel_event(self, event: threading.Event | None) -> None:
         self._cancel_event = event
+
+    def set_progress_callback(self, callback: Callable[[PromptRunResult], None] | None) -> None:
+        self._progress_callback = callback
+
+    def interrupt_turn(
+        self,
+        *,
+        thread_id: str,
+        turn_id: str,
+        worktree: Path | None = None,
+    ) -> bool:
+        thread_id = str(thread_id or "").strip()
+        turn_id = str(turn_id or "").strip()
+        if not thread_id or not turn_id:
+            return False
+        cwd = worktree or Path.cwd()
+        client = self._build_client(worktree=cwd, env=os.environ.copy())
+        state = _RunState(session_id=thread_id, thread_id=thread_id, turn_id=turn_id)
+        try:
+            self._initialize(client=client, state=state)
+            self._interrupt_turn(client=client, state=state)
+            return True
+        finally:
+            client.close()
 
     def ensure_session(
         self,
@@ -530,6 +555,7 @@ class CodexAppServerRuntime:
                     on_message=lambda message: self._consume_message(message, state=state),
                 )
             self._consume_thread_start_response(thread_result, state=state)
+            self._notify_progress(state)
             turn_result = client.request(
                 "turn/start",
                 self._turn_start_params(worktree=worktree, thread_id=state.thread_id, prompt=prompt, model=model),
@@ -537,6 +563,7 @@ class CodexAppServerRuntime:
                 on_message=lambda message: self._consume_message(message, state=state),
             )
             self._consume_turn_response(turn_result, state=state)
+            self._notify_progress(state)
             result = self._read_turn_to_completion(client=client, state=state)
             self._last_result = result
             return result
@@ -811,6 +838,14 @@ class CodexAppServerRuntime:
         except CodexAppServerError:
             return
 
+    def _notify_progress(self, state: _RunState) -> None:
+        if self._progress_callback is None:
+            return
+        try:
+            self._progress_callback(self._result_from_state(state))
+        except Exception:
+            return
+
     def _consume_message(self, message: dict[str, Any], *, state: _RunState) -> bool:
         method = str(message.get("method") or "").strip()
         if not method:
@@ -873,9 +908,11 @@ class CodexAppServerRuntime:
                         f"codex-app-server failed: {failure}",
                         result=self._result_from_state(state),
                     )
+            self._notify_progress(state)
             return True
         elif self._is_request_notification(method):
             state.last_message = f"unsupported app-server request: {method}"
+        self._notify_progress(state)
         return False
 
     def _is_request_notification(self, method: str) -> bool:

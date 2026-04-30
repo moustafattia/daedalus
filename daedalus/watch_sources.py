@@ -196,6 +196,28 @@ def alert_state(workflow_root: Path) -> dict[str, Any]:
         return {}
 
 
+def _codex_turn_entries(scheduler: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = []
+    for issue_id, raw_entry in (scheduler.get("codex_threads") or scheduler.get("codexThreads") or {}).items():
+        if not isinstance(raw_entry, dict):
+            continue
+        issue_number = raw_entry.get("issue_number") or raw_entry.get("issueNumber")
+        entries.append(
+            {
+                "issue_id": raw_entry.get("issue_id") or issue_id,
+                "issue_number": issue_number,
+                "issue_identifier": raw_entry.get("identifier") or (f"#{issue_number}" if issue_number else issue_id),
+                "thread_id": raw_entry.get("thread_id") or raw_entry.get("threadId"),
+                "turn_id": raw_entry.get("turn_id") or raw_entry.get("turnId"),
+                "status": raw_entry.get("status"),
+                "cancel_requested": bool(raw_entry.get("cancel_requested") or raw_entry.get("cancelRequested") or False),
+                "cancel_reason": raw_entry.get("cancel_reason") or raw_entry.get("cancelReason"),
+                "updated_at": raw_entry.get("updated_at") or raw_entry.get("updatedAt"),
+            }
+        )
+    return sorted(entries, key=lambda item: str(item.get("issue_id") or ""))
+
+
 def workflow_status(workflow_root: Path) -> dict[str, Any]:
     workflow_root = Path(workflow_root)
     workflow_name = _workflow_name(workflow_root)
@@ -205,13 +227,16 @@ def workflow_status(workflow_root: Path) -> dict[str, Any]:
         scheduler_path = _resolve_issue_runner_storage_path(workflow_root, "scheduler", "memory/workflow-scheduler.json")
         scheduler_payload = _load_optional_json(scheduler_path) or {}
         totals = scheduler_payload.get("codex_totals") or scheduler_payload.get("codexTotals") or {}
+        codex_turns = _codex_turn_entries(scheduler_payload)
         return {
             "workflow": "change-delivery",
             "health": None,
             "updated_at": scheduler_payload.get("updatedAt"),
-            "running_count": 0,
+            "running_count": len([entry for entry in codex_turns if entry.get("status") == "running"]),
             "retry_count": 0,
+            "canceling_count": len([entry for entry in codex_turns if entry.get("status") == "canceling"]),
             "selected_issue": None,
+            "codex_turns": codex_turns,
             "total_tokens": int(totals.get("total_tokens") or 0),
             "rate_limits": totals.get("rate_limits"),
         }

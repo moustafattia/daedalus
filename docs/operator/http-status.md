@@ -63,7 +63,8 @@ Both bundled workflows report aggregate Codex token totals and latest
 rate-limit data from scheduler state when their active runtime is
 `codex-app-server`. `change-delivery` still derives running lane rows from its
 SQLite lane model; `issue-runner` derives running and retrying rows directly
-from its scheduler file.
+from its scheduler file. `change-delivery` also includes `codex_turns` so
+operators can inspect active or canceling Codex `thread_id` / `turn_id` pairs.
 
 ### `GET /api/v1/<identifier>`
 

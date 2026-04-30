@@ -28,6 +28,7 @@ def test_daedalus_native_constants_have_prefix():
         et.DAEDALUS_SHADOW_ACTION_REQUESTED,
         et.DAEDALUS_ACTIVE_ACTION_REQUESTED,
         et.DAEDALUS_ACTIVE_ACTION_COMPLETED,
+        et.DAEDALUS_ACTIVE_ACTION_CANCELED,
         et.DAEDALUS_ACTIVE_ACTION_FAILED,
         et.DAEDALUS_RECOVERY_REQUESTED,
         et.DAEDALUS_OPERATOR_ATTENTION_REQUIRED,
@@ -64,6 +65,7 @@ def test_canonicalize_resolves_legacy_aliases():
     assert canonicalize("shadow_action_requested") == "daedalus.shadow_action_requested"
     assert canonicalize("active_action_requested") == "daedalus.active_action_requested"
     assert canonicalize("active_action_completed") == "daedalus.active_action_completed"
+    assert canonicalize("active_action_canceled") == "daedalus.active_action_canceled"
     assert canonicalize("active_action_failed") == "daedalus.active_action_failed"
     assert canonicalize("recovery_requested") == "daedalus.recovery_requested"
     assert canonicalize("operator_attention_required") == "daedalus.operator_attention_required"

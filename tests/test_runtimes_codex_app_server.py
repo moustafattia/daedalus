@@ -568,6 +568,31 @@ def test_codex_app_server_runtime_cancellation_interrupts_active_turn(tmp_path):
     assert interrupt["params"] == {"threadId": "thread-cancel", "turnId": "turn-cancel"}
 
 
+def test_codex_app_server_runtime_interrupt_turn_sends_protocol_request(tmp_path):
+    from runtimes.codex_app_server import CodexAppServerRuntime
+
+    worktree = tmp_path / "repo"
+    worktree.mkdir()
+    server = tmp_path / "fake_cancellable_app_server.py"
+    requests_path = tmp_path / "requests.jsonl"
+    _write_fake_cancellable_app_server(server, requests_path)
+
+    runtime = CodexAppServerRuntime(
+        {
+            "command": [sys.executable, str(server)],
+            "approval_policy": "never",
+            "read_timeout_ms": 100,
+        },
+        run=None,
+    )
+
+    assert runtime.interrupt_turn(thread_id="thread-cancel", turn_id="turn-cancel", worktree=worktree) is True
+
+    requests = [json.loads(line) for line in requests_path.read_text(encoding="utf-8").splitlines()]
+    interrupt = next(item for item in requests if item.get("method") == "turn/interrupt")
+    assert interrupt["params"] == {"threadId": "thread-cancel", "turnId": "turn-cancel"}
+
+
 def test_codex_app_server_runtime_rejects_non_protocol_approval_policy(tmp_path):
     from runtimes.codex_app_server import CodexAppServerError, CodexAppServerRuntime
 

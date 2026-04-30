@@ -35,7 +35,7 @@ STARTUP_FAILED        = "startup_failed"
 
 
 # ---- Daedalus-native orchestration events (canonical, prefixed). ----
-# These cover the 13 distinct event_type literals currently emitted by
+# These cover the distinct event_type literals currently emitted by
 # runtime.py via append_daedalus_event.
 DAEDALUS_RUNTIME_STARTED              = "daedalus.runtime_started"
 DAEDALUS_RUNTIME_HEARTBEAT            = "daedalus.runtime_heartbeat"
@@ -44,6 +44,7 @@ DAEDALUS_ACTIVE_EXECUTION_CONTROL_UPDATED = "daedalus.active_execution_control_u
 DAEDALUS_SHADOW_ACTION_REQUESTED      = "daedalus.shadow_action_requested"
 DAEDALUS_ACTIVE_ACTION_REQUESTED      = "daedalus.active_action_requested"
 DAEDALUS_ACTIVE_ACTION_COMPLETED      = "daedalus.active_action_completed"
+DAEDALUS_ACTIVE_ACTION_CANCELED       = "daedalus.active_action_canceled"
 DAEDALUS_ACTIVE_ACTION_FAILED         = "daedalus.active_action_failed"
 DAEDALUS_RECOVERY_REQUESTED           = "daedalus.recovery_requested"
 DAEDALUS_OPERATOR_ATTENTION_REQUIRED  = "daedalus.operator_attention_required"
@@ -74,6 +75,7 @@ EVENT_ALIASES: dict[str, str] = {
     "shadow_action_requested":             DAEDALUS_SHADOW_ACTION_REQUESTED,
     "active_action_requested":             DAEDALUS_ACTIVE_ACTION_REQUESTED,
     "active_action_completed":             DAEDALUS_ACTIVE_ACTION_COMPLETED,
+    "active_action_canceled":              DAEDALUS_ACTIVE_ACTION_CANCELED,
     "active_action_failed":                DAEDALUS_ACTIVE_ACTION_FAILED,
     "recovery_requested":                  DAEDALUS_RECOVERY_REQUESTED,
     "operator_attention_required":         DAEDALUS_OPERATOR_ATTENTION_REQUIRED,

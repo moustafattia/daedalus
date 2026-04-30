@@ -575,6 +575,49 @@ def test_workspace_records_change_delivery_codex_threads_and_totals(tmp_path):
     assert ws._codex_thread_for_issue_number(224) == "thread-224"
 
 
+def test_workspace_records_progress_and_interrupts_active_codex_turn(tmp_path):
+    from workflows.change_delivery.workspace import make_workspace
+
+    cfg = _workflow_yaml_config(tmp_path)
+    cfg["storage"]["scheduler"] = "memory/workflow-scheduler.json"
+    ws = make_workspace(workspace_root=tmp_path, config=cfg)
+
+    ws._record_coder_runtime_progress(
+        issue_number=224,
+        session_name="lane-224",
+        runtime_name="coder-runtime",
+        runtime_kind="codex-app-server",
+        worktree=Path("/tmp/issue-224"),
+        result=SimpleNamespace(
+            session_id="thread-224",
+            thread_id="thread-224",
+            turn_id="turn-active",
+            last_event="turn/started",
+            last_message="started",
+            turn_count=1,
+            tokens={"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        ),
+    )
+
+    calls = {}
+
+    class FakeRuntime:
+        def interrupt_turn(self, **kwargs):
+            calls.update(kwargs)
+            return True
+
+    ws.runtime = lambda _name: FakeRuntime()
+    result = ws._interrupt_active_coder_turn(issue_number=224, reason="operator-interrupt")
+
+    scheduler = json.loads((tmp_path / "memory" / "workflow-scheduler.json").read_text(encoding="utf-8"))
+    entry = scheduler["codex_threads"]["lane:224"]
+    assert result["interrupted"] is True
+    assert calls == {"thread_id": "thread-224", "turn_id": "turn-active", "worktree": Path("/tmp/issue-224")}
+    assert entry["status"] == "canceling"
+    assert entry["cancel_requested"] is True
+    assert entry["cancel_reason"] == "operator-interrupt"
+
+
 def test_workspace_ensure_coder_session_resumes_persisted_codex_thread(tmp_path):
     from workflows.change_delivery.workspace import make_workspace
 

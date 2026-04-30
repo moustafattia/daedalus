@@ -478,6 +478,72 @@ def test_run_active_loop_heartbeats_while_supervised_iteration_is_running(runtim
     assert len(heartbeats) >= 2
 
 
+def test_run_active_loop_cancels_supervised_iteration_when_active_lane_disappears(runtime_module, tmp_path, monkeypatch):
+    workflow_root = tmp_path / "workflow"
+    paths = runtime_module._runtime_paths(workflow_root)
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    active_status = _active_dispatch_legacy_status()
+    no_lane_status = {**active_status, "activeLane": None, "nextAction": {"type": "noop", "reason": "no-active-lane"}}
+
+    monkeypatch.setattr(
+        runtime_module,
+        "derive_shadow_actions_for_lane",
+        lambda **_kwargs: [{"action_type": "dispatch_implementation_turn", "reason": "implementation-in-progress", "target_head_sha": "abc123"}],
+    )
+
+    started = threading.Event()
+    provider_calls = {"count": 0}
+
+    def legacy_status_provider():
+        provider_calls["count"] += 1
+        return active_status if provider_calls["count"] == 1 else no_lane_status
+
+    def run_action(*, cancel_event=None):
+        assert cancel_event is not None
+        started.set()
+        assert cancel_event.wait(timeout=2)
+        raise RuntimeError("stopped after cancel")
+
+    def sleep_fn(_seconds):
+        assert started.wait(timeout=2)
+        time.sleep(0.01)
+
+    result = runtime_module.run_active_loop(
+        workflow_root=workflow_root,
+        project_key="workflow-example",
+        instance_id="active-test",
+        interval_seconds=1,
+        max_iterations=2,
+        legacy_status_provider=legacy_status_provider,
+        sleep_fn=sleep_fn,
+        action_runners={"dispatch_implementation_turn": run_action},
+    )
+
+    assert result["loop_status"] == "completed"
+    assert result["running_iteration"] is None
+    assert result["last_result"]["cancel_requested"] is True
+    assert result["last_result"]["cancel_reason"] == "no-active-lane"
+    assert result["last_result"]["executed_action"]["canceled"] is True
+
+    conn = sqlite3.connect(runtime_module._runtime_paths(workflow_root)["db_path"])
+    try:
+        action_status = conn.execute(
+            """
+            SELECT status
+            FROM lane_actions
+            WHERE action_type=? AND action_mode='active'
+            ORDER BY requested_at DESC
+            """,
+            ("dispatch_implementation_turn",),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert action_status == "canceled"
+
+    events = [json.loads(line) for line in paths["event_log_path"].read_text(encoding="utf-8").splitlines()]
+    assert any(event.get("event_type") == "daedalus.active_action_canceled" for event in events)
+
+
 
 def test_doctor_reports_stuck_dispatched_actions(tools_module, monkeypatch):
     relay_stub = SimpleNamespace(

@@ -72,12 +72,22 @@ def _workflow_status_panel(workflow_status: Mapping[str, Any]) -> Panel | None:
         f"health={workflow_status.get('health') or '?'}",
         f"running={workflow_status.get('running_count') or 0}",
         f"retry={workflow_status.get('retry_count') or 0}",
+        f"canceling={workflow_status.get('canceling_count') or 0}",
         f"tokens={workflow_status.get('total_tokens') or 0}",
     ]
     if workflow_status.get("selected_issue"):
         lines.append(f"selected={workflow_status.get('selected_issue')}")
     if workflow_status.get("rate_limits"):
         lines.append(f"rate_limits={workflow_status.get('rate_limits')}")
+    for turn in workflow_status.get("codex_turns") or []:
+        if turn.get("status") == "canceling" or turn.get("cancel_requested"):
+            lines.append(
+                "codex_canceling="
+                f"{turn.get('issue_identifier') or turn.get('issue_id')} "
+                f"thread={turn.get('thread_id')} "
+                f"turn={turn.get('turn_id')} "
+                f"reason={turn.get('cancel_reason') or '?'}"
+            )
     if workflow_status.get("updated_at"):
         lines.append(f"updated_at={workflow_status.get('updated_at')}")
     return Panel("\n".join(_esc(str(line)) for line in lines), title="Workflow status")

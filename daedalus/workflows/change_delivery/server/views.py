@@ -357,6 +357,31 @@ def _issue_runner_issue_view(
     return {**entry, "recent_events": issue_events}
 
 
+def _codex_turn_entries(scheduler: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = []
+    for issue_id, raw_entry in (scheduler.get("codex_threads") or scheduler.get("codexThreads") or {}).items():
+        if not isinstance(raw_entry, dict):
+            continue
+        issue_number = raw_entry.get("issue_number") or raw_entry.get("issueNumber")
+        entries.append(
+            {
+                "issue_id": raw_entry.get("issue_id") or issue_id,
+                "issue_number": issue_number,
+                "issue_identifier": raw_entry.get("identifier") or (f"#{issue_number}" if issue_number else issue_id),
+                "session_name": raw_entry.get("session_name") or raw_entry.get("sessionName"),
+                "runtime_name": raw_entry.get("runtime_name") or raw_entry.get("runtimeName"),
+                "runtime_kind": raw_entry.get("runtime_kind") or raw_entry.get("runtimeKind"),
+                "thread_id": raw_entry.get("thread_id") or raw_entry.get("threadId"),
+                "turn_id": raw_entry.get("turn_id") or raw_entry.get("turnId"),
+                "status": raw_entry.get("status"),
+                "cancel_requested": bool(raw_entry.get("cancel_requested") or raw_entry.get("cancelRequested") or False),
+                "cancel_reason": raw_entry.get("cancel_reason") or raw_entry.get("cancelReason"),
+                "updated_at": raw_entry.get("updated_at") or raw_entry.get("updatedAt"),
+            }
+        )
+    return sorted(entries, key=lambda item: str(item.get("issue_id") or ""))
+
+
 def state_view(db_path: Path, events_log_path: Path, workflow_root: Path | None = None) -> dict[str, Any]:
     """Snapshot view conforming to Symphony §13.7 / spec §6.4."""
     if _workflow_name(workflow_root) == "issue-runner":
@@ -367,11 +392,17 @@ def state_view(db_path: Path, events_log_path: Path, workflow_root: Path | None 
     scheduler = _load_optional_json(_storage_path(workflow_root, "scheduler", "memory/workflow-scheduler.json")) or {}
     codex_totals = dict(scheduler.get("codex_totals") or scheduler.get("codexTotals") or {})
     rate_limits = codex_totals.pop("rate_limits", None)
+    codex_turns = _codex_turn_entries(scheduler)
     return {
         "generated_at": _now_iso(),
         "counts": {"running": len(running), "retrying": 0},
         "running": running,
         "retrying": [],
+        "codex_turns": codex_turns,
+        "codex_turn_counts": {
+            "running": len([entry for entry in codex_turns if entry.get("status") == "running"]),
+            "canceling": len([entry for entry in codex_turns if entry.get("status") == "canceling"]),
+        },
         "codex_totals": {
             "input_tokens": int(codex_totals.get("input_tokens") or 0),
             "output_tokens": int(codex_totals.get("output_tokens") or 0),

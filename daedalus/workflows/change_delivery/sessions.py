@@ -590,23 +590,37 @@ def run_prompt_via_runtime(
     session_name: str,
     prompt: str,
     model: str,
+    cancel_event: Any | None = None,
+    progress_callback: Callable[[Any], None] | None = None,
 ) -> Any:
     """Runtime-aware version of run_acpx_prompt / the inline claude invocation."""
     runtime = workspace.runtime(runtime_name)
+    set_cancel_event = getattr(runtime, "set_cancel_event", None)
+    set_progress_callback = getattr(runtime, "set_progress_callback", None)
+    if callable(set_cancel_event):
+        set_cancel_event(cancel_event)
+    if callable(set_progress_callback):
+        set_progress_callback(progress_callback)
     runner = getattr(runtime, "run_prompt_result", None)
-    if callable(runner):
-        return runner(
+    try:
+        if callable(runner):
+            return runner(
+                worktree=worktree,
+                session_name=session_name,
+                prompt=prompt,
+                model=model,
+            )
+        return runtime.run_prompt(
             worktree=worktree,
             session_name=session_name,
             prompt=prompt,
             model=model,
         )
-    return runtime.run_prompt(
-        worktree=worktree,
-        session_name=session_name,
-        prompt=prompt,
-        model=model,
-    )
+    finally:
+        if callable(set_progress_callback):
+            set_progress_callback(None)
+        if callable(set_cancel_event):
+            set_cancel_event(None)
 
 
 def close_session_via_runtime(*, workspace, runtime_name: str, worktree, session_name: str) -> None:

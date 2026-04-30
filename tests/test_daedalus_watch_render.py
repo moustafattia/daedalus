@@ -96,6 +96,36 @@ def test_render_frame_includes_issue_runner_workflow_status():
     assert "selected=#123" in out
 
 
+def test_render_frame_includes_canceling_codex_turns():
+    watch = _module()
+    out = watch.render_frame_to_string({
+        "active_lanes": [],
+        "workflow_status": {
+            "workflow": "change-delivery",
+            "running_count": 0,
+            "retry_count": 0,
+            "canceling_count": 1,
+            "total_tokens": 18,
+            "codex_turns": [
+                {
+                    "issue_id": "lane:42",
+                    "issue_identifier": "#42",
+                    "thread_id": "thread-42",
+                    "turn_id": "turn-42",
+                    "status": "canceling",
+                    "cancel_reason": "operator-interrupt",
+                }
+            ],
+        },
+        "alert_state": {},
+        "recent_events": [],
+    })
+    assert "canceling=1" in out
+    assert "codex_canceling=#42" in out
+    assert "thread=thread-42" in out
+    assert "reason=operator-interrupt" in out
+
+
 import json
 import sqlite3
 

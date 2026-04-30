@@ -236,7 +236,21 @@ def _make_change_delivery_root(root: Path) -> None:
             {
                 "workflow": "change-delivery",
                 "updatedAt": "2026-04-30T12:00:20Z",
-                "codex_threads": {"lane:42": {"thread_id": "thread-42"}},
+                "codex_threads": {
+                    "lane:42": {
+                        "issue_id": "lane:42",
+                        "issue_number": 42,
+                        "identifier": "#42",
+                        "runtime_name": "coder-runtime",
+                        "runtime_kind": "codex-app-server",
+                        "thread_id": "thread-42",
+                        "turn_id": "turn-42",
+                        "status": "canceling",
+                        "cancel_requested": True,
+                        "cancel_reason": "operator-interrupt",
+                        "updated_at": "2026-04-30T12:00:20Z",
+                    }
+                },
                 "codex_totals": {
                     "input_tokens": 11,
                     "output_tokens": 7,
@@ -349,8 +363,13 @@ def test_change_delivery_state_view_reads_codex_scheduler_totals(tmp_path: Path)
     view = state_view(db, events, workflow_root=root)
 
     assert view["counts"] == {"running": 1, "retrying": 0}
+    assert view["codex_turn_counts"] == {"running": 0, "canceling": 1}
     assert view["codex_totals"]["total_tokens"] == 18
     assert view["rate_limits"] == {"requests_remaining": 88}
+    assert view["codex_turns"][0]["issue_id"] == "lane:42"
+    assert view["codex_turns"][0]["thread_id"] == "thread-42"
+    assert view["codex_turns"][0]["turn_id"] == "turn-42"
+    assert view["codex_turns"][0]["cancel_reason"] == "operator-interrupt"
 
 
 def test_issue_runner_issue_view_resolves_running_and_retry_entries(tmp_path: Path) -> None:

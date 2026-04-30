@@ -20,7 +20,7 @@ The short version: Daedalus is already **Symphony-aligned** in architecture, but
 | Workspace manager | Partial | Generic workspace root, lifecycle hooks, terminal cleanup, sanitized workspace keys, root-containment checks, managed long-running `issue-runner`, supervised `change-delivery` active iterations, worker reconciliation, and persisted scheduler state now exist. |
 | Bounded concurrency | Partial | `issue-runner` dispatches bounded async workers in the service loop and persists running-worker recovery. `change-delivery` now supervises one active worker iteration at a time, but the broader engine is still not uniformly scheduler-driven. |
 | Retry/backoff policy | Partial | `issue-runner` uses Symphony-style 1s continuation retries and 10s-based exponential failure backoff, including supervised worker completion and terminal-state retry suppression. |
-| Coding-agent protocol | Partial | `issue-runner` and `change-delivery` can use the shared protocol-valid `codex-app-server` JSON-RPC adapter with managed stdio, external WebSocket mode, a managed app-server user unit, and persisted thread resume. Cooperative turn interruption is currently wired through `issue-runner` supervision. |
+| Coding-agent protocol | Partial | `issue-runner` and `change-delivery` can use the shared protocol-valid `codex-app-server` JSON-RPC adapter with managed stdio, external WebSocket mode, a managed app-server user unit, persisted thread resume, and cooperative turn interruption. |
 | Observability surface | Partial | Events, status, watch, and HTTP surfaces exist; bundled workflows record Codex token/rate-limit totals and expose Codex thread mappings when using `codex-app-server`. |
 | Trust/safety posture | Implemented | See [security.md](security.md). |
 | Terminal workspace cleanup | Partial | Terminal lane states exist; full Symphony-style cleanup semantics still need explicit policy. |
@@ -36,9 +36,8 @@ Daedalus currently differs from the Symphony draft in four material ways:
 
 ## Recommended Next Gaps
 
-1. Add cooperative cancellation for `change-delivery` Codex app-server turns, matching `issue-runner` terminal-state interruption.
-2. Keep Codex app-server transports warm across worker turns instead of opening a connection per run.
-3. Add stronger cancellation semantics for command-style runtimes, including subprocess group termination where safe.
-4. Add real Linear integration smoke tests and publish a stricter conformance checklist.
+1. Keep Codex app-server transports warm across worker turns instead of opening a connection per run.
+2. Add stronger cancellation semantics for command-style runtimes, including subprocess group termination where safe.
+3. Add real Linear integration smoke tests and publish a stricter conformance checklist.
 
 Until those land, Daedalus should be described as **Symphony-inspired and partially compatible**, not as a strict implementation of the current spec.

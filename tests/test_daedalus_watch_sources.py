@@ -170,3 +170,59 @@ def test_issue_runner_watch_sources_use_repo_storage_paths(tmp_path):
     assert workflow_status["running_count"] == 1
     assert workflow_status["retry_count"] == 1
     assert workflow_status["total_tokens"] == 18
+
+
+def test_change_delivery_watch_sources_surface_canceling_codex_turns(tmp_path):
+    from workflows.contract import render_workflow_markdown
+
+    sources = _module()
+    root = _make_workflow_root(tmp_path)
+    (root / "WORKFLOW.md").write_text(
+        render_workflow_markdown(
+            config={
+                "workflow": "change-delivery",
+                "schema-version": 1,
+                "instance": {"name": "attmous-daedalus-change-delivery", "engine-owner": "hermes"},
+                "repository": {"local-path": "/tmp/repo", "github-slug": "attmous/daedalus"},
+                "runtimes": {"coder-runtime": {"kind": "codex-app-server", "command": "codex app-server"}},
+                "agents": {"coder": {"default": {"name": "coder", "model": "gpt-5.5", "runtime": "coder-runtime"}}},
+                "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+                "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
+                "storage": {"scheduler": "memory/workflow-scheduler.json"},
+            },
+            prompt_template="Deliver the active change.",
+        ),
+        encoding="utf-8",
+    )
+    (root / "memory").mkdir(exist_ok=True)
+    (root / "memory" / "workflow-scheduler.json").write_text(
+        json.dumps(
+            {
+                "workflow": "change-delivery",
+                "updatedAt": "2026-04-30T12:00:20Z",
+                "codex_threads": {
+                    "lane:42": {
+                        "issue_id": "lane:42",
+                        "issue_number": 42,
+                        "identifier": "#42",
+                        "thread_id": "thread-42",
+                        "turn_id": "turn-42",
+                        "status": "canceling",
+                        "cancel_requested": True,
+                        "cancel_reason": "operator-interrupt",
+                    }
+                },
+                "codex_totals": {"total_tokens": 18},
+            }
+        )
+    )
+
+    workflow_status = sources.workflow_status(root)
+
+    assert workflow_status["workflow"] == "change-delivery"
+    assert workflow_status["running_count"] == 0
+    assert workflow_status["canceling_count"] == 1
+    assert workflow_status["total_tokens"] == 18
+    assert workflow_status["codex_turns"][0]["thread_id"] == "thread-42"
+    assert workflow_status["codex_turns"][0]["turn_id"] == "turn-42"
+    assert workflow_status["codex_turns"][0]["cancel_reason"] == "operator-interrupt"
