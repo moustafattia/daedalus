@@ -207,20 +207,6 @@ workflow. `change-delivery` is richer, more opinionated, and GitHub-backed.
 
 ---
 
-<div align="center">
-
-| Capability | issue-runner | change-delivery |
-|---|---|:---:|
-| Stateful retries | JSON queue | ✅ SQLite queue |
-| Lease isolation | ❌ | ✅ |
-| Review gates | ❌ | ✅ Internal + External |
-| PR lifecycle | ❌ | ✅ Full |
-| Merge promotion | ❌ | ✅ |
-| Symphony compat | ✅ | Partial |
-| Runtime adapters | All | All |
-
-</div>
-
 ## Supported Surfaces
 
 | Area | Status | Notes |
