@@ -6,6 +6,12 @@
 
 **Durable SDLC automation engine for Hermes Agent.**
 
+[![Python](https://img.shields.io/badge/python-3.10%2B-22D3EE?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-22D3EE?style=flat-square)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-pytest-22D3EE?style=flat-square&logo=pytest&logoColor=white)]()
+[![Platform](https://img.shields.io/badge/platform-Linux-22D3EE?style=flat-square&logo=linux&logoColor=white)]()
+[![Hermes](https://img.shields.io/badge/hermes-plugin-22D3EE?style=flat-square)]()
+
 </div>
 
 Daedalus is a control plane for agentic software work. It turns issues into
@@ -120,14 +126,42 @@ how to use it. See the full [WORKFLOW.md guide](docs/workflows/workflow-contract
 
 ## Bundled Workflows
 
-| Workflow | What it automates | Use it when |
-|---|---|---|
-| `issue-runner` | issue -> workspace -> hooks -> prompt -> one agent run | You want a small generic issue workflow. |
-| `change-delivery` | issue -> implementation -> internal review -> PR -> external review -> merge | You want the opinionated SDLC workflow with review and merge gates. |
+<div align="center">
 
-`issue-runner` is the generic reference workflow and the closest surface to
-Symphony-style issue execution. `change-delivery` is richer and more
-opinionated.
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🎯 `issue-runner`
+
+**The lightweight path.**
+
+```
+issue → workspace → hooks → prompt → agent run
+```
+
+Use this when you want a small, generic issue workflow without ceremony. Closest surface to Symphony-style execution. Good for experiments, one-off tasks, and simple automation.
+
+</td>
+<td width="50%" valign="top">
+
+### 🚀 `change-delivery`
+
+**The opinionated SDLC path.**
+
+```
+issue → implementation → internal review → PR → external review → merge
+```
+
+Use this when you want full lifecycle automation with review gates, PR publishing, and merge promotion. Built for production software delivery.
+
+</td>
+</tr>
+</table>
+
+</div>
+
+`issue-runner` is the generic reference workflow. `change-delivery` is richer and more opinionated.
 
 ## Supported Surfaces
 
