@@ -179,10 +179,12 @@ hermes daedalus codex-app-server up
 ```
 
 Then point the workflow runtime at `ws://127.0.0.1:4500`.
-Use `hermes daedalus codex-app-server status`, `restart`, and `logs` for
-operator checks. If the listener is not loopback-only, pass one of the supported
-auth flags during `install` or `up`, for example
-`--ws-token-file /absolute/path/to/token`.
+Use `hermes daedalus codex-app-server doctor` for the full operator check:
+managed service state, readiness, auth posture, and persisted Codex thread
+mappings. If the listener is not loopback-only, pass one of the supported auth
+flags during `install` or `up`, for example `--ws-token-file
+/absolute/path/to/token`. See [Codex app-server operations](codex-app-server.md)
+for external-mode diagnostics and troubleshooting.
 
 ## Manual low-level path
 

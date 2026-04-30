@@ -1,6 +1,7 @@
 import argparse
 import http.client
 import importlib.util
+import ipaddress
 import io
 import json
 import os
@@ -939,6 +940,400 @@ def codex_app_server_status(
         "active_check": active,
         "enabled_check": enabled,
         "show": show,
+    }
+
+
+def _codex_app_server_unit_tokens(unit_path: Path) -> list[str]:
+    if not unit_path.exists():
+        return []
+    try:
+        text = unit_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    for line in text.splitlines():
+        if line.startswith("ExecStart="):
+            try:
+                return shlex.split(line.split("=", 1)[1])
+            except ValueError:
+                return []
+    return []
+
+
+def _codex_app_server_token_value(tokens: list[str], flag: str) -> str | None:
+    try:
+        index = tokens.index(flag)
+    except ValueError:
+        return None
+    if index + 1 >= len(tokens):
+        return None
+    return tokens[index + 1]
+
+
+def _codex_app_server_listen_from_unit(unit_path: Path) -> str | None:
+    tokens = _codex_app_server_unit_tokens(unit_path)
+    return _codex_app_server_token_value(tokens, "--listen")
+
+
+def _codex_app_server_auth_summary_from_unit(unit_path: Path) -> dict[str, Any] | None:
+    tokens = _codex_app_server_unit_tokens(unit_path)
+    auth_mode = _codex_app_server_token_value(tokens, "--ws-auth")
+    if not auth_mode:
+        return None
+    summary: dict[str, Any] = {"mode": auth_mode, "source": "unit"}
+    token_file = _codex_app_server_token_value(tokens, "--ws-token-file")
+    token_sha256 = _codex_app_server_token_value(tokens, "--ws-token-sha256")
+    shared_secret_file = _codex_app_server_token_value(tokens, "--ws-shared-secret-file")
+    issuer = _codex_app_server_token_value(tokens, "--ws-issuer")
+    audience = _codex_app_server_token_value(tokens, "--ws-audience")
+    max_skew = _codex_app_server_token_value(tokens, "--ws-max-clock-skew-seconds")
+    if token_file:
+        summary["token_file"] = token_file
+    if token_sha256:
+        summary["token_sha256"] = token_sha256
+    if shared_secret_file:
+        summary["shared_secret_file"] = shared_secret_file
+    if issuer:
+        summary["issuer"] = issuer
+    if audience:
+        summary["audience"] = audience
+    if max_skew:
+        try:
+            summary["max_clock_skew_seconds"] = int(max_skew)
+        except ValueError:
+            summary["max_clock_skew_seconds"] = max_skew
+    return summary
+
+
+def _codex_app_server_endpoint_is_loopback(endpoint: str) -> bool:
+    hostname = urlparse(str(endpoint or "")).hostname
+    if not hostname:
+        return False
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _codex_app_server_scheduler_path(workflow_root: Path) -> Path:
+    configured_path: str | None = None
+    try:
+        contract = load_workflow_contract(workflow_root)
+        storage = contract.config.get("storage") if isinstance(contract.config, dict) else None
+        if isinstance(storage, dict):
+            configured_path = storage.get("scheduler") or storage.get("scheduler-path")
+    except Exception:
+        configured_path = None
+    raw_path = str(configured_path or "memory/workflow-scheduler.json")
+    path = Path(raw_path)
+    return path if path.is_absolute() else workflow_root / path
+
+
+def _load_codex_scheduler_snapshot(workflow_root: Path) -> dict[str, Any]:
+    scheduler_path = _codex_app_server_scheduler_path(workflow_root)
+    if not scheduler_path.exists():
+        return {
+            "ok": True,
+            "path": str(scheduler_path),
+            "exists": False,
+            "threads": [],
+            "totals": {},
+            "invalid_thread_count": 0,
+            "error": None,
+        }
+    try:
+        scheduler = json.loads(scheduler_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "path": str(scheduler_path),
+            "exists": True,
+            "threads": [],
+            "totals": {},
+            "invalid_thread_count": 0,
+            "error": str(exc),
+        }
+    raw_threads = scheduler.get("codex_threads") or scheduler.get("codexThreads") or {}
+    threads: list[dict[str, Any]] = []
+    invalid_thread_count = 0
+    if isinstance(raw_threads, dict):
+        for issue_id, raw_entry in sorted(raw_threads.items(), key=lambda item: str(item[0])):
+            if not isinstance(raw_entry, dict):
+                invalid_thread_count += 1
+                continue
+            thread_id = raw_entry.get("thread_id") or raw_entry.get("threadId")
+            if not str(thread_id or "").strip():
+                invalid_thread_count += 1
+            issue_number = raw_entry.get("issue_number") or raw_entry.get("issueNumber")
+            threads.append(
+                {
+                    "issue_id": raw_entry.get("issue_id") or issue_id,
+                    "issue_number": issue_number,
+                    "identifier": raw_entry.get("identifier") or (f"#{issue_number}" if issue_number else issue_id),
+                    "session_name": raw_entry.get("session_name") or raw_entry.get("sessionName"),
+                    "runtime_name": raw_entry.get("runtime_name") or raw_entry.get("runtimeName"),
+                    "runtime_kind": raw_entry.get("runtime_kind") or raw_entry.get("runtimeKind"),
+                    "thread_id": thread_id,
+                    "turn_id": raw_entry.get("turn_id") or raw_entry.get("turnId"),
+                    "status": raw_entry.get("status"),
+                    "cancel_requested": bool(raw_entry.get("cancel_requested") or raw_entry.get("cancelRequested") or False),
+                    "cancel_reason": raw_entry.get("cancel_reason") or raw_entry.get("cancelReason"),
+                    "updated_at": raw_entry.get("updated_at") or raw_entry.get("updatedAt"),
+                }
+            )
+    totals = scheduler.get("codex_totals") or scheduler.get("codexTotals") or {}
+    return {
+        "ok": invalid_thread_count == 0,
+        "path": str(scheduler_path),
+        "exists": True,
+        "threads": threads,
+        "totals": totals if isinstance(totals, dict) else {},
+        "invalid_thread_count": invalid_thread_count,
+        "error": None,
+    }
+
+
+def _codex_app_server_doctor_check(
+    name: str,
+    status: str,
+    detail: str,
+    *,
+    severity: str = "critical",
+    remedy: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "name": name,
+        "status": status,
+        "severity": severity,
+        "detail": detail,
+    }
+    if remedy:
+        payload["remedy"] = remedy
+    return payload
+
+
+def _codex_app_server_secret_paths(auth_summary: dict[str, Any] | None) -> list[str]:
+    if not auth_summary:
+        return []
+    paths = []
+    for key in ("token_file", "shared_secret_file"):
+        value = str(auth_summary.get(key) or "").strip()
+        if value:
+            paths.append(value)
+    return paths
+
+
+def codex_app_server_doctor(
+    *,
+    workflow_root: Path,
+    mode: str = "managed",
+    service_name: str | None = None,
+    endpoint: str | None = None,
+    healthcheck_path: str = DEFAULT_CODEX_APP_SERVER_HEALTHCHECK_PATH,
+    ws_token_file: str | None = None,
+    ws_token_sha256: str | None = None,
+    ws_shared_secret_file: str | None = None,
+    ws_issuer: str | None = None,
+    ws_audience: str | None = None,
+    ws_max_clock_skew_seconds: int | None = None,
+) -> dict[str, Any]:
+    if mode not in {"managed", "external"}:
+        raise DaedalusCommandError("--mode must be managed or external")
+
+    resolved_service_name = _codex_app_server_service_name(
+        workflow_root=workflow_root,
+        service_name=service_name,
+    )
+    unit_path = _codex_app_server_unit_path(resolved_service_name)
+    effective_endpoint = str(endpoint or "").strip()
+    if not effective_endpoint and mode == "managed":
+        effective_endpoint = _codex_app_server_listen_from_unit(unit_path) or DEFAULT_CODEX_APP_SERVER_LISTEN
+    if not effective_endpoint:
+        effective_endpoint = DEFAULT_CODEX_APP_SERVER_LISTEN
+
+    _auth_args, cli_auth_summary = _codex_app_server_ws_auth_args(
+        ws_token_file=ws_token_file,
+        ws_token_sha256=ws_token_sha256,
+        ws_shared_secret_file=ws_shared_secret_file,
+        ws_issuer=ws_issuer,
+        ws_audience=ws_audience,
+        ws_max_clock_skew_seconds=ws_max_clock_skew_seconds,
+    )
+    unit_auth_summary = _codex_app_server_auth_summary_from_unit(unit_path) if mode == "managed" else None
+    auth_summary = cli_auth_summary or unit_auth_summary
+    if auth_summary and auth_summary is cli_auth_summary:
+        auth_summary = {**auth_summary, "source": "cli"}
+
+    checks: list[dict[str, Any]] = []
+    status_result: dict[str, Any] | None = None
+    if mode == "managed":
+        status_result = codex_app_server_status(
+            workflow_root=workflow_root,
+            service_name=resolved_service_name,
+            endpoint=effective_endpoint,
+            healthcheck_path=healthcheck_path,
+        )
+        checks.append(
+            _codex_app_server_doctor_check(
+                "managed-unit-file",
+                "pass" if unit_path.exists() else "fail",
+                str(unit_path),
+                remedy="run `hermes daedalus codex-app-server install` or `up`",
+            )
+        )
+        active = str(status_result.get("active") or "unknown")
+        checks.append(
+            _codex_app_server_doctor_check(
+                "managed-service-active",
+                "pass" if active == "active" else "fail",
+                active,
+                remedy="run `hermes daedalus codex-app-server up` or inspect `logs`",
+            )
+        )
+        enabled = str(status_result.get("enabled") or "unknown")
+        checks.append(
+            _codex_app_server_doctor_check(
+                "managed-service-enabled",
+                "pass" if enabled == "enabled" else "warn",
+                enabled,
+                severity="warning",
+                remedy="run `hermes daedalus codex-app-server up` if the listener should start on login",
+            )
+        )
+        ready = status_result.get("ready") or {}
+    else:
+        ready = _codex_app_server_readyz(endpoint=effective_endpoint, healthcheck_path=healthcheck_path)
+        checks.append(
+            _codex_app_server_doctor_check(
+                "managed-unit-file",
+                "skip",
+                "external mode uses a listener started outside Daedalus",
+                severity="info",
+            )
+        )
+
+    parsed_endpoint = urlparse(effective_endpoint)
+    endpoint_shape_ok = parsed_endpoint.scheme == "ws" and bool(parsed_endpoint.hostname) and bool(parsed_endpoint.port)
+    checks.append(
+        _codex_app_server_doctor_check(
+            "endpoint-shape",
+            "pass" if endpoint_shape_ok else "fail",
+            effective_endpoint,
+            remedy="use a ws://host:port endpoint such as ws://127.0.0.1:4500",
+        )
+    )
+
+    if ready.get("ok") is True:
+        checks.append(_codex_app_server_doctor_check("readyz", "pass", f"{effective_endpoint}{healthcheck_path}"))
+    elif ready.get("checked") is False:
+        checks.append(
+            _codex_app_server_doctor_check(
+                "readyz",
+                "warn",
+                str(ready.get("reason") or "readiness probe was skipped"),
+                severity="warning",
+            )
+        )
+    else:
+        checks.append(
+            _codex_app_server_doctor_check(
+                "readyz",
+                "fail",
+                str(ready.get("reason") or "readiness probe failed"),
+                remedy="start the listener or inspect `hermes daedalus codex-app-server logs`",
+            )
+        )
+
+    missing_secret_paths = [path for path in _codex_app_server_secret_paths(auth_summary) if not Path(path).exists()]
+    if missing_secret_paths:
+        checks.append(
+            _codex_app_server_doctor_check(
+                "websocket-auth",
+                "fail",
+                "missing secret file(s): " + ", ".join(missing_secret_paths),
+                remedy="create the configured secret files or reinstall the Codex app-server unit with valid auth flags",
+            )
+        )
+    elif auth_summary:
+        checks.append(
+            _codex_app_server_doctor_check(
+                "websocket-auth",
+                "pass",
+                f"{auth_summary.get('mode')} from {auth_summary.get('source', 'config')}",
+            )
+        )
+    elif _codex_app_server_endpoint_is_loopback(effective_endpoint):
+        checks.append(
+            _codex_app_server_doctor_check(
+                "websocket-auth",
+                "pass",
+                "loopback endpoint does not require WebSocket auth",
+            )
+        )
+    else:
+        checks.append(
+            _codex_app_server_doctor_check(
+                "websocket-auth",
+                "fail",
+                "non-loopback endpoint has no declared WebSocket auth",
+                remedy="use --ws-token-file, --ws-token-sha256, or --ws-shared-secret-file",
+            )
+        )
+
+    scheduler = _load_codex_scheduler_snapshot(workflow_root)
+    if scheduler.get("error"):
+        checks.append(
+            _codex_app_server_doctor_check(
+                "scheduler-thread-map",
+                "fail",
+                f"{scheduler.get('path')}: {scheduler.get('error')}",
+                remedy="repair or remove the scheduler JSON state file",
+            )
+        )
+    elif not scheduler.get("exists"):
+        checks.append(
+            _codex_app_server_doctor_check(
+                "scheduler-thread-map",
+                "warn",
+                f"{scheduler.get('path')} does not exist yet",
+                severity="warning",
+            )
+        )
+    elif scheduler.get("invalid_thread_count"):
+        checks.append(
+            _codex_app_server_doctor_check(
+                "scheduler-thread-map",
+                "fail",
+                f"{scheduler.get('invalid_thread_count')} Codex thread mapping(s) are missing thread_id",
+                remedy="let the workflow retry the affected work item or clear the invalid mapping",
+            )
+        )
+    else:
+        checks.append(
+            _codex_app_server_doctor_check(
+                "scheduler-thread-map",
+                "pass",
+                f"{len(scheduler.get('threads') or [])} Codex thread mapping(s)",
+            )
+        )
+
+    ok = all(check.get("status") != "fail" for check in checks)
+    return {
+        "ok": ok,
+        "action": "doctor",
+        "mode": mode,
+        "workflow_root": str(workflow_root),
+        "service_name": resolved_service_name,
+        "unit_path": str(unit_path),
+        "endpoint": effective_endpoint,
+        "healthcheck_path": healthcheck_path,
+        "ws_auth": auth_summary,
+        "status": status_result,
+        "ready": ready,
+        "scheduler": scheduler,
+        "threads": scheduler.get("threads") or [],
+        "checks": checks,
     }
 
 
@@ -2640,6 +3035,22 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     codex_status_cmd.set_defaults(func=run_cli_command)
 
+    codex_doctor_cmd = codex_sub.add_parser("doctor", help="Run actionable Codex app-server diagnostics.")
+    codex_doctor_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
+    codex_doctor_cmd.add_argument("--mode", choices=["managed", "external"], default="managed")
+    codex_doctor_cmd.add_argument("--service-name")
+    codex_doctor_cmd.add_argument("--endpoint")
+    codex_doctor_cmd.add_argument("--healthcheck-path", default=DEFAULT_CODEX_APP_SERVER_HEALTHCHECK_PATH)
+    _add_codex_app_server_auth_args(codex_doctor_cmd)
+    codex_doctor_cmd.add_argument("--json", action="store_true")
+    codex_doctor_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
+    codex_doctor_cmd.set_defaults(func=run_cli_command)
+
     codex_down_cmd = codex_sub.add_parser("down", help="Stop and disable the Codex app-server user unit.")
     codex_down_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     codex_down_cmd.add_argument("--service-name")
@@ -2910,6 +3321,20 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
                 endpoint=args.endpoint,
                 healthcheck_path=args.healthcheck_path,
             )
+        if action == "doctor":
+            return codex_app_server_doctor(
+                workflow_root=workflow_root,
+                mode=args.mode,
+                service_name=args.service_name,
+                endpoint=args.endpoint,
+                healthcheck_path=args.healthcheck_path,
+                ws_token_file=args.ws_token_file,
+                ws_token_sha256=args.ws_token_sha256,
+                ws_shared_secret_file=args.ws_shared_secret_file,
+                ws_issuer=args.ws_issuer,
+                ws_audience=args.ws_audience,
+                ws_max_clock_skew_seconds=args.ws_max_clock_skew_seconds,
+            )
         if action == "down":
             return codex_app_server_down(
                 workflow_root=workflow_root,
@@ -3122,6 +3547,18 @@ def render_result(
                 f"codex-app-server service={result.get('service_name')} "
                 f"installed={result.get('installed')} active={result.get('active')} "
                 f"enabled={result.get('enabled')} ready={ready.get('ok')}"
+            )
+        if action == "doctor":
+            failed = [check for check in result.get("checks") or [] if check.get("status") == "fail"]
+            warned = [check for check in result.get("checks") or [] if check.get("status") == "warn"]
+            first_problem = failed[0] if failed else (warned[0] if warned else None)
+            suffix = ""
+            if first_problem:
+                suffix = f" first_problem={first_problem.get('name')}:{first_problem.get('detail')}"
+            return (
+                f"codex-app-server doctor ok={result.get('ok')} mode={result.get('mode')} "
+                f"endpoint={result.get('endpoint')} failures={len(failed)} warnings={len(warned)}"
+                f"{suffix}"
             )
     if command == "ingest-live":
         return f"ingested lane={result.get('lane_id')} actor={result.get('actor_id')}"

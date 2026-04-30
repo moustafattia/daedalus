@@ -179,6 +179,139 @@ def test_codex_app_server_status_includes_ready_probe(tmp_path, monkeypatch):
     assert result["ready"]["endpoint"] == "ws://127.0.0.1:4500"
 
 
+def test_codex_app_server_doctor_reports_managed_health_and_threads(tmp_path, monkeypatch):
+    tools = load_tools()
+    systemd_dir = tmp_path / "systemd"
+    monkeypatch.setenv("DAEDALUS_SYSTEMD_USER_DIR", str(systemd_dir))
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    (workflow_root / "memory").mkdir()
+    (workflow_root / "memory" / "workflow-scheduler.json").write_text(
+        json.dumps(
+            {
+                "codex_threads": {
+                    "ISSUE-1": {
+                        "issue_id": "ISSUE-1",
+                        "identifier": "DAE-1",
+                        "session_name": "issue-1",
+                        "runtime_kind": "codex-app-server",
+                        "thread_id": "thread-1",
+                        "turn_id": "turn-1",
+                        "updated_at": "2026-04-30T00:00:00Z",
+                    }
+                },
+                "codex_totals": {"total_tokens": 42, "turn_count": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+    token_file = tmp_path / "codex.token"
+    token_file.write_text("secret", encoding="utf-8")
+    service_name = tools._codex_app_server_service_name(workflow_root=workflow_root)
+    unit_path = systemd_dir / service_name
+    unit_path.parent.mkdir(parents=True, exist_ok=True)
+    unit_path.write_text(
+        tools._render_codex_app_server_unit(
+            listen="ws://127.0.0.1:4600",
+            codex_command="codex",
+            ws_token_file=str(token_file),
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_systemctl(*args):
+        if args[0] == "is-active":
+            stdout = "active"
+        elif args[0] == "is-enabled":
+            stdout = "enabled"
+        elif args[0] == "show":
+            stdout = "ActiveState=active\nSubState=running\nUnitFileState=enabled"
+        else:
+            stdout = ""
+        return {
+            "ok": True,
+            "returncode": 0,
+            "stdout": stdout,
+            "stderr": "",
+            "command": ["systemctl", "--user", *args],
+        }
+
+    monkeypatch.setattr(tools, "_run_systemctl", fake_systemctl)
+    monkeypatch.setattr(tools, "_codex_app_server_readyz", lambda **kwargs: {"ok": True, "checked": True, **kwargs})
+
+    result = tools.codex_app_server_doctor(workflow_root=workflow_root)
+
+    checks = {check["name"]: check for check in result["checks"]}
+    assert result["ok"] is True
+    assert result["endpoint"] == "ws://127.0.0.1:4600"
+    assert checks["managed-unit-file"]["status"] == "pass"
+    assert checks["managed-service-active"]["status"] == "pass"
+    assert checks["websocket-auth"]["status"] == "pass"
+    assert checks["scheduler-thread-map"]["status"] == "pass"
+    assert result["threads"][0]["thread_id"] == "thread-1"
+    assert result["scheduler"]["totals"]["total_tokens"] == 42
+
+
+def test_codex_app_server_doctor_external_requires_auth_for_non_loopback(tmp_path, monkeypatch):
+    tools = load_tools()
+    monkeypatch.setenv("DAEDALUS_SYSTEMD_USER_DIR", str(tmp_path / "systemd"))
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    monkeypatch.setattr(tools, "_codex_app_server_readyz", lambda **kwargs: {"ok": True, "checked": True, **kwargs})
+
+    result = tools.codex_app_server_doctor(
+        workflow_root=workflow_root,
+        mode="external",
+        endpoint="ws://example.com:4500",
+    )
+
+    checks = {check["name"]: check for check in result["checks"]}
+    assert result["ok"] is False
+    assert checks["managed-unit-file"]["status"] == "skip"
+    assert checks["readyz"]["status"] == "pass"
+    assert checks["websocket-auth"]["status"] == "fail"
+
+
+def test_codex_app_server_doctor_json_dispatch(tmp_path, monkeypatch):
+    tools = load_tools()
+    systemd_dir = tmp_path / "systemd"
+    monkeypatch.setenv("DAEDALUS_SYSTEMD_USER_DIR", str(systemd_dir))
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    service_name = tools._codex_app_server_service_name(workflow_root=workflow_root)
+    unit_path = systemd_dir / service_name
+    unit_path.parent.mkdir(parents=True, exist_ok=True)
+    unit_path.write_text(
+        tools._render_codex_app_server_unit(listen="ws://127.0.0.1:4500", codex_command="codex"),
+        encoding="utf-8",
+    )
+
+    def fake_systemctl(*args):
+        stdout = ""
+        if args[0] == "is-active":
+            stdout = "active"
+        elif args[0] == "is-enabled":
+            stdout = "enabled"
+        return {
+            "ok": True,
+            "returncode": 0,
+            "stdout": stdout,
+            "stderr": "",
+            "command": ["systemctl", "--user", *args],
+        }
+
+    monkeypatch.setattr(tools, "_run_systemctl", fake_systemctl)
+    monkeypatch.setattr(tools, "_codex_app_server_readyz", lambda **kwargs: {"ok": True, "checked": True, **kwargs})
+
+    output = tools.execute_raw_args(f"codex-app-server doctor --workflow-root {workflow_root} --json")
+    payload = json.loads(output)
+
+    assert payload["action"] == "doctor"
+    assert payload["ok"] is True
+    assert payload["mode"] == "managed"
+    assert any(check["name"] == "scheduler-thread-map" for check in payload["checks"])
+
+
 def test_codex_app_server_restart_and_logs(tmp_path, monkeypatch):
     tools = load_tools()
     workflow_root = tmp_path / "attmous-daedalus-issue-runner"

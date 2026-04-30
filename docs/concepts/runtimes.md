@@ -98,6 +98,7 @@ user service:
 hermes daedalus codex-app-server install
 hermes daedalus codex-app-server up
 hermes daedalus codex-app-server status
+hermes daedalus codex-app-server doctor
 hermes daedalus codex-app-server logs
 ```
 
@@ -126,6 +127,8 @@ hermes daedalus codex-app-server up \
 Client-side runtime config can then use `ws_token_file` or `ws_token_env` so
 Daedalus presents `Authorization: Bearer <token>` during the WebSocket
 handshake. `status` includes both systemd state and a `GET /readyz` probe.
+`doctor` adds managed/external diagnostics, auth validation, and persisted
+Codex thread mappings from workflow scheduler state.
 
 Then configure Daedalus for external mode:
 
