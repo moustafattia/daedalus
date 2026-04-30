@@ -79,6 +79,9 @@ def test_read_active_lanes_from_db(tmp_path):
     assert lanes[0]["issue_number"] == 329
     assert lanes[0]["github_issue_number"] == 329          # consumer-facing alias
     assert lanes[0]["lane_status"] == "active"
+    assert lanes[0]["work_item"]["id"] == "lane-329"
+    assert lanes[0]["work_item"]["identifier"] == "#329"
+    assert lanes[0]["work_item"]["source"] == "change-delivery"
 
 
 def test_active_lanes_returns_empty_when_query_fails():
@@ -165,6 +168,8 @@ def test_issue_runner_watch_sources_use_repo_storage_paths(tmp_path):
     workflow_status = sources.workflow_status(root)
 
     assert [lane["issue_identifier"] for lane in lanes] == ["#123", "#124"]
+    assert [lane["work_item"]["id"] for lane in lanes] == ["123", "124"]
+    assert all(lane["work_item"]["source"] == "issue-runner" for lane in lanes)
     assert audit[0]["event"] == "issue_runner.tick.completed"
     assert workflow_status["workflow"] == "issue-runner"
     assert workflow_status["running_count"] == 1

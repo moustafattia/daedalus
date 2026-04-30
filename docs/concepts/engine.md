@@ -9,6 +9,7 @@ mechanics that make that decision safe to run unattended.
 | Mechanism | Purpose |
 |---|---|
 | `tick` | One control-loop pass: load contract, inspect state, derive work, dispatch or reconcile, then persist results. |
+| Work items | Tracker-neutral `WorkItemRef` objects that let workflows expose issues/lanes through one engine vocabulary. |
 | Service loop | Repeats ticks under `systemd --user` supervision for unattended operation. |
 | Workflow root | Durable instance directory under `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`. |
 | Contract loading | Reads repo-owned `WORKFLOW.md` / `WORKFLOW-<name>.md` and preserves last-known-good config. |
@@ -32,12 +33,16 @@ the plugin-local `engine` package:
 | `engine.storage` | Atomic JSON/text writes, optional JSON reads, JSONL append. |
 | `engine.audit` | JSONL audit writer with best-effort subscriber fanout. |
 | `engine.driver` | Minimal workflow driver protocol for status, doctor, and tick surfaces. |
+| `engine.work_items` | Neutral work-item/result dataclasses plus issue/lane adapters. |
+| `engine.lifecycle` | Shared running, retry, clear, and restart-recovery mutation helpers. |
 | `engine.sqlite` | Daedalus SQLite connection setup with WAL, foreign keys, and busy timeout. |
 | `engine.scheduler` | Scheduler snapshot/restore helpers for running work, retry queues, and Codex thread mappings. |
 
-`issue-runner` now consumes the shared scheduler/storage primitives directly.
-`change-delivery` consumes shared storage/audit/SQLite primitives while its
-richer lane/action state remains workflow-specific until the next extraction.
+`issue-runner` now consumes the shared scheduler, lifecycle, work-item, and
+storage primitives directly. `change-delivery` consumes shared storage,
+audit, and SQLite primitives, and exposes lanes through the shared work-item
+adapter while its richer lane/action state remains workflow-specific until the
+next extraction.
 
 ## Boundary
 

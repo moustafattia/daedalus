@@ -76,6 +76,58 @@ def test_engine_scheduler_restores_legacy_shapes_and_snapshots():
     assert payload["codex_threads"]["42"]["thread_id"] == "thread-1"
 
 
+def test_engine_work_items_and_lifecycle_helpers():
+    from engine.lifecycle import clear_work_entries, mark_running_work, recover_running_as_retry, schedule_retry_entry
+    from engine.work_items import work_item_from_change_delivery_lane, work_item_from_issue
+
+    issue_work = work_item_from_issue(
+        {
+            "id": "ISSUE-1",
+            "identifier": "ISSUE-1",
+            "state": "todo",
+            "title": "Implement it",
+            "url": "https://tracker.example/ISSUE-1",
+        },
+        source="local-json",
+    )
+    assert issue_work.to_dict()["source"] == "local-json"
+
+    running = mark_running_work({}, work_items=[(issue_work, 2)], now_epoch=100.0)
+    assert running["ISSUE-1"]["worker_id"] == "worker:ISSUE-1:100000"
+    assert running["ISSUE-1"]["attempt"] == 2
+    assert clear_work_entries(running, ["ISSUE-1"]) == {}
+
+    retry, summary = schedule_retry_entry(
+        work_item=issue_work,
+        existing_entry=None,
+        error="temporary failure",
+        current_attempt=2,
+        delay_type="failure",
+        max_backoff_ms=300000,
+        now_epoch=100.0,
+    )
+    assert retry["due_at_epoch"] == 110.0
+    assert summary["retry_attempt"] == 1
+    assert summary["delay_ms"] == 10000
+
+    recovered = recover_running_as_retry({}, [running["ISSUE-1"]], now_epoch=200.0)
+    assert recovered["ISSUE-1"]["error"] == "scheduler restarted while issue was running"
+    assert recovered["ISSUE-1"]["due_at_epoch"] == 200.0
+
+    lane_work = work_item_from_change_delivery_lane(
+        {
+            "lane_id": "lane-42",
+            "issue_number": 42,
+            "workflow_state": "under_review",
+            "lane_status": "active",
+        }
+    )
+    assert lane_work.id == "lane-42"
+    assert lane_work.identifier == "#42"
+    assert lane_work.source == "change-delivery"
+    assert lane_work.metadata["lane_status"] == "active"
+
+
 def test_engine_audit_writer_fans_out_best_effort(tmp_path):
     from engine.audit import make_audit_fn
 

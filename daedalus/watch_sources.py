@@ -18,6 +18,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from engine.work_items import work_item_from_change_delivery_lane, work_item_from_issue
 from workflows.contract import WorkflowContractError, load_workflow_contract
 
 # Sibling-import boilerplate.
@@ -115,6 +116,14 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
             if not isinstance(row, dict):
                 continue
             identifier = row.get("identifier") or row.get("issue_id")
+            work_item = work_item_from_issue(
+                {
+                    "id": row.get("issue_id") or identifier or "unknown",
+                    "identifier": identifier,
+                    "state": row.get("state") or "running",
+                },
+                source="issue-runner",
+            ).to_dict()
             out.append(
                 {
                     "lane_id": row.get("issue_id"),
@@ -125,12 +134,21 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
                     "issue_identifier": identifier,
                     "lane_status": "active",
                     "kind": "running",
+                    "work_item": work_item,
                 }
             )
         for row in scheduler.get("retry_queue") or []:
             if not isinstance(row, dict):
                 continue
             identifier = row.get("identifier") or row.get("issue_id")
+            work_item = work_item_from_issue(
+                {
+                    "id": row.get("issue_id") or identifier or "unknown",
+                    "identifier": identifier,
+                    "state": "retrying",
+                },
+                source="issue-runner",
+            ).to_dict()
             out.append(
                 {
                     "lane_id": row.get("issue_id"),
@@ -141,6 +159,7 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
                     "issue_identifier": identifier,
                     "lane_status": "retrying",
                     "kind": "retrying",
+                    "work_item": work_item,
                 }
             )
         return out
@@ -167,7 +186,7 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
         )
         out = []
         for row in cur.fetchall():
-            out.append({
+            lane = {
                 "lane_id": row[0],
                 # `state` is the key the renderer (watch.py) consumes; we
                 # source it from workflow_state. Both names are exposed for
@@ -177,7 +196,9 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
                 "github_issue_number": row[2],
                 "issue_number": row[2],
                 "lane_status": row[3],
-            })
+            }
+            lane["work_item"] = work_item_from_change_delivery_lane(lane).to_dict()
+            out.append(lane)
     except sqlite3.OperationalError:
         out = []
     finally:

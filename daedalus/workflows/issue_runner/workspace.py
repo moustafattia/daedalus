@@ -24,9 +24,16 @@ from engine.scheduler import (
     running_snapshot,
 )
 from engine.driver import WorkflowDriver
+from engine.lifecycle import (
+    clear_work_entries,
+    mark_running_work,
+    recover_running_as_retry,
+    schedule_retry_entry,
+)
 from engine.storage import append_jsonl as _append_jsonl
 from engine.storage import load_optional_json as _load_optional_json
 from engine.storage import write_json_atomic as _write_json
+from engine.work_items import work_item_from_issue
 from runtimes import PromptRunResult, Runtime, build_runtimes
 from workflows.contract import WORKFLOW_POLICY_KEY, WorkflowContractError, load_workflow_contract
 from workflows.shared.config_snapshot import AtomicRef, ConfigSnapshot
@@ -511,17 +518,11 @@ class IssueRunnerWorkspace(WorkflowDriver):
 
         if restored.recovered_running:
             now_epoch = _now_epoch()
-            for entry in restored.recovered_running:
-                issue_id = str(entry.get("issue_id") or "")
-                existing = self.retry_entries.get(issue_id) or {}
-                self.retry_entries[issue_id] = {
-                    "issue_id": issue_id,
-                    "identifier": entry.get("identifier"),
-                    "attempt": max(int(existing.get("attempt") or 0), int(entry.get("attempt") or 0), 1),
-                    "error": "scheduler restarted while issue was running",
-                    "due_at_epoch": now_epoch,
-                    "current_attempt": entry.get("attempt"),
-                }
+            self.retry_entries = recover_running_as_retry(
+                self.retry_entries,
+                restored.recovered_running,
+                now_epoch=now_epoch,
+            )
             self._persist_scheduler_state()
 
     def _running_snapshot(self) -> list[dict[str, Any]]:
@@ -594,45 +595,28 @@ class IssueRunnerWorkspace(WorkflowDriver):
         delay_type: str = "failure",
     ) -> dict[str, Any]:
         max_backoff_ms = int((self.config.get("agent") or {}).get("max_retry_backoff_ms") or 300000)
-        if delay_type == "continuation":
-            retry_attempt = 1
-            delay_ms = 1000
-        else:
-            retry_attempt = int((self.retry_entries.get(issue["id"]) or {}).get("attempt") or 0) + 1
-            delay_ms = min(max_backoff_ms, 10000 * (2 ** max(retry_attempt - 1, 0)))
-        due_at = _now_epoch() + (delay_ms / 1000.0)
-        entry = {
-            "issue_id": issue.get("id"),
-            "identifier": issue.get("identifier"),
-            "attempt": retry_attempt,
-            "due_at_epoch": due_at,
-            "error": error,
-            "current_attempt": current_attempt,
-            "delay_type": delay_type,
-        }
-        self.retry_entries[str(issue.get("id"))] = entry
+        work_item = work_item_from_issue(issue, source=str((self.config.get("tracker") or {}).get("kind") or "tracker"))
+        entry, retry = schedule_retry_entry(
+            work_item=work_item,
+            existing_entry=self.retry_entries.get(work_item.id),
+            error=error,
+            current_attempt=current_attempt,
+            delay_type=delay_type,
+            max_backoff_ms=max_backoff_ms,
+            now_epoch=_now_epoch(),
+        )
+        self.retry_entries[work_item.id] = entry
         self._emit_event(
             "issue_runner.retry.scheduled",
             {
-                "issue_id": issue.get("id"),
-                "identifier": issue.get("identifier"),
-                "retry_attempt": retry_attempt,
-                "delay_ms": delay_ms,
-                "delay_type": delay_type,
+                **retry,
                 "error": error,
             },
         )
-        return {
-            "issue_id": issue.get("id"),
-            "identifier": issue.get("identifier"),
-            "retry_attempt": retry_attempt,
-            "delay_ms": delay_ms,
-            "delay_type": delay_type,
-        }
+        return retry
 
     def _clear_retry(self, issue_id: str | None) -> None:
-        if issue_id:
-            self.retry_entries.pop(issue_id, None)
+        self.retry_entries = clear_work_entries(self.retry_entries, [issue_id])
 
     def _record_metrics(self, result: PromptRunResult) -> dict[str, Any]:
         metrics = self._metrics_payload(result)
@@ -738,30 +722,24 @@ class IssueRunnerWorkspace(WorkflowDriver):
 
     def _mark_running(self, selections: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> None:
         now_epoch = _now_epoch()
-        entries = dict(self.running_entries)
-        for issue, retry_entry in selections:
-            issue_id = str(issue.get("id") or "").strip()
-            if not issue_id:
-                continue
-            entries[issue_id] = {
-                "issue_id": issue_id,
-                "worker_id": f"worker:{issue_id}:{int(now_epoch * 1000)}",
-                "identifier": issue.get("identifier"),
-                "attempt": self._issue_attempt(issue=issue, retry_entry=retry_entry),
-                "state": issue.get("state"),
-                "worker_status": "running",
-                "started_at_epoch": now_epoch,
-                "heartbeat_at_epoch": now_epoch,
-                "cancel_requested": False,
-                "cancel_reason": None,
-            }
-        self.running_entries = entries
+        tracker_kind = str((self.config.get("tracker") or {}).get("kind") or "tracker")
+        self.running_entries = mark_running_work(
+            self.running_entries,
+            work_items=[
+                (
+                    work_item_from_issue(issue, source=tracker_kind),
+                    self._issue_attempt(issue=issue, retry_entry=retry_entry),
+                )
+                for issue, retry_entry in selections
+                if str(issue.get("id") or "").strip()
+            ],
+            now_epoch=now_epoch,
+        )
         self.running_issue_id = next(iter(self.running_entries), None)
         self._persist_scheduler_state()
 
     def _clear_running(self, issue_ids: list[str]) -> None:
-        for issue_id in issue_ids:
-            self.running_entries.pop(issue_id, None)
+        self.running_entries = clear_work_entries(self.running_entries, issue_ids)
         self.running_issue_id = next(iter(self.running_entries), None)
 
     def _metrics_from_exception(self, exc: Exception, runtime: Runtime | None = None) -> dict[str, Any]:
