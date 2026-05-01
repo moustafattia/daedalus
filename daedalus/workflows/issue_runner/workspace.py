@@ -50,6 +50,7 @@ from workflows.issue_runner.tracker import (
     issue_workspace_slug,
     select_issue,
 )
+from workflows.readiness import build_readiness_recommendations
 from workflows.runtime_presets import runtime_availability_checks, runtime_binding_checks
 from trackers.feedback import publish_tracker_feedback
 from trackers.github import (
@@ -432,6 +433,12 @@ class IssueRunnerWorkspace(WorkflowDriver):
             "ok": ok,
             "workflow": "issue-runner",
             "checks": checks,
+            "recommendations": build_readiness_recommendations(
+                checks,
+                workflow="issue-runner",
+                workflow_root=self.path,
+                source_path=self.contract_path,
+            ),
             "updatedAt": _now_iso(),
         }
 

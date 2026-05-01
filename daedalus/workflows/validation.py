@@ -10,6 +10,7 @@ import yaml
 
 from . import load_workflow
 from .contract import WorkflowContract, WorkflowContractError, load_workflow_contract
+from .readiness import build_readiness_recommendations
 from .runtime_presets import runtime_binding_checks
 
 
@@ -246,6 +247,12 @@ def _validation_report(
 ) -> dict[str, Any]:
     failures = [check for check in checks if check.get("status") == "fail"]
     warnings = [check for check in checks if check.get("status") == "warn"]
+    recommendations = build_readiness_recommendations(
+        checks,
+        workflow=workflow_name,
+        workflow_root=workflow_root,
+        source_path=source_path,
+    )
     return {
         "ok": not failures,
         "workflow_root": str(workflow_root),
@@ -255,4 +262,5 @@ def _validation_report(
         "checks": checks,
         "failures": failures,
         "warnings": warnings,
+        "recommendations": recommendations,
     }

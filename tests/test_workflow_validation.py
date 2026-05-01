@@ -90,6 +90,9 @@ def test_validate_command_reports_schema_and_semantic_failures(tmp_path):
     assert any(item["path"] == "storage" for item in checks["schema"]["items"])
     assert checks["instance-name"]["status"] == "fail"
     assert checks["repository-path"]["status"] == "fail"
+    assert payload["recommendations"]
+    assert any("YAML front matter" in item for item in payload["recommendations"])
+    assert any("repository.local-path" in item for item in payload["recommendations"])
 
 
 def test_validate_command_text_keeps_actionable_failures(tmp_path):
@@ -105,6 +108,8 @@ def test_validate_command_text_keeps_actionable_failures(tmp_path):
     assert "workflow contract valid=False" in output
     assert "FAIL schema" in output
     assert "storage" in output
+    assert "next steps:" in output
+    assert "YAML front matter" in output
 
 
 def test_service_up_refuses_invalid_contract_before_install(tmp_path):
@@ -126,3 +131,4 @@ def test_service_up_refuses_invalid_contract_before_install(tmp_path):
 
     assert "workflow contract validation failed" in str(exc.value)
     assert "schema" in str(exc.value)
+    assert "next steps:" in str(exc.value)

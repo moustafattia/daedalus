@@ -108,3 +108,20 @@ def test_doctor_issue_runner_renders_named_checks():
     assert "unknown runtime profile" in out
     assert "✓" in out
     assert "✗" in out
+
+
+def test_doctor_renders_recommendations():
+    fmt = _fmt()
+    result = {
+        "overall_status": "fail",
+        "checks": [
+            {"code": "runtime_binding_agent", "status": "fail", "summary": "agent references missing runtime"},
+        ],
+        "recommendations": [
+            "Run `hermes daedalus configure-runtime --runtime hermes-final --role agent`."
+        ],
+    }
+    out = fmt.format_doctor(result, use_color=False)
+
+    assert "next steps" in out
+    assert "configure-runtime" in out

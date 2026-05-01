@@ -39,6 +39,7 @@ from workflows.contract import (
     write_workflow_contract_pointer,
 )
 from workflows.validation import validate_workflow_contract
+from workflows.readiness import build_readiness_recommendations
 from workflows.runtime_presets import (
     RuntimePresetError,
     available_runtime_presets,
@@ -499,6 +500,10 @@ def _validation_failure_summary(report: dict[str, Any]) -> str:
             lines.append(f"  {path}: {message}")
     if len(failures) > 8:
         lines.append(f"- ... {len(failures) - 8} more failing checks")
+    recommendations = report.get("recommendations") or []
+    if recommendations:
+        lines.append("next steps:")
+        lines.extend(f"- {item}" for item in recommendations[:5])
     return "\n".join(lines)
 
 
@@ -521,6 +526,7 @@ def _validate_workflow_contract_preflight_for_service(
         "source_path": report.get("source_path"),
         "checks": report.get("checks") or [],
         "warnings": report.get("warnings") or [],
+        "recommendations": report.get("recommendations") or [],
     }
 
 
@@ -2226,6 +2232,11 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
         "report_generated_at": shadow_report.get("report_generated_at"),
         "overall_status": overall_status,
         "checks": checks,
+        "recommendations": build_readiness_recommendations(
+            checks,
+            workflow="change-delivery",
+            workflow_root=workflow_root,
+        ),
         "runtime": runtime,
         "heartbeat": heartbeat,
         "owner_summary": shadow_report.get("owner_summary"),
@@ -3792,6 +3803,10 @@ def render_result(
                 path = item.get("path") if isinstance(item, dict) else None
                 message = item.get("message") if isinstance(item, dict) else str(item)
                 lines.append(f"  {path or '<root>'}: {message}")
+        recommendations = result.get("recommendations") or []
+        if recommendations:
+            lines.append("next steps:")
+            lines.extend(f"- {item}" for item in recommendations[:8])
         return "\n".join(lines)
     if command == "configure-runtime":
         bindings = result.get("bindings") or []

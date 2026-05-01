@@ -155,17 +155,36 @@ The YAML front matter is the structured config. The Markdown body below it is
 the workflow policy contract. `change-delivery` composes it into its role
 prompts; `issue-runner` renders it as the issue prompt template.
 
+For common runtime choices, use the preset command instead of hand-editing the
+runtime block:
+
+```bash
+# default issue-runner role
+hermes daedalus configure-runtime --runtime hermes-final --role agent
+
+# change-delivery coder role backed by the shared Codex listener
+hermes daedalus configure-runtime --runtime codex-service --role coder.default
+```
+
+`configure-runtime` edits the repo-owned `WORKFLOW.md` contract, writes the
+runtime profile under `runtimes:`, and updates the selected role binding. It
+does not start external services.
+
 ## Bring it up
 
 ```bash
 hermes daedalus validate
+hermes daedalus doctor
 hermes daedalus service-up
 ```
 
 Run `validate` after editing `WORKFLOW.md`. It checks the contract file,
 workflow schema, schema version, instance naming, repository path, service mode,
-and workflow preflight rules. `service-up` runs the same validation again before
-it installs or starts the user service.
+runtime role bindings, and workflow preflight rules. `doctor` adds host/runtime
+readiness checks such as missing CLIs, unreachable Codex app-server, GitHub auth,
+and workspace access. Both commands include `next steps` recommendations when
+they find a problem. `service-up` runs validation again before it installs or
+starts the user service.
 
 `service-up` runs the supported post-edit path in one command:
 
