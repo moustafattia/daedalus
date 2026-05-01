@@ -154,6 +154,36 @@ def test_configure_runtime_rejects_unknown_role(tmp_path):
         )
 
 
+def test_configure_runtime_rejects_capability_mismatch(tmp_path):
+    root = tmp_path / "attmous-daedalus-issue-runner"
+    root.mkdir()
+    _write_contract(
+        root / "WORKFLOW.md",
+        {
+            "workflow": "issue-runner",
+            "schema-version": 1,
+            "instance": {"name": root.name, "engine-owner": "hermes"},
+            "repository": {"local-path": str(tmp_path)},
+            "tracker": {"kind": "local-json"},
+            "workspace": {"root": "workspace/issues"},
+            "agent": {
+                "name": "runner",
+                "model": "gpt-5.4",
+                "required-capabilities": ["token-metrics"],
+            },
+            "storage": {"status": "memory/status.json", "health": "memory/health.json", "audit-log": "memory/audit.jsonl"},
+        },
+    )
+
+    with pytest.raises(RuntimePresetError, match="token-metrics"):
+        configure_runtime_contract(
+            workflow_root=root,
+            preset_name="hermes-final",
+            role="agent",
+            runtime_name=None,
+        )
+
+
 def test_configure_runtime_cli_outputs_json(tmp_path):
     tools = load_module("daedalus_tools_runtime_presets_test", "daedalus_cli.py")
     root = tmp_path / "attmous-daedalus-issue-runner"

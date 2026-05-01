@@ -69,6 +69,16 @@ def build_readiness_recommendations(
             _append_once(recommendations, _preflight_recommendation(check=check, workflow=workflow))
         elif name.startswith("runtime-binding"):
             _append_once(recommendations, _runtime_binding_recommendation(workflow=workflow))
+        elif name.startswith("runtime-stage"):
+            _append_once(
+                recommendations,
+                "Fix the actor/stage runtime references in `WORKFLOW.md`, then rerun `hermes daedalus validate`.",
+            )
+        elif name.startswith("runtime-capability"):
+            _append_once(
+                recommendations,
+                "Bind the role to a runtime with the required capabilities, or remove the explicit `required-capabilities` entry.",
+            )
         elif name.startswith("runtime-availability"):
             _append_once(recommendations, _runtime_availability_recommendation(detail))
         elif name == "github-auth":

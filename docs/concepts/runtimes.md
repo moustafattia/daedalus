@@ -5,6 +5,9 @@ A **runtime** is the thing Daedalus shells out to when a turn happens. Daedalus 
 At the code level, these shared execution backends live under
 `daedalus/runtimes/`. The operator-facing contract also uses the `runtimes:`
 config block because workflows bind named runtime profiles to workflow roles.
+Every runtime-backed role must name a runtime profile. Command overrides are
+execution details on that role/profile; they are not fallback paths around the
+runtime contract.
 
 ## The Protocol
 
@@ -47,14 +50,44 @@ app-server transport. It is not treated as a per-stage command. Use
 
 ## Adapter shape comparison
 
-|| | `claude-cli` | `acpx-codex` | `hermes-agent` | `codex-app-server` |
-|---|---|---|---|---|---|
-| Persistent session | ❌ one-shot | ✅ resumable | ❌ one-shot | ✅ resumable Codex thread |
-| `ensure_session` | no-op | `acpx codex sessions ensure` | no-op | no-op |
-| `run_prompt` | `claude --print …` | `acpx codex prompt -s <name>` | `hermes -z` or `hermes chat --quiet -q` | JSON-RPC over stdio to `codex app-server` |
-| `assess_health` | always healthy | freshness + grace window | always healthy | always healthy |
-| `close_session` | no-op | `acpx codex sessions close` | no-op | no-op |
-| Records `last_activity_ts` | yes (before + after `_run`) | yes | yes | yes |
+| Runtime kind | Execution model | Session behavior | Strongest capabilities |
+|---|---|---|---|
+| `hermes-agent` | `hermes -z` or `hermes chat --quiet -q` | one-shot from Daedalus' point of view | `prompt-turn`, `command-stage`, `one-shot`, `activity-heartbeat` |
+| `codex-app-server` | JSON-RPC over stdio or WebSocket | resumable Codex threads | `persistent-session`, `resume`, `cancel`, `structured-events`, `token-metrics`, `thread-visible` |
+| `claude-cli` | `claude --print ...` | one-shot | `prompt-turn`, `command-stage`, `one-shot`, `activity-heartbeat` |
+| `acpx-codex` | `acpx codex prompt -s <name>` | resumable ACPX sessions | `persistent-session`, `resume`, `activity-heartbeat` |
+
+External `codex-app-server` profiles also expose `service-required` because the
+listener must already be running.
+
+## Capability Validation
+
+Daedalus validates runtime bindings before dispatch. The checks cover:
+
+- runtime profile exists
+- `runtime.kind` is one of the registered adapters
+- workflow stages and gates reference declared actors
+- each bound actor/agent has the execution capability needed for its stage
+- explicit `required-capabilities` are supported by the selected runtime
+
+Use `required-capabilities` only when the workflow role truly depends on a
+runtime feature:
+
+```yaml
+actors:
+  implementer:
+    name: Change_Implementer
+    model: gpt-5.4
+    runtime: codex-service
+    required-capabilities:
+      - persistent-session
+      - resume
+      - token-metrics
+```
+
+If the selected runtime lacks one of those capabilities, `hermes daedalus
+validate`, `doctor`, `runtime-matrix`, and `configure-runtime` fail instead of
+silently falling back.
 
 ## Selection in `WORKFLOW.md`
 

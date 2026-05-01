@@ -10,6 +10,8 @@ Error codes (fixed enum, mirrors Symphony's recommended categories):
 - ``workflow_parse_error``         — YAML syntax error
 - ``workflow_front_matter_not_a_map`` — root not a dict
 - ``unsupported_runtime_kind``     — runtime.kind not in registered kinds
+- ``invalid_runtime_binding``      — stage/actor/runtime binding is invalid
+- ``runtime_capability_mismatch``  — actor requires capabilities runtime lacks
 - ``unsupported_reviewer_kind``    — reviewer kind not in registered kinds
 - ``missing_tracker_credentials``  — required env var unset / empty
 - ``unsupported_tracker_kind``     — tracker.kind not supported
@@ -22,6 +24,8 @@ import os
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from runtimes.capabilities import recognized_runtime_kinds
+
 
 @dataclass(frozen=True)
 class PreflightResult:
@@ -31,7 +35,7 @@ class PreflightResult:
     can_reconcile: bool = True  # always True; preflight never blocks reconciliation
 
 
-_RECOGNIZED_RUNTIME_KINDS = frozenset({"acpx-codex", "claude-cli", "codex-app-server", "hermes-agent"})
+_RECOGNIZED_RUNTIME_KINDS = recognized_runtime_kinds()
 _RECOGNIZED_GATE_TYPES = frozenset({"agent-review", "pr-comment-approval", "code-host-checks"})
 _RECOGNIZED_TRACKER_KINDS = frozenset({"github"})
 _RECOGNIZED_CODE_HOST_KINDS = frozenset({"github"})
@@ -85,6 +89,18 @@ def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
                     "unsupported_reviewer_kind",
                     f"gates.{name}.type={gate_type!r} not in {sorted(_RECOGNIZED_GATE_TYPES)}",
                 )
+
+    from workflows.runtime_presets import runtime_capability_checks, runtime_stage_checks
+
+    for check in [*runtime_stage_checks(dict(config)), *runtime_capability_checks(dict(config))]:
+        if check.get("status") != "fail":
+            continue
+        name = str(check.get("name") or "")
+        return PreflightResult(
+            False,
+            "runtime_capability_mismatch" if name.startswith("runtime-capability") else "invalid_runtime_binding",
+            str(check.get("detail") or name),
+        )
 
     tracker = config.get("tracker") or {}
     if isinstance(tracker, dict):

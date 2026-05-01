@@ -45,6 +45,8 @@ from workflows.runtime_presets import (
     configure_runtime_contract,
     runtime_availability_checks,
     runtime_binding_checks,
+    runtime_capability_checks,
+    runtime_stage_checks,
 )
 from workflows.runtime_matrix import build_runtime_matrix_report
 from workflows.change_delivery.storage import ensure_change_delivery_state_files
@@ -2311,7 +2313,12 @@ def _runtime_doctor_checks(workflow_root: Path) -> list[dict[str, Any]]:
         ]
 
     checks = []
-    for check in [*runtime_binding_checks(config), *runtime_availability_checks(config)]:
+    for check in [
+        *runtime_stage_checks(config),
+        *runtime_binding_checks(config),
+        *runtime_capability_checks(config),
+        *runtime_availability_checks(config),
+    ]:
         status = str(check.get("status") or "info")
         severity = "info"
         if status == "fail":
