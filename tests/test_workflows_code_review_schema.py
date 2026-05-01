@@ -102,6 +102,21 @@ def test_schema_accepts_codex_app_server_runtime_for_coder():
     jsonschema.validate(cfg, _load_schema())
 
 
+def test_schema_accepts_shared_tracker_feedback_config():
+    cfg = _minimal_valid_config()
+    cfg["tracker-feedback"] = {
+        "enabled": True,
+        "comment-mode": "append",
+        "include": ["issue.selected", "issue.completed"],
+        "state-updates": {
+            "enabled": True,
+            "on-completed": "done",
+        },
+    }
+
+    jsonschema.validate(cfg, _load_schema())
+
+
 def test_schema_rejects_missing_workflow_key():
     cfg = _minimal_valid_config()
     del cfg["workflow"]

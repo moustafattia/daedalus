@@ -70,6 +70,9 @@ properties:
         type: array
         items: {type: string}
 
+  tracker-feedback:
+    $ref: "#/definitions/tracker-feedback"
+
   polling:
     type: object
     properties:
@@ -225,6 +228,26 @@ properties:
     type: string
 
 definitions:
+  tracker-feedback:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: {type: boolean}
+      comment-mode:
+        type: string
+        enum: [append]
+      include:
+        type: array
+        items: {type: string}
+      state-updates:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
+        patternProperties:
+          "^on[-_.A-Za-z0-9]+$":
+            type: string
+
   acpx-codex-runtime:
     type: object
     required: [kind]

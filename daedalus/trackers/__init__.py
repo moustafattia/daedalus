@@ -31,6 +31,17 @@ class TrackerClient(Protocol):
 
     def list_terminal(self) -> list[dict[str, Any]]: ...
 
+    def post_feedback(
+        self,
+        *,
+        issue_id: str,
+        event: str,
+        body: str,
+        summary: str,
+        state: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
+
 
 _TRACKER_KINDS: dict[str, type] = {}
 

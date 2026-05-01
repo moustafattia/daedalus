@@ -20,6 +20,26 @@ tracker:
     - done
     - canceled
 
+tracker-feedback:
+  enabled: true
+  comment-mode: append
+  include:
+    - issue.selected
+    - issue.dispatched
+    - issue.running
+    - issue.completed
+    - issue.failed
+    - issue.canceled
+    - issue.retry_scheduled
+  state-updates:
+    enabled: true
+    on-selected: in-progress
+    on-dispatched: in-progress
+    on-running: in-progress
+    on-completed: done
+    on-failed: todo
+    on-canceled: canceled
+
 polling:
   interval_ms: 30000
 
@@ -52,11 +72,10 @@ daedalus:
     default:
       kind: hermes-agent
       command:
-        - fake-agent
-        - --prompt
+        - python3
+        - -c
+        - "from pathlib import Path; import sys; prompt = Path(sys.argv[1]).read_text(encoding='utf-8'); print('Daedalus demo signoff: runtime received the issue prompt.'); print(prompt)"
         - "{prompt_path}"
-        - --issue
-        - "{issue_identifier}"
 
 storage:
   status: memory/workflow-status.json

@@ -14,8 +14,9 @@ For each eligible tracker issue:
 4. run lifecycle hooks
 5. render the Markdown workflow body as the issue prompt template
 6. invoke the configured runtime/agent
-7. persist output and audit state
-8. persist scheduler state for running workers, continuation retries, failure backoff, recovery, and token totals
+7. optionally post tracker feedback and state updates
+8. persist output and audit state
+9. persist scheduler state for running workers, continuation retries, failure backoff, recovery, and token totals
 
 ## Use it when
 
@@ -32,6 +33,7 @@ For each eligible tracker issue:
 ## Key config blocks
 
 - `tracker`: shared tracker client kind, source path or endpoint, active/terminal states, label filters
+- `tracker-feedback`: shared tracker comments/state updates for lifecycle events; disabled unless explicitly enabled
 - `workspace`: per-issue workspace root
 - `hooks`: `after_create`, `before_run`, `after_run`, `before_remove`
 - `agent`: model/runtime plus scheduler-facing limits
@@ -63,6 +65,11 @@ Supported tracker kinds today:
 - `local-json` — local development and test fixture path
 - `linear` — experimental adapter, deferred until after the GitHub adapter is hardened
 
+The bundled `local-json` template includes one safe demo issue. With the
+default `tracker-feedback` block enabled, a successful runtime run appends
+comments to `config/issues.json`, moves the issue from `todo` to `done`, and
+suppresses the continuation retry.
+
 GitHub configuration is explicit. Put the repository slug under the tracker,
 not under `repository`:
 
@@ -75,6 +82,21 @@ tracker:
   github_slug: your-org/your-repo
   active_states: [open]
   terminal_states: [closed]
+```
+
+Feedback configuration is tracker-neutral. GitHub receives issue comments.
+`local-json` appends comment objects and applies configured state changes:
+
+```yaml
+tracker-feedback:
+  enabled: true
+  comment-mode: append
+  include: [issue.selected, issue.running, issue.completed, issue.failed, issue.retry_scheduled]
+  state-updates:
+    enabled: true
+    on-selected: in-progress
+    on-completed: done
+    on-failed: todo
 ```
 
 `issue-runner` composes the shared `trackers/` clients with workflow-specific

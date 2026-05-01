@@ -155,3 +155,21 @@ def test_issue_runner_schema_accepts_github_tracker():
         "exclude_labels": ["blocked"],
     }
     jsonschema.validate(cfg, schema)
+
+
+def test_issue_runner_schema_accepts_tracker_feedback_config():
+    schema = yaml.safe_load(
+        (REPO_ROOT / "daedalus" / "workflows" / "issue_runner" / "schema.yaml").read_text(encoding="utf-8")
+    )
+    cfg = _config()
+    cfg["tracker-feedback"] = {
+        "enabled": True,
+        "comment-mode": "append",
+        "include": ["issue.selected", "issue.running", "issue.completed"],
+        "state-updates": {
+            "enabled": True,
+            "on-selected": "in-progress",
+            "on-completed": "done",
+        },
+    }
+    jsonschema.validate(cfg, schema)

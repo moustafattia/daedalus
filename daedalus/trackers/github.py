@@ -412,3 +412,33 @@ class GithubTrackerClient:
             )
         ]
         return sorted(issues, key=issue_priority_sort_key)
+
+    def post_feedback(
+        self,
+        *,
+        issue_id: str,
+        event: str,
+        body: str,
+        summary: str,
+        state: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        issue_number = _coerce_issue_number(issue_id)
+        if issue_number is None:
+            raise TrackerConfigError("issue_id is required when posting GitHub feedback")
+        completed = subprocess.run(
+            self._with_repo(["gh", "issue", "comment", issue_number, "--body", body]),
+            cwd=str(self._repo_path) if self._repo_path else None,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return {
+            "ok": True,
+            "kind": self.kind,
+            "issue_id": issue_number,
+            "event": event,
+            "state": None,
+            "requested_state": state,
+            "url": (completed.stdout or "").strip() or None,
+        }

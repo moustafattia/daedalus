@@ -282,6 +282,166 @@ def test_issue_runner_tick_runs_selected_issue_and_writes_artifacts(tmp_path):
     assert status["scheduler"]["retry_queue"][0]["error"] == "continuation"
 
 
+def test_issue_runner_tracker_feedback_marks_local_json_done_without_continuation_retry(tmp_path):
+    from workflows.issue_runner.workspace import load_workspace_from_config
+
+    cfg = _config(tmp_path)
+    cfg["tracker"]["active_states"] = ["todo", "in-progress"]
+    cfg["tracker-feedback"] = {
+        "enabled": True,
+        "comment-mode": "append",
+        "include": [
+            "issue.selected",
+            "issue.running",
+            "issue.completed",
+            "issue.retry_scheduled",
+        ],
+        "state-updates": {
+            "enabled": True,
+            "on-selected": "in-progress",
+            "on-running": "in-progress",
+            "on-completed": "done",
+        },
+    }
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    issues_path = _write_issue_runner_contract(
+        workflow_root=workflow_root,
+        cfg=cfg,
+        issues=[
+            {
+                "id": "ISSUE-1",
+                "identifier": "ISSUE-1",
+                "title": "Feedback issue",
+                "description": "Exercise tracker feedback.",
+                "priority": 1,
+                "state": "todo",
+                "branch_name": "issue-1-feedback",
+                "url": "https://tracker.example/issues/ISSUE-1",
+                "labels": [],
+                "blocked_by": [],
+                "comments": [],
+            }
+        ],
+        prompt_template="Issue: {{ issue.identifier }}",
+    )
+
+    def fake_run(command, *, cwd=None, timeout=None, env=None):
+        class Result:
+            stdout = "signed off\n"
+            stderr = ""
+            returncode = 0
+
+        return Result()
+
+    workspace = load_workspace_from_config(
+        workspace_root=workflow_root,
+        run=fake_run,
+        run_json=lambda *args, **kwargs: {},
+    )
+
+    result = workspace.tick()
+
+    assert result["ok"] is True
+    assert result["results"][0]["retry"] is None
+    assert workspace.build_status()["scheduler"]["retry_queue"] == []
+    payload = json.loads(issues_path.read_text(encoding="utf-8"))
+    issue = payload["issues"][0]
+    assert issue["state"] == "done"
+    assert [comment["event"] for comment in issue["comments"]] == [
+        "issue.selected",
+        "issue.running",
+        "issue.completed",
+    ]
+    feedback_events = [
+        json.loads(line)["event"]
+        for line in (workflow_root / "memory" / "workflow-audit.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert "issue_runner.tracker_feedback.published" in feedback_events
+
+
+def test_issue_runner_supervised_feedback_completion_does_not_redispatch_stale_issue(tmp_path):
+    from workflows.issue_runner.workspace import load_workspace_from_config
+
+    cfg = _config(tmp_path)
+    cfg["tracker"]["active_states"] = ["todo", "in-progress"]
+    cfg["tracker-feedback"] = {
+        "enabled": True,
+        "comment-mode": "append",
+        "include": [
+            "issue.selected",
+            "issue.dispatched",
+            "issue.running",
+            "issue.completed",
+        ],
+        "state-updates": {
+            "enabled": True,
+            "on-selected": "in-progress",
+            "on-dispatched": "in-progress",
+            "on-running": "in-progress",
+            "on-completed": "done",
+        },
+    }
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    issues_path = _write_issue_runner_contract(
+        workflow_root=workflow_root,
+        cfg=cfg,
+        issues=[
+            {
+                "id": "ISSUE-1",
+                "identifier": "ISSUE-1",
+                "title": "Supervised feedback issue",
+                "description": "Exercise supervised tracker feedback.",
+                "priority": 1,
+                "state": "todo",
+                "branch_name": "issue-1-supervised-feedback",
+                "url": "https://tracker.example/issues/ISSUE-1",
+                "labels": [],
+                "blocked_by": [],
+                "comments": [],
+            }
+        ],
+        prompt_template="Issue: {{ issue.identifier }}",
+    )
+
+    def fake_run(command, *, cwd=None, timeout=None, env=None):
+        class Result:
+            stdout = "signed off\n"
+            stderr = ""
+            returncode = 0
+
+        return Result()
+
+    workspace = load_workspace_from_config(
+        workspace_root=workflow_root,
+        run=fake_run,
+        run_json=lambda *args, **kwargs: {},
+    )
+
+    first = workspace.supervise_once()
+    assert len(first["dispatchedWorkers"]) == 1
+    _wait_for_supervised_futures(workspace)
+
+    second = workspace.supervise_once()
+
+    assert second["completedResults"][0]["retry"] is None
+    assert second["dispatchedWorkers"] == []
+    payload = json.loads(issues_path.read_text(encoding="utf-8"))
+    issue = payload["issues"][0]
+    assert issue["state"] == "done"
+    comment_events = [comment["event"] for comment in issue["comments"]]
+    assert comment_events[0] == "issue.selected"
+    assert comment_events[-1] == "issue.completed"
+    assert set(comment_events) == {
+        "issue.selected",
+        "issue.dispatched",
+        "issue.running",
+        "issue.completed",
+    }
+
+
 def test_issue_runner_tick_uses_codex_app_server_and_persists_metrics(tmp_path):
     from workflows.issue_runner.workspace import load_workspace_from_config
 

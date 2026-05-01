@@ -49,6 +49,7 @@ from workflows.issue_runner.tracker import (
     issue_workspace_slug,
     select_issue,
 )
+from trackers.feedback import publish_tracker_feedback
 from trackers.github import (
     github_auth_host_from_slug,
     github_auth_success_accounts,
@@ -693,6 +694,96 @@ class IssueRunnerWorkspace(WorkflowDriver):
     def _clear_retry(self, issue_id: str | None) -> None:
         self.retry_entries = clear_work_entries(self.retry_entries, [issue_id])
 
+    def _terminal_states(self) -> set[str]:
+        tracker_cfg = self.config.get("tracker") or {}
+        return {
+            str(value).strip().lower()
+            for value in (
+                _cfg_value(tracker_cfg, "terminal_states", "terminal-states")
+                or ["done", "closed", "canceled", "cancelled", "resolved"]
+            )
+            if str(value).strip()
+        }
+
+    def _feedback_reached_terminal_state(self, feedback_result: dict[str, Any]) -> bool:
+        state = str(feedback_result.get("state") or "").strip().lower()
+        return bool(state and state in self._terminal_states())
+
+    def _publish_tracker_feedback(
+        self,
+        *,
+        issue: dict[str, Any],
+        event: str,
+        summary: str,
+        run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload_metadata = {
+            "workflow": "issue-runner",
+            "run_id": run_id,
+            **(metadata or {}),
+        }
+        try:
+            result = publish_tracker_feedback(
+                tracker_client=self.tracker_client,
+                workflow_config=self.config,
+                issue=issue,
+                event=event,
+                summary=summary,
+                metadata=payload_metadata,
+            )
+        except Exception as exc:
+            result = {
+                "ok": False,
+                "event": event,
+                "issue_id": issue.get("id"),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+        if result.get("skipped"):
+            return result
+
+        event_type = (
+            "issue_runner.tracker_feedback.published"
+            if result.get("ok")
+            else "issue_runner.tracker_feedback.failed"
+        )
+        self._emit_event(
+            event_type,
+            {
+                "issue_id": issue.get("id"),
+                "identifier": issue.get("identifier"),
+                "feedback_event": event,
+                "target_state": result.get("state"),
+                "tracker_kind": result.get("kind") or (self.config.get("tracker") or {}).get("kind"),
+                "run_id": run_id,
+                "error": result.get("error"),
+            },
+        )
+        return result
+
+    def _publish_selected_feedback(
+        self,
+        selections: list[tuple[dict[str, Any], dict[str, Any] | None]],
+        *,
+        run_id: str | None,
+    ) -> None:
+        for issue, retry_entry in selections:
+            attempt = self._issue_attempt(issue=issue, retry_entry=retry_entry)
+            retrying = retry_entry is not None
+            verb = "Selected this issue for another execution attempt." if retrying else "Selected this issue for execution."
+            self._publish_tracker_feedback(
+                issue=issue,
+                event="issue.selected",
+                summary=verb,
+                run_id=run_id,
+                metadata={
+                    "attempt": attempt,
+                    "retrying": retrying,
+                    "state": issue.get("state"),
+                },
+            )
+
     def _record_metrics(self, result: PromptRunResult) -> dict[str, Any]:
         metrics = self._metrics_payload(result)
         totals = dict(self.codex_totals or {})
@@ -944,6 +1035,18 @@ class IssueRunnerWorkspace(WorkflowDriver):
                 model=model,
                 resume_session_id=resume_thread_id,
             )
+            self._publish_tracker_feedback(
+                issue=issue,
+                event="issue.running",
+                summary="Started the configured runtime for this issue.",
+                run_id=run_id,
+                metadata={
+                    "attempt": attempt,
+                    "runtime": runtime_name,
+                    "runtime_kind": runtime_cfg.get("kind"),
+                    "workspace": str(issue_workspace),
+                },
+            )
 
             command = agent_cfg.get("command")
             if command is None:
@@ -1037,6 +1140,20 @@ class IssueRunnerWorkspace(WorkflowDriver):
                 result["metrics"] = recorded_metrics
 
             if result.get("ok"):
+                feedback_result = self._publish_tracker_feedback(
+                    issue=issue,
+                    event="issue.completed",
+                    summary="The configured runtime completed this issue run successfully.",
+                    run_id=run_id,
+                    metadata={
+                        "attempt": result.get("attempt"),
+                        "workspace": result.get("workspace"),
+                        "output_path": result.get("outputPath"),
+                        "runtime": result.get("runtime"),
+                    },
+                )
+                if self._feedback_reached_terminal_state(feedback_result):
+                    result["suppressRetry"] = True
                 self._clear_retry(issue_id)
                 if result.get("suppressRetry"):
                     result["retry"] = None
@@ -1049,6 +1166,17 @@ class IssueRunnerWorkspace(WorkflowDriver):
                         run_id=run_id,
                     )
                     result["retry"] = retry
+                    self._publish_tracker_feedback(
+                        issue=issue,
+                        event="issue.retry_scheduled",
+                        summary="Scheduled a continuation retry for this issue.",
+                        run_id=run_id,
+                        metadata={
+                            "retry_attempt": retry.get("retry_attempt"),
+                            "delay_ms": retry.get("delay_ms"),
+                            "delay_type": retry.get("delay_type"),
+                        },
+                    )
                 self._emit_event(
                     "issue_runner.tick.completed",
                     {
@@ -1064,6 +1192,17 @@ class IssueRunnerWorkspace(WorkflowDriver):
             else:
                 if result.get("suppressRetry"):
                     result["retry"] = None
+                    self._publish_tracker_feedback(
+                        issue=issue,
+                        event="issue.canceled",
+                        summary=str(result.get("error") or "The issue run was canceled and will not be retried."),
+                        run_id=run_id,
+                        metadata={
+                            "attempt": result.get("attempt"),
+                            "workspace": result.get("workspace"),
+                            "retry_suppressed": True,
+                        },
+                    )
                     self._emit_event(
                         "issue_runner.tick.canceled",
                         {
@@ -1076,6 +1215,17 @@ class IssueRunnerWorkspace(WorkflowDriver):
                         },
                     )
                 else:
+                    self._publish_tracker_feedback(
+                        issue=issue,
+                        event="issue.failed",
+                        summary=str(result.get("error") or "The configured runtime failed this issue run."),
+                        run_id=run_id,
+                        metadata={
+                            "attempt": result.get("attempt"),
+                            "workspace": result.get("workspace"),
+                            "runtime": result.get("runtime"),
+                        },
+                    )
                     retry = self._schedule_retry(
                         issue=issue,
                         error=str(result.get("error") or "issue execution failed"),
@@ -1083,6 +1233,22 @@ class IssueRunnerWorkspace(WorkflowDriver):
                         run_id=run_id,
                     )
                     result["retry"] = retry
+                    self._publish_tracker_feedback(
+                        issue=issue,
+                        event="issue.retry_scheduled",
+                        summary=(
+                            "Scheduled a retry after the issue run failed."
+                            if retry.get("delay_type") != "continuation"
+                            else "Scheduled a continuation retry for this issue."
+                        ),
+                        run_id=run_id,
+                        metadata={
+                            "retry_attempt": retry.get("retry_attempt"),
+                            "delay_ms": retry.get("delay_ms"),
+                            "delay_type": retry.get("delay_type"),
+                            "error": retry.get("error"),
+                        },
+                    )
                     self._emit_event(
                         "issue_runner.tick.failed",
                         {
@@ -1298,6 +1464,17 @@ class IssueRunnerWorkspace(WorkflowDriver):
                     "run_id": run_id,
                 },
             )
+            self._publish_tracker_feedback(
+                issue=issue,
+                event="issue.dispatched",
+                summary="Dispatched a supervised worker for this issue.",
+                run_id=run_id,
+                metadata={
+                    "attempt": entry.get("attempt"),
+                    "worker_id": entry.get("worker_id"),
+                    "state": issue.get("state"),
+                },
+            )
         self._persist_scheduler_state()
         return dispatched
 
@@ -1348,11 +1525,25 @@ class IssueRunnerWorkspace(WorkflowDriver):
             if completed:
                 status = self._status_from_results(base_status=status, results=completed)
                 status["completedResults"] = status.get("results") or []
+            suppressed_completed_ids = {
+                str((result.get("issue") or {}).get("id") or "").strip()
+                for result in completed
+                if result.get("suppressRetry")
+            }
             cleanup = self._cleanup_terminal_workspaces(terminal_issues)
             status["cleanup"] = cleanup
 
-            issues_by_id = {str(issue.get("id")): issue for issue in issues if str(issue.get("id") or "").strip()}
-            selections = self._select_issue_batch(issues=issues, issues_by_id=issues_by_id)
+            dispatch_issues = [
+                issue
+                for issue in issues
+                if str(issue.get("id") or "").strip() not in suppressed_completed_ids
+            ]
+            issues_by_id = {
+                str(issue.get("id")): issue
+                for issue in dispatch_issues
+                if str(issue.get("id") or "").strip()
+            }
+            selections = self._select_issue_batch(issues=dispatch_issues, issues_by_id=issues_by_id)
             refreshed_selections: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
             for selected, retry_entry in selections:
                 issue_id = str(selected.get("id") or "").strip()
@@ -1362,6 +1553,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
             selections = refreshed_selections
             status["selectedIssues"] = [issue for issue, _retry_entry in selections]
             status["selectedIssue"] = selections[0][0] if selections else None
+            self._publish_selected_feedback(selections, run_id=engine_run["run_id"])
             dispatched = self._dispatch_supervised_workers(selections, run_id=engine_run["run_id"])
             status["dispatchedWorkers"] = dispatched
             if not completed and not dispatched:
@@ -1497,6 +1689,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                 )
                 return status
 
+            self._publish_selected_feedback(selections, run_id=engine_run["run_id"])
             self._mark_running(selections, run_id=engine_run["run_id"])
             results: list[dict[str, Any]] = []
             try:
@@ -1542,15 +1735,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
             self._apply_event_retention()
 
     def _cleanup_terminal_workspaces(self, issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        tracker_cfg = self.config.get("tracker") or {}
-        terminal_states = {
-            str(value).strip().lower()
-            for value in (
-                _cfg_value(tracker_cfg, "terminal_states", "terminal-states")
-                or ["done", "closed", "canceled", "cancelled", "resolved"]
-            )
-            if str(value).strip()
-        }
+        terminal_states = self._terminal_states()
         cleaned: list[dict[str, Any]] = []
         for issue in issues:
             state = str(issue.get("state") or "").strip().lower()

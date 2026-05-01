@@ -61,6 +61,7 @@ The YAML front matter is structured operator configuration:
 - `workflow` selects the workflow package.
 - `instance` names the workflow instance.
 - `tracker` and `repository` configure where issues and code live.
+- `tracker-feedback` controls tracker-facing comments and optional state updates.
 - `runtimes` and `agents` bind workflow roles to execution backends.
 - `hooks`, `gates`, `observability`, and `server` configure workflow-specific behavior.
 
