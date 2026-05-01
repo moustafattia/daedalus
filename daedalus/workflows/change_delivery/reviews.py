@@ -1027,7 +1027,7 @@ def build_external_review_repair_handoff_payload(
 ) -> dict[str, Any]:
     review = external_review or {}
     return {
-        "action": "codex-cloud-repair-handoff",
+        "action": "external-review-repair-handoff",
         "sessionName": session_action.get("sessionName"),
         "issueNumber": (issue or {}).get("number"),
         "issueTitle": (issue or {}).get("title"),
@@ -1055,7 +1055,7 @@ def record_external_review_repair_handoff(
     if path is None:
         return None
     state = load_optional_json_fn(path) or {"schemaVersion": 1}
-    state.setdefault("sessionControl", {})["lastCodexCloudRepairHandoff"] = payload
+    state.setdefault("sessionControl", {})["lastExternalReviewRepairHandoff"] = payload
     write_json_fn(path, state)
     return state
 
@@ -1072,7 +1072,7 @@ def build_claude_repair_handoff_payload(
 ) -> dict[str, Any]:
     review = internal_review or {}
     return {
-        "action": "claude-repair-handoff",
+        "action": "internal-review-repair-handoff",
         "sessionName": session_action.get("sessionName"),
         "issueNumber": (issue or {}).get("number"),
         "issueTitle": (issue or {}).get("title"),
@@ -1100,7 +1100,7 @@ def record_claude_repair_handoff(
     if path is None:
         return None
     state = load_optional_json_fn(path) or {"schemaVersion": 1}
-    state.setdefault("sessionControl", {})["lastClaudeRepairHandoff"] = payload
+    state.setdefault("sessionControl", {})["lastInternalReviewRepairHandoff"] = payload
     write_json_fn(path, state)
     return state
 
@@ -1237,7 +1237,7 @@ def should_dispatch_claude_repair_handoff(
         return {"shouldDispatch": False, "reason": "repair-brief-head-mismatch"}
     if not ((repair_brief or {}).get("mustFix") or (repair_brief or {}).get("shouldFix")):
         return {"shouldDispatch": False, "reason": "repair-brief-empty"}
-    last_handoff = ((lane_state or {}).get("sessionControl") or {}).get("lastClaudeRepairHandoff") or {}
+    last_handoff = ((lane_state or {}).get("sessionControl") or {}).get("lastInternalReviewRepairHandoff") or {}
     if (
         last_handoff.get("sessionName") == session_action.get("sessionName")
         and last_handoff.get("headSha") == current_head_sha
@@ -1278,7 +1278,7 @@ def should_dispatch_external_review_repair_handoff(
         return {"shouldDispatch": False, "reason": "repair-brief-head-mismatch"}
     if not ((repair_brief or {}).get("mustFix") or (repair_brief or {}).get("shouldFix")):
         return {"shouldDispatch": False, "reason": "repair-brief-empty"}
-    last_handoff = ((lane_state or {}).get("sessionControl") or {}).get("lastCodexCloudRepairHandoff") or {}
+    last_handoff = ((lane_state or {}).get("sessionControl") or {}).get("lastExternalReviewRepairHandoff") or {}
     if (
         last_handoff.get("sessionName") == session_action.get("sessionName")
         and last_handoff.get("headSha") == current_head_sha
@@ -1405,8 +1405,8 @@ def maybe_dispatch_repair_handoff(
         )
         ledger["internalReviewRepairHandoff"] = repair_payload
         audit_fn(
-            "claude-repair-handoff-dispatched",
-            "Sent Claude pre-publish repair brief back into the active Codex session",
+            "internal-review-repair-handoff-dispatched",
+            "Sent pre-publish review repair brief back into the active implementer session",
             issueNumber=repair_payload.get("issueNumber"),
             sessionName=repair_payload.get("sessionName"),
             headSha=repair_payload.get("headSha"),
@@ -1416,7 +1416,7 @@ def maybe_dispatch_repair_handoff(
         )
         return {
             "dispatched": True,
-            "mode": "claude_repair_handoff",
+            "mode": "internal_review_repair_handoff",
             "issueNumber": repair_payload.get("issueNumber"),
             "sessionName": repair_payload.get("sessionName"),
             "headSha": repair_payload.get("headSha"),
@@ -1466,8 +1466,8 @@ def maybe_dispatch_repair_handoff(
         )
         ledger["externalReviewRepairHandoff"] = repair_payload
         audit_fn(
-            "codex-cloud-repair-handoff-dispatched",
-            "Sent Codex Cloud repair brief back into the active Codex session",
+            "external-review-repair-handoff-dispatched",
+            "Sent external review repair brief back into the active implementer session",
             issueNumber=repair_payload.get("issueNumber"),
             sessionName=repair_payload.get("sessionName"),
             headSha=repair_payload.get("headSha"),
@@ -1477,7 +1477,7 @@ def maybe_dispatch_repair_handoff(
         )
         return {
             "dispatched": True,
-            "mode": "codex_cloud_repair_handoff",
+            "mode": "external_review_repair_handoff",
             "issueNumber": repair_payload.get("issueNumber"),
             "sessionName": repair_payload.get("sessionName"),
             "headSha": repair_payload.get("headSha"),
@@ -1487,8 +1487,8 @@ def maybe_dispatch_repair_handoff(
     return {
         "dispatched": False,
         "reason": "repair-handoff-not-needed",
-        "claudeReason": claude_decision.get("reason"),
-        "codexCloudReason": codex_cloud_decision.get("reason"),
+        "internalReviewReason": claude_decision.get("reason"),
+        "externalReviewReason": codex_cloud_decision.get("reason"),
     }, False
 
 

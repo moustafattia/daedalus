@@ -183,8 +183,8 @@ def derive_next_action(
     ).get("shouldDispatch"):
         return {
             "type": "dispatch_codex_turn",
-            "mode": "claude_repair_handoff",
-            "reason": "claude-findings-need-repair",
+            "mode": "internal_review_repair_handoff",
+            "reason": "internal-review-findings-need-repair",
             "issueNumber": active_lane.get("number"),
             "sessionName": session_action.get("sessionName"),
             "headSha": local_head_sha,
@@ -201,8 +201,8 @@ def derive_next_action(
     ).get("shouldDispatch"):
         return {
             "type": "dispatch_codex_turn",
-            "mode": "codex_cloud_repair_handoff",
-            "reason": "codex-cloud-findings-need-repair",
+            "mode": "external_review_repair_handoff",
+            "reason": "external-review-findings-need-repair",
             "issueNumber": active_lane.get("number"),
             "sessionName": session_action.get("sessionName"),
             "headSha": current_postpublish_head,
@@ -224,7 +224,7 @@ def derive_next_action(
         return {
             "type": "dispatch_codex_turn",
             "mode": "postpublish_repair",
-            "reason": "codex-cloud-findings-need-repair",
+            "reason": "external-review-findings-need-repair",
             "issueNumber": active_lane.get("number"),
             "sessionName": session_action.get("sessionName"),
             "headSha": current_postpublish_head,

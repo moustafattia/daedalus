@@ -125,7 +125,7 @@ def test_should_dispatch_claude_repair_handoff_rejects_duplicate_handoff_for_sam
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
     result = reviews_module.should_dispatch_claude_repair_handoff(
-        lane_state={"sessionControl": {"lastClaudeRepairHandoff": {"sessionName": "lane-224", "headSha": "head123", "reviewedAt": "2026-04-22T01:00:00Z"}}},
+        lane_state={"sessionControl": {"lastInternalReviewRepairHandoff": {"sessionName": "lane-224", "headSha": "head123", "reviewedAt": "2026-04-22T01:00:00Z"}}},
         session_action={"action": "continue-session", "sessionName": "lane-224"},
         internal_review={
             "reviewScope": "local-prepublish",
@@ -553,11 +553,11 @@ def test_repair_handoff_payload_builders_shape_claude_and_codex_payloads():
         now_iso="2026-04-23T00:21:00Z",
     )
 
-    assert claude_payload["action"] == "claude-repair-handoff"
+    assert claude_payload["action"] == "internal-review-repair-handoff"
     assert claude_payload["mustFixCount"] == 1
     assert claude_payload["shouldFixCount"] == 2
     assert claude_payload["headSha"] == "abc123"
-    assert codex_payload["action"] == "codex-cloud-repair-handoff"
+    assert codex_payload["action"] == "external-review-repair-handoff"
     assert codex_payload["mustFixCount"] == 0
     assert codex_payload["shouldFixCount"] == 1
     assert codex_payload["headSha"] == "def456"
@@ -591,8 +591,8 @@ def test_record_repair_handoff_helpers_store_payload_under_session_control(tmp_p
         write_json_fn=fake_write,
     )
 
-    assert claude_state["sessionControl"]["lastClaudeRepairHandoff"]["headSha"] == "abc123"
-    assert codex_state["sessionControl"]["lastCodexCloudRepairHandoff"]["headSha"] == "def456"
+    assert claude_state["sessionControl"]["lastInternalReviewRepairHandoff"]["headSha"] == "abc123"
+    assert codex_state["sessionControl"]["lastExternalReviewRepairHandoff"]["headSha"] == "def456"
     assert seen["loaded"] == [lane_state_path, lane_state_path]
     assert seen["written"][0][0] == lane_state_path
     assert seen["written"][1][0] == lane_state_path
@@ -970,11 +970,11 @@ def test_maybe_dispatch_repair_handoff_dispatches_claude_branch_when_routable(tm
 
     assert changed is True
     assert result["dispatched"] is True
-    assert result["mode"] == "claude_repair_handoff"
+    assert result["mode"] == "internal_review_repair_handoff"
     assert result["issueNumber"] == 224
     assert ledger["internalReviewRepairHandoff"]["sessionName"] == "lane-224"
     assert captured["run_acpx"]["session_name"] == "lane-224"
-    assert captured["audit"][0]["action"] == "claude-repair-handoff-dispatched"
+    assert captured["audit"][0]["action"] == "internal-review-repair-handoff-dispatched"
     # Record helper actually wrote .lane-state.json
     assert (worktree / ".lane-state.json").exists()
 
@@ -1024,10 +1024,10 @@ def test_maybe_dispatch_repair_handoff_dispatches_codex_cloud_branch_when_routab
 
     assert changed is True
     assert result["dispatched"] is True
-    assert result["mode"] == "codex_cloud_repair_handoff"
+    assert result["mode"] == "external_review_repair_handoff"
     assert result["issueNumber"] == 224
     assert ledger["externalReviewRepairHandoff"]["sessionName"] == "lane-224"
-    assert captured["audit"][0]["action"] == "codex-cloud-repair-handoff-dispatched"
+    assert captured["audit"][0]["action"] == "external-review-repair-handoff-dispatched"
 
 
 def test_maybe_dispatch_repair_handoff_returns_noop_when_no_dispatch_branch_is_routable(tmp_path):
