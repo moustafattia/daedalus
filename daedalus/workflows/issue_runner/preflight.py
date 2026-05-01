@@ -40,11 +40,6 @@ def _validate_config(config: dict[str, Any], *, workflow_root: Path) -> None:
             raise RuntimeError(f"agent.runtime={runtime_name!r} does not reference a declared runtime profile")
         runtime_cfg = runtimes.get(runtime_name) or {}
         runtime_kind = str(runtime_cfg.get("kind") or "").strip()
-        if runtime_kind == "hermes-agent":
-            if not (agent.get("command") or runtime_cfg.get("command")):
-                raise RuntimeError(
-                    "hermes-agent runtime requires command on the runtime profile or agent block"
-                )
         if runtime_kind == "codex-app-server":
             if not (runtime_cfg.get("command") or codex_cfg.get("command")):
                 raise RuntimeError(

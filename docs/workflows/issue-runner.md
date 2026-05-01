@@ -40,10 +40,13 @@ For each eligible tracker issue:
 - `codex`: spec-shaped Codex runner settings; set `mode: external` and `endpoint: ws://127.0.0.1:<port>` to connect to an already-running app-server, and keep `ephemeral: false` if you want Codex threads to remain inspectable
 - `runtimes`: shared runtime backend profiles; `agent.runtime` selects one profile for the issue execution stage
 
-The issue execution stage uses the shared runtime stage dispatcher. Command
-runtimes such as `hermes-agent` receive a rendered `{prompt_path}`. Prompt-native
-runtimes such as `codex-app-server` receive the prompt through `run_prompt_result`
-and can persist thread/token metrics.
+The issue execution stage uses the shared runtime stage dispatcher. Hermes can
+run directly through `mode: final` (`hermes -z`) or `mode: chat`
+(`hermes chat --quiet -q`). Command overrides receive rendered `{prompt_path}`
+and `{result_path}` placeholders; writing JSON to `{result_path}` lets Daedalus
+record command runtime metadata and token/rate-limit metrics. Prompt-native
+runtimes such as `codex-app-server` receive the prompt through
+`run_prompt_result`.
 
 External Codex app-server example:
 

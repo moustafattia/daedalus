@@ -146,7 +146,7 @@ agents:
 **Runtime kinds:**
 - `acpx-codex` — persistent Codex sessions via `acpx`
 - `claude-cli` — one-shot Claude CLI invocations
-- `hermes-agent` — operator-supplied hermes-agent CLI; requires `command:` (no built-in invocation)
+- `hermes-agent` — Hermes CLI runtime; built-in `final` mode uses `hermes -z`, `chat` mode uses `hermes chat --quiet -q`, and custom `command:` overrides are supported
 - `codex-app-server` — managed stdio or external WebSocket Codex app-server runtime with durable thread resume
 
 To swap a coder from Codex to Claude, change one line:

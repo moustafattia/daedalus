@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -15,6 +16,7 @@ class RuntimeStageResult:
     command_argv: list[str] | None
     runtime_result: Any
     session_handle: Any
+    result_path: Path | None = None
 
     @property
     def used_command(self) -> bool:
@@ -27,6 +29,45 @@ def command_output_result(output: str) -> PromptRunResult:
         tokens={"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
         rate_limits=None,
     )
+
+
+def prompt_result_from_payload(payload: dict[str, Any], *, fallback_output: str = "") -> PromptRunResult:
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+    output = payload.get("output")
+    if output is None:
+        output = payload.get("text")
+    if output is None:
+        output = fallback_output
+    tokens = payload.get("tokens")
+    if tokens is None:
+        tokens = payload.get("token_usage") or metrics.get("tokens")
+    rate_limits = payload.get("rate_limits")
+    if rate_limits is None:
+        rate_limits = metrics.get("rate_limits")
+    turn_count = payload.get("turn_count")
+    if turn_count is None:
+        turn_count = metrics.get("turn_count") or 0
+    return PromptRunResult(
+        output=str(output or ""),
+        session_id=_first_str(payload, metrics, "session_id", "sessionId"),
+        thread_id=_first_str(payload, metrics, "thread_id", "threadId"),
+        turn_id=_first_str(payload, metrics, "turn_id", "turnId"),
+        last_event=_first_str(payload, metrics, "last_event", "lastEvent"),
+        last_message=_first_str(payload, metrics, "last_message", "lastMessage"),
+        turn_count=int(turn_count or 0),
+        tokens=tokens if isinstance(tokens, dict) else None,
+        rate_limits=rate_limits if isinstance(rate_limits, dict) else None,
+    )
+
+
+def load_structured_result(path: Path, *, fallback_output: str = "") -> PromptRunResult | None:
+    path = Path(path)
+    if not path.exists() or path.stat().st_size <= 0:
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"structured runtime result must be a JSON object: {path}")
+    return prompt_result_from_payload(payload, fallback_output=fallback_output)
 
 
 def prompt_result_from_stage(result: RuntimeStageResult) -> PromptRunResult:
@@ -77,6 +118,15 @@ def materialize_prompt(*, worktree: Path, stage_name: str, prompt: str, prompt_p
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
     prompt_path.write_text(prompt, encoding="utf-8")
     return prompt_path
+
+
+def runtime_result_path(*, worktree: Path, stage_name: str, prompt: str, prompt_path: Path | None = None) -> Path:
+    if prompt_path is not None:
+        return Path(prompt_path).with_suffix(".result.json")
+    out_dir = Path(worktree) / ".daedalus" / "dispatch"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
+    return out_dir / f"{stage_name}-{digest}.result.json"
 
 
 def substitute_command_placeholders(argv: list[str], values: dict[str, str]) -> list[str]:
@@ -143,26 +193,46 @@ def run_runtime_stage(
                 prompt=prompt,
                 prompt_path=prompt_path,
             )
+            resolved_result_path = runtime_result_path(
+                worktree=worktree,
+                stage_name=stage_name,
+                prompt=prompt,
+                prompt_path=resolved_prompt_path,
+            )
+            if resolved_result_path.exists():
+                resolved_result_path.unlink()
             argv = substitute_command_placeholders(
                 command,
                 {
                     "model": model,
                     "prompt": prompt,
                     "prompt_path": str(resolved_prompt_path),
+                    "result_path": str(resolved_result_path),
                     "worktree": str(worktree),
                     "session_name": session_name,
                     **(placeholders or {}),
                 },
             )
+            stage_env = dict(env or {})
+            stage_env.setdefault("DAEDALUS_PROMPT_PATH", str(resolved_prompt_path))
+            stage_env.setdefault("DAEDALUS_RESULT_PATH", str(resolved_result_path))
+            stage_env.setdefault("DAEDALUS_WORKTREE", str(worktree))
+            stage_env.setdefault("DAEDALUS_SESSION_NAME", session_name)
+            stage_env.setdefault("DAEDALUS_MODEL", model)
             output = raw_output_from_runtime_result(
-                runtime.run_command(worktree=worktree, command_argv=argv, env=env)
+                runtime.run_command(worktree=worktree, command_argv=argv, env=stage_env)
+            )
+            runtime_result = (
+                load_structured_result(resolved_result_path, fallback_output=output)
+                or command_output_result(output)
             )
             return RuntimeStageResult(
-                output=output,
+                output=runtime_result.output,
                 prompt_path=resolved_prompt_path,
                 command_argv=argv,
-                runtime_result=command_output_result(output),
+                runtime_result=runtime_result,
                 session_handle=session_handle,
+                result_path=resolved_result_path,
             )
 
         runner = getattr(runtime, "run_prompt_result", None)
@@ -199,3 +269,13 @@ def _ensure_argv(command: Any) -> list[str]:
     if not isinstance(command, list) or not command:
         raise RuntimeError("agent.command and runtime command must be a non-empty argv list")
     return [str(part) for part in command]
+
+
+def _first_str(primary: dict[str, Any], secondary: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = primary.get(key)
+        if value is None:
+            value = secondary.get(key)
+        if value is not None:
+            return str(value)
+    return None

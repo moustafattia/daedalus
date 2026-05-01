@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from types import SimpleNamespace
 
@@ -53,7 +54,10 @@ def test_runtime_stage_runs_command_runtime_with_prompt_file_and_callbacks(tmp_p
     assert calls["cancel_events"][-1] is None
     assert callable(calls["progress_callbacks"][0])
     assert calls["progress_callbacks"][-1] is None
-    assert calls["env"] == {"A": "B"}
+    assert calls["env"]["A"] == "B"
+    assert calls["env"]["DAEDALUS_SESSION_NAME"] == "issue-1"
+    assert calls["env"]["DAEDALUS_MODEL"] == "gpt-test"
+    assert "DAEDALUS_RESULT_PATH" in calls["env"]
     assert calls["command"][:3] == ["agent", "--model", "gpt-test"]
     assert calls["command"][-1] == "ISSUE-1"
     assert result.prompt_path is not None
@@ -62,6 +66,60 @@ def test_runtime_stage_runs_command_runtime_with_prompt_file_and_callbacks(tmp_p
     metrics_source = prompt_result_from_stage(result)
     assert isinstance(metrics_source, PromptRunResult)
     assert metrics_source.tokens == {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+
+def test_runtime_stage_reads_structured_command_result(tmp_path):
+    from runtimes.stages import prompt_result_from_stage, run_runtime_stage
+
+    calls = {}
+
+    class FakeRuntime:
+        def ensure_session(self, **kwargs):
+            return None
+
+        def run_command(self, *, worktree, command_argv, env=None):
+            calls["argv"] = command_argv
+            calls["env"] = env
+            result_path = env["DAEDALUS_RESULT_PATH"]
+            with open(result_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "output": "structured output",
+                        "session_id": "hermes-session-1",
+                        "thread_id": "hermes-thread-1",
+                        "turn_id": "hermes-turn-1",
+                        "last_event": "turn/completed",
+                        "last_message": "done",
+                        "turn_count": 2,
+                        "tokens": {"input_tokens": 3, "output_tokens": 5, "total_tokens": 8},
+                        "rate_limits": {"requests_remaining": 42},
+                    },
+                    fh,
+                )
+            return "plain stdout fallback"
+
+    result = run_runtime_stage(
+        runtime=FakeRuntime(),
+        runtime_cfg={
+            "kind": "hermes-agent",
+            "command": ["agent", "--prompt", "{prompt_path}", "--result", "{result_path}"],
+        },
+        agent_cfg={"model": "m", "runtime": "hermes"},
+        stage_name="internal-reviewer",
+        worktree=tmp_path,
+        session_name="review-1",
+        prompt="review",
+    )
+
+    assert calls["argv"][-1] == calls["env"]["DAEDALUS_RESULT_PATH"]
+    assert result.output == "structured output"
+    assert result.result_path is not None
+    metrics_source = prompt_result_from_stage(result)
+    assert metrics_source.session_id == "hermes-session-1"
+    assert metrics_source.thread_id == "hermes-thread-1"
+    assert metrics_source.turn_id == "hermes-turn-1"
+    assert metrics_source.tokens == {"input_tokens": 3, "output_tokens": 5, "total_tokens": 8}
+    assert metrics_source.rate_limits == {"requests_remaining": 42}
 
 
 def test_runtime_stage_runs_prompt_runtime_and_ignores_codex_transport_command(tmp_path):

@@ -282,6 +282,79 @@ def test_issue_runner_tick_runs_selected_issue_and_writes_artifacts(tmp_path):
     assert status["scheduler"]["retry_queue"][0]["error"] == "continuation"
 
 
+def test_issue_runner_records_structured_hermes_command_result_metrics(tmp_path):
+    from workflows.issue_runner.workspace import load_workspace_from_config
+
+    cfg = _config(tmp_path)
+    cfg["daedalus"]["runtimes"]["default"]["command"] = [
+        "fake-hermes",
+        "--prompt",
+        "{prompt_path}",
+        "--result",
+        "{result_path}",
+    ]
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    _write_issue_runner_contract(
+        workflow_root=workflow_root,
+        cfg=cfg,
+        issues=[
+            {
+                "id": "ISSUE-1",
+                "identifier": "ISSUE-1",
+                "title": "Hermes metrics",
+                "description": "Emit structured runtime metrics.",
+                "priority": 1,
+                "state": "todo",
+                "labels": [],
+                "blocked_by": [],
+            }
+        ],
+    )
+
+    def fake_run(command, *, cwd=None, timeout=None, env=None):
+        if command and command[0] == "fake-hermes":
+            assert command[-1] == env["DAEDALUS_RESULT_PATH"]
+            Path(env["DAEDALUS_RESULT_PATH"]).write_text(
+                json.dumps(
+                    {
+                        "output": "structured hermes output\n",
+                        "session_id": "hermes-session-1",
+                        "thread_id": "hermes-thread-1",
+                        "turn_id": "hermes-turn-1",
+                        "turn_count": 1,
+                        "tokens": {"input_tokens": 4, "output_tokens": 6, "total_tokens": 10},
+                        "rate_limits": {"requests_remaining": 77},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        class Result:
+            stdout = "stdout fallback\n"
+            stderr = ""
+            returncode = 0
+
+        return Result()
+
+    workspace = load_workspace_from_config(
+        workspace_root=workflow_root,
+        run=fake_run,
+        run_json=lambda *args, **kwargs: {},
+    )
+    result = workspace.tick()
+
+    assert result["ok"] is True
+    assert Path(result["outputPath"]).read_text(encoding="utf-8") == "structured hermes output\n"
+    assert result["metrics"]["session_id"] == "hermes-session-1"
+    assert result["metrics"]["thread_id"] == "hermes-thread-1"
+    assert result["metrics"]["turn_id"] == "hermes-turn-1"
+    assert result["metrics"]["tokens"] == {"input_tokens": 4, "output_tokens": 6, "total_tokens": 10}
+    status = workspace.build_status()
+    assert status["metrics"]["tokens"]["total_tokens"] == 10
+    assert status["metrics"]["rate_limits"] == {"requests_remaining": 77}
+
+
 def test_issue_runner_tracker_feedback_marks_local_json_done_without_continuation_retry(tmp_path):
     from workflows.issue_runner.workspace import load_workspace_from_config
 

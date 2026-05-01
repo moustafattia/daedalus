@@ -51,7 +51,7 @@ app-server transport. It is not treated as a per-stage command. Use
 |---|---|---|---|---|---|
 | Persistent session | ❌ one-shot | ✅ resumable | ❌ one-shot | ✅ resumable Codex thread |
 | `ensure_session` | no-op | `acpx codex sessions ensure` | no-op | no-op |
-| `run_prompt` | `claude --print …` | `acpx codex prompt -s <name>` | requires `command:` override | JSON-RPC over stdio to `codex app-server` |
+| `run_prompt` | `claude --print …` | `acpx codex prompt -s <name>` | `hermes -z` or `hermes chat --quiet -q` | JSON-RPC over stdio to `codex app-server` |
 | `assess_health` | always healthy | freshness + grace window | always healthy | always healthy |
 | `close_session` | no-op | `acpx codex sessions close` | no-op | no-op |
 | Records `last_activity_ts` | yes (before + after `_run`) | yes | yes | yes |
@@ -83,17 +83,34 @@ The preflight pass walks `runtimes.<name>.kind` and `agents.external-reviewer.ki
 
 ### `hermes-agent` runtime
 
-The `hermes-agent` runtime delegates turns to a local Hermes agent process. It is **one-shot** (no persistent session) and requires a `command:` override in `WORKFLOW.md` because the exact invocation depends on the agent's entry point.
+The `hermes-agent` runtime delegates turns to a local Hermes Agent CLI. By
+default it uses the documented scripted path, `hermes -z`, which returns only
+the final answer. Set `mode: chat` to use `hermes chat --quiet -q` when you need
+Hermes chat features such as `--source`, `--max-turns`, skills, toolsets, or
+session resume.
 
 ```yaml
 runtimes:
-  my-agent-runtime:
+  hermes-final:
     kind: hermes-agent
-    command: ["python3", "-m", "my_agent", "--workflow-root", "{workflow_root}"]
+    mode: final
+    provider: openrouter
     timeout-seconds: 1200
+
+  hermes-chat:
+    kind: hermes-agent
+    mode: chat
+    source: daedalus
+    max-turns: 90
+    toolsets: terminal,skills
 ```
 
-Because it is one-shot, `assess_health` always returns healthy and `last_activity_ts` records the subprocess start/end timestamps.
+Custom `command:` overrides still work. Command-backed stages receive
+`{prompt_path}`, `{result_path}`, `{worktree}`, `{session_name}`, and `{model}`
+placeholders plus `DAEDALUS_*` environment variables. If the command writes a
+JSON object to `{result_path}`, Daedalus records its `output`, `session_id`,
+`thread_id`, `turn_id`, `tokens`, `rate_limits`, and related fields as the
+runtime result.
 
 ### `codex-app-server` runtime
 

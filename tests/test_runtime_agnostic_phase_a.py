@@ -77,6 +77,84 @@ def test_hermes_agent_run_command(tmp_path):
     assert out == "agent-out"
 
 
+def test_hermes_agent_final_mode_uses_scripted_one_shot(tmp_path):
+    from workflows.change_delivery.runtimes.hermes_agent import HermesAgentRuntime
+
+    fake_run = MagicMock(return_value=MagicMock(stdout="final answer\n"))
+    rt = HermesAgentRuntime(
+        {"kind": "hermes-agent", "mode": "final", "provider": "openrouter"},
+        run=fake_run,
+        run_json=None,
+    )
+    result = rt.run_prompt_result(
+        worktree=tmp_path,
+        session_name="issue-1",
+        prompt="answer this",
+        model="anthropic/claude-sonnet-4.6",
+    )
+
+    assert result.output == "final answer\n"
+    cmd = fake_run.call_args[0][0]
+    assert cmd == [
+        "hermes",
+        "-z",
+        "answer this",
+        "--provider",
+        "openrouter",
+        "--model",
+        "anthropic/claude-sonnet-4.6",
+    ]
+    assert fake_run.call_args.kwargs["cwd"] == tmp_path
+    assert fake_run.call_args.kwargs["env"]["DAEDALUS_RUNTIME_KIND"] == "hermes-agent"
+
+
+def test_hermes_agent_chat_mode_uses_quiet_query_with_session_options(tmp_path):
+    from workflows.change_delivery.runtimes.hermes_agent import HermesAgentRuntime
+
+    fake_run = MagicMock(return_value=MagicMock(stdout="chat answer\n"))
+    rt = HermesAgentRuntime(
+        {
+            "kind": "hermes-agent",
+            "mode": "chat",
+            "source": "daedalus",
+            "max-turns": 7,
+            "toolsets": ["terminal", "skills"],
+            "skills": ["operator"],
+        },
+        run=fake_run,
+        run_json=None,
+    )
+    rt.ensure_session(worktree=tmp_path, session_name="lane-1", model="gpt-5.5", resume_session_id="session-123")
+    result = rt.run_prompt_result(
+        worktree=tmp_path,
+        session_name="lane-1",
+        prompt="continue",
+        model="gpt-5.5",
+    )
+
+    assert result.session_id == "session-123"
+    cmd = fake_run.call_args[0][0]
+    assert cmd == [
+        "hermes",
+        "chat",
+        "--quiet",
+        "--resume",
+        "session-123",
+        "--model",
+        "gpt-5.5",
+        "--source",
+        "daedalus",
+        "--max-turns",
+        "7",
+        "--toolsets",
+        "terminal,skills",
+        "--skills",
+        "operator",
+        "-q",
+        "continue",
+    ]
+
+
 def test_hermes_agent_ensure_session_is_noop(tmp_path):
     from workflows.change_delivery.runtimes.hermes_agent import HermesAgentRuntime
 
