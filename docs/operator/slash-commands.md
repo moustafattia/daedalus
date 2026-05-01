@@ -229,13 +229,6 @@ This is the bundled generic tracker-driven workflow.
 || `/workflow issue-runner run` | Run the supervised long-lived issue-runner polling loop |
 || `/workflow issue-runner serve` | Run the optional localhost HTTP status server |
 
-### Webhook commands
-
-|| Command | What it does |
-|---|---|---|
-|| `/workflow change-delivery webhooks status` | Show configured webhook subscribers |
-|| `/workflow change-delivery webhooks test` | Fire a test event to all webhooks |
-
 ## Most useful day-to-day, in order
 
 1. `/daedalus watch` — live overview of every active lane in one frame

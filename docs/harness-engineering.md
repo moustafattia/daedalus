@@ -26,6 +26,8 @@ The harness tests should catch these regressions before review:
 - release readiness must keep the public-beta posture and launch gates explicit
 - public examples must use generic placeholders like `your-org/your-repo`
 - bundled workflow templates must match their public docs copies
+- documented `/daedalus`, `/workflow`, and `hermes daedalus ...` commands must
+  map to real parser surfaces
 - bootstrap must safely promote `WORKFLOW.md` to `WORKFLOW-<workflow>.md`
   without overwriting existing named contracts
 - `daedalus/projects/` must stay placeholder-only in the public repository
@@ -40,10 +42,11 @@ The harness tests should catch these regressions before review:
 
 Add tests for the next hardening slice in this order:
 
-1. CLI/docs drift checks for every command shown in the install guide.
-2. End-to-end `change-delivery` Codex app-server smoke around a real active
+1. End-to-end `change-delivery` Codex app-server smoke around a real active
    lane, PR update, and review loop.
-3. Live GitHub recovery coverage for labels, comments, and failure replay.
+2. A one-command local harness that runs all opt-in live smokes when the
+   required environment variables are present.
+3. Scheduled scorecard refresh automation for release-readiness gates.
 
 ## Harness Principles
 

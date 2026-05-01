@@ -34,7 +34,7 @@ should be backed by documentation, tests, or an operator smoke path.
 | Area | Status | Evidence |
 |---|---|---|
 | Repo knowledge as system of record | Strong | Architecture, workflow, operator, security, and conformance docs |
-| Public-surface guardrails | Strong | Generic examples, placeholder-only `projects/`, packaging checks |
+| Public-surface guardrails | Strong | Generic examples, placeholder-only `projects/`, packaging checks, CLI/docs drift checks |
 | Agent-legible workflows | Good | Workflow docs link the default templates and operator paths |
 | Custom structural checks | Good | Public harness tests and workflow-template drift checks |
 | Live integration evidence | Partial | Opt-in GitHub smoke covers feedback, retry recovery, and terminal cleanup; real Codex app-server smokes remain opt-in |
@@ -59,10 +59,10 @@ should be backed by documentation, tests, or an operator smoke path.
 
 ## Next Hardening Slice
 
-The highest-leverage next implementation slice is public-surface drift control:
+The highest-leverage next implementation slice is deeper live E2E evidence:
 
-1. Add docs/CLI drift checks for commands shown in operator docs.
-2. Teach the `change-delivery` Codex app-server smoke fixture to create and
+1. Teach the `change-delivery` Codex app-server smoke fixture to create and
    clean up its own GitHub artifacts.
-3. Add a one-command local harness that runs all opt-in live smokes when the
+2. Add a one-command local harness that runs all opt-in live smokes when the
    required environment variables are present.
+3. Add scheduled scorecard refresh automation for release-readiness gates.

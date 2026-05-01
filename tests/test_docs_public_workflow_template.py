@@ -57,3 +57,31 @@ def test_public_workflow_template_uses_markdown_body_for_shared_policy(workflow_
 @pytest.mark.parametrize(("workflow_name", "template_path", "payload_template_path", "_schema_path"), WORKFLOW_EXAMPLES)
 def test_payload_workflow_template_matches_docs_copy(workflow_name, template_path, payload_template_path, _schema_path):
     assert payload_template_path.read_text(encoding="utf-8") == template_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "workflow_doc", "template_path", "payload_template_path", "_schema_path"),
+    [
+        (
+            name,
+            REPO_ROOT / "docs" / "workflows" / f"{name}.md",
+            template,
+            payload,
+            schema,
+        )
+        for name, template, payload, schema in WORKFLOW_EXAMPLES
+    ],
+)
+def test_workflow_docs_link_their_public_and_packaged_templates(
+    workflow_name,
+    workflow_doc,
+    template_path,
+    payload_template_path,
+    _schema_path,
+):
+    text = workflow_doc.read_text(encoding="utf-8")
+
+    assert f"docs/examples/{workflow_name}.workflow.md" in text
+    assert payload_template_path.relative_to(REPO_ROOT).as_posix() in text
+    assert template_path.exists()
+    assert payload_template_path.exists()
