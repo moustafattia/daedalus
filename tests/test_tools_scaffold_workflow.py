@@ -119,29 +119,6 @@ def test_scaffold_workflow_force_replaces_existing_config(tmp_path):
     assert (repo / "WORKFLOW-old.md").exists()
 
 
-def test_scaffold_workflow_force_retires_legacy_yaml_when_present(tmp_path):
-    tools = _tools()
-    root = tmp_path / "attmous-daedalus-change-delivery"
-    repo = tmp_path / "repo"
-    _init_git_repo(repo)
-    legacy_path = root / "config" / "workflow.yaml"
-    legacy_path.parent.mkdir(parents=True)
-    legacy_path.write_text("workflow: change-delivery\nschema-version: 1\n", encoding="utf-8")
-
-    tools.scaffold_workflow_root(
-        workflow_root=root,
-        workflow_name="change-delivery",
-        repo_path=repo,
-        repo_slug="attmous/daedalus",
-        active_lane_label="active-lane",
-        engine_owner="hermes",
-        force=True,
-    )
-
-    assert (repo / "WORKFLOW.md").exists()
-    assert not legacy_path.exists()
-
-
 def test_scaffold_workflow_requires_owner_repo_workflow_root_name(tmp_path):
     tools = _tools()
     root = tmp_path / "daedalus"

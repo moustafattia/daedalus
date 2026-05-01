@@ -142,11 +142,8 @@ def _write_workflow_markdown(workspace_root: Path, *, workflow_name: str = "demo
 def test_run_cli_dispatches_to_named_workflow_and_returns_its_exit_code(tmp_path, monkeypatch, capsys):
     _write_stub_workflow(tmp_path, name="demo-wf")
     workspace_root = tmp_path / "workspace"
-    (workspace_root / "config").mkdir(parents=True)
-    (workspace_root / "config" / "workflow.yaml").write_text(
-        "workflow: demo-wf\nschema-version: 1\n",
-        encoding="utf-8",
-    )
+    workspace_root.mkdir()
+    _write_workflow_markdown(workspace_root, workflow_name="demo-wf")
     _reset_workflows_module_cache()
     workflows = importlib.import_module("workflows")
     monkeypatch.setattr(workflows, "__path__", list(workflows.__path__) + [str(tmp_path / "workflows")])
@@ -174,9 +171,9 @@ def test_run_cli_dispatches_when_workflow_contract_is_markdown(tmp_path, monkeyp
 
 def test_run_cli_raises_when_workflow_key_missing(tmp_path, monkeypatch):
     workspace_root = tmp_path / "workspace"
-    (workspace_root / "config").mkdir(parents=True)
-    (workspace_root / "config" / "workflow.yaml").write_text(
-        "schema-version: 1\n",  # missing 'workflow:'
+    workspace_root.mkdir()
+    (workspace_root / "WORKFLOW.md").write_text(
+        "---\nschema-version: 1\n---\n\nPrompt body\n",  # missing 'workflow:'
         encoding="utf-8",
     )
     _reset_workflows_module_cache()
@@ -190,9 +187,10 @@ def test_run_cli_raises_when_workflow_key_missing(tmp_path, monkeypatch):
 def test_run_cli_raises_on_unsupported_schema_version(tmp_path, monkeypatch):
     _write_stub_workflow(tmp_path, name="demo-wf", supported=(1, 2))
     workspace_root = tmp_path / "workspace"
-    (workspace_root / "config").mkdir(parents=True)
-    (workspace_root / "config" / "workflow.yaml").write_text(
-        "workflow: demo-wf\nschema-version: 99\n",
+    workspace_root.mkdir()
+    _write_workflow_markdown(workspace_root, workflow_name="demo-wf")
+    (workspace_root / "WORKFLOW.md").write_text(
+        "---\nworkflow: demo-wf\nschema-version: 99\n---\n\nPrompt body\n",
         encoding="utf-8",
     )
     _reset_workflows_module_cache()
@@ -205,14 +203,11 @@ def test_run_cli_raises_on_unsupported_schema_version(tmp_path, monkeypatch):
     assert "[1, 2]" in str(exc.value)
 
 
-def test_run_cli_raises_when_require_workflow_does_not_match_yaml(tmp_path, monkeypatch):
+def test_run_cli_raises_when_require_workflow_does_not_match_contract(tmp_path, monkeypatch):
     _write_stub_workflow(tmp_path, name="demo-wf")
     workspace_root = tmp_path / "workspace"
-    (workspace_root / "config").mkdir(parents=True)
-    (workspace_root / "config" / "workflow.yaml").write_text(
-        "workflow: demo-wf\nschema-version: 1\n",
-        encoding="utf-8",
-    )
+    workspace_root.mkdir()
+    _write_workflow_markdown(workspace_root, workflow_name="demo-wf")
     _reset_workflows_module_cache()
     workflows = importlib.import_module("workflows")
     monkeypatch.setattr(workflows, "__path__", list(workflows.__path__) + [str(tmp_path / "workflows")])
@@ -226,10 +221,10 @@ def test_run_cli_raises_when_require_workflow_does_not_match_yaml(tmp_path, monk
 def test_run_cli_raises_on_schema_validation_error(tmp_path, monkeypatch):
     _write_stub_workflow(tmp_path, name="demo-wf")
     workspace_root = tmp_path / "workspace"
-    (workspace_root / "config").mkdir(parents=True)
+    workspace_root.mkdir()
     # schema-version has the wrong type — must be integer per the stub schema.
-    (workspace_root / "config" / "workflow.yaml").write_text(
-        "workflow: demo-wf\nschema-version: not-an-integer\n",
+    (workspace_root / "WORKFLOW.md").write_text(
+        "---\nworkflow: demo-wf\nschema-version: not-an-integer\n---\n\nPrompt body\n",
         encoding="utf-8",
     )
     _reset_workflows_module_cache()
@@ -247,11 +242,8 @@ def test_run_cli_raises_on_schema_validation_error(tmp_path, monkeypatch):
 def test_main_parses_workflow_root_flag_and_invokes_run_cli(tmp_path, monkeypatch, capsys):
     _write_stub_workflow(tmp_path, name="demo-wf")
     workspace_root = tmp_path / "workspace"
-    (workspace_root / "config").mkdir(parents=True)
-    (workspace_root / "config" / "workflow.yaml").write_text(
-        "workflow: demo-wf\nschema-version: 1\n",
-        encoding="utf-8",
-    )
+    workspace_root.mkdir()
+    _write_workflow_markdown(workspace_root, workflow_name="demo-wf")
     _reset_workflows_module_cache()
     workflows = importlib.import_module("workflows")
     monkeypatch.setattr(workflows, "__path__", list(workflows.__path__) + [str(tmp_path / "workflows")])
@@ -269,11 +261,8 @@ def test_main_parses_workflow_root_flag_and_invokes_run_cli(tmp_path, monkeypatc
 def test_main_uses_env_fallback_when_no_workflow_root_flag(tmp_path, monkeypatch, capsys):
     _write_stub_workflow(tmp_path, name="demo-wf")
     workspace_root = tmp_path / "workspace"
-    (workspace_root / "config").mkdir(parents=True)
-    (workspace_root / "config" / "workflow.yaml").write_text(
-        "workflow: demo-wf\nschema-version: 1\n",
-        encoding="utf-8",
-    )
+    workspace_root.mkdir()
+    _write_workflow_markdown(workspace_root, workflow_name="demo-wf")
     _reset_workflows_module_cache()
     monkeypatch.setenv("DAEDALUS_WORKFLOW_ROOT", str(workspace_root))
     workflows = importlib.import_module("workflows")

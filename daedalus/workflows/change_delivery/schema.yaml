@@ -9,7 +9,8 @@ required:
   - tracker
   - code-host
   - runtimes
-  - agents
+  - actors
+  - stages
   - gates
   - triggers
   - storage
@@ -83,81 +84,43 @@ properties:
         - $ref: "#/definitions/claude-cli-runtime"
         - $ref: "#/definitions/hermes-agent-runtime"
 
-  agents:
+  actors:
     type: object
-    required: [coder, internal-reviewer, external-reviewer]
+    required: [implementer, implementer-high-effort, reviewer]
+    minProperties: 1
+    additionalProperties:
+      $ref: "#/definitions/actor"
+
+  stages:
+    type: object
+    required: [implement, publish, merge]
     properties:
-      coder:
-        type: object
-        minProperties: 1
-        additionalProperties:
-          $ref: "#/definitions/coder-tier"
-      internal-reviewer:
-        type: object
-        required: [name, model, runtime]
-        properties:
-          name: {type: string}
-          model: {type: string}
-          runtime: {type: string}
-          freeze-coder-while-running: {type: boolean}
-          command:
-            type: array
-            items: {type: string}
-            minItems: 1
-          prompt: {type: string}
-      external-reviewer:
-        type: object
-        required: [enabled, name]
-        properties:
-          enabled: {type: boolean}
-          name: {type: string}
-          kind:
-            type: string
-            enum: [github-comments, disabled]
-          provider:
-            type: string
-            description: "Informational label only; reviewer behavior is selected via 'kind'."
-          cache-seconds: {type: integer}
-          repo-slug: {type: string}
-          logins:
-            type: array
-            items: {type: string}
-          clean-reactions:
-            type: array
-            items: {type: string}
-          pending-reactions:
-            type: array
-            items: {type: string}
-      advisory-reviewer:
-        type: object
-        required: [enabled, name]
-        properties:
-          enabled: {type: boolean}
-          name: {type: string}
-          command:
-            type: array
-            items: {type: string}
-            minItems: 1
-          prompt: {type: string}
+      implement:
+        $ref: "#/definitions/implementation-stage"
+      publish:
+        $ref: "#/definitions/publish-stage"
+      merge:
+        $ref: "#/definitions/merge-stage"
+    additionalProperties:
+      oneOf:
+        - $ref: "#/definitions/actor-stage"
+        - $ref: "#/definitions/action-stage"
 
   gates:
     type: object
-    required: [internal-review, external-review, merge]
+    required: [pre-publish-review, maintainer-approval, ci-green]
     properties:
-      internal-review:
-        type: object
-        properties:
-          pass-with-findings-tolerance: {type: integer}
-          require-pass-clean-before-publish: {type: boolean}
-          request-cooldown-seconds: {type: integer}
-      external-review:
-        type: object
-        properties:
-          required-for-merge: {type: boolean}
-      merge:
-        type: object
-        properties:
-          require-ci-acceptable: {type: boolean}
+      pre-publish-review:
+        $ref: "#/definitions/agent-review-gate"
+      maintainer-approval:
+        $ref: "#/definitions/pr-comment-approval-gate"
+      ci-green:
+        $ref: "#/definitions/code-host-checks-gate"
+    additionalProperties:
+      oneOf:
+        - $ref: "#/definitions/agent-review-gate"
+        - $ref: "#/definitions/pr-comment-approval-gate"
+        - $ref: "#/definitions/code-host-checks-gate"
 
   triggers:
     type: object
@@ -244,19 +207,6 @@ properties:
             type: integer
             minimum: 0
 
-  codex-bot:
-    type: object
-    properties:
-      logins:
-        type: array
-        items: {type: string}
-      clean-reactions:
-        type: array
-        items: {type: string}
-      pending-reactions:
-        type: array
-        items: {type: string}
-
   lane-selection:
     type: object
     additionalProperties: false
@@ -340,6 +290,133 @@ definitions:
         patternProperties:
           "^on[-_.A-Za-z0-9]+$":
             type: string
+
+  actor:
+    type: object
+    additionalProperties: false
+    required: [name, model, runtime]
+    properties:
+      name: {type: string}
+      model: {type: string}
+      runtime: {type: string}
+      command:
+        type: array
+        items: {type: string}
+        minItems: 1
+      prompt: {type: string}
+      freeze-actor-while-running: {type: boolean}
+
+  actor-stage:
+    type: object
+    additionalProperties: false
+    required: [actor]
+    properties:
+      actor: {type: string}
+      prompt: {type: string}
+      new-context: {type: boolean}
+      escalation:
+        type: object
+        additionalProperties: false
+        properties:
+          after-attempts:
+            type: integer
+            minimum: 1
+          actor: {type: string}
+
+  implementation-stage:
+    type: object
+    additionalProperties: false
+    required: [actor, escalation]
+    properties:
+      actor: {type: string}
+      prompt: {type: string}
+      new-context: {type: boolean}
+      escalation:
+        type: object
+        additionalProperties: false
+        required: [after-attempts, actor]
+        properties:
+          after-attempts:
+            type: integer
+            minimum: 1
+          actor: {type: string}
+
+  publish-stage:
+    type: object
+    additionalProperties: false
+    required: [action]
+    properties:
+      action: {const: pr.publish}
+
+  merge-stage:
+    type: object
+    additionalProperties: false
+    required: [action]
+    properties:
+      action: {const: pr.merge}
+
+  action-stage:
+    type: object
+    additionalProperties: false
+    required: [action]
+    properties:
+      action:
+        type: string
+        enum: [pr.publish, pr.update, pr.merge]
+
+  agent-review-gate:
+    type: object
+    additionalProperties: false
+    required: [type, actor]
+    properties:
+      type: {const: agent-review}
+      actor: {type: string}
+      new-context: {type: boolean}
+      pass-with-findings-tolerance:
+        type: integer
+        minimum: 0
+      require-pass-clean-before-publish: {type: boolean}
+      request-cooldown-seconds:
+        type: integer
+        minimum: 0
+      freeze-actor-while-running: {type: boolean}
+
+  pr-comment-approval-gate:
+    type: object
+    additionalProperties: false
+    required: [type]
+    properties:
+      type: {const: pr-comment-approval}
+      enabled: {type: boolean}
+      name: {type: string}
+      required-for-merge: {type: boolean}
+      users:
+        type: array
+        items: {type: string}
+      logins:
+        type: array
+        items: {type: string}
+      approvals:
+        type: array
+        items: {type: string}
+      clean-reactions:
+        type: array
+        items: {type: string}
+      pending-reactions:
+        type: array
+        items: {type: string}
+      cache-seconds:
+        type: integer
+        minimum: 0
+      repo-slug: {type: string}
+
+  code-host-checks-gate:
+    type: object
+    additionalProperties: false
+    required: [type]
+    properties:
+      type: {const: code-host-checks}
+      required-for-merge: {type: boolean}
 
   acpx-codex-runtime:
     type: object
@@ -453,17 +530,3 @@ definitions:
       extra_args:
         type: array
         items: {type: string}
-
-  coder-tier:
-    type: object
-    additionalProperties: false
-    required: [name, model, runtime]
-    properties:
-      name: {type: string}
-      model: {type: string}
-      runtime: {type: string}
-      command:
-        type: array
-        items: {type: string}
-        minItems: 1
-      prompt: {type: string}

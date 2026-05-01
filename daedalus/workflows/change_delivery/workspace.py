@@ -16,6 +16,7 @@ from engine.storage import append_jsonl as _append_jsonl
 from engine.storage import load_optional_json as _load_optional_json
 from engine.storage import write_json_atomic as _write_json
 from engine.storage import write_text_atomic as _write_text
+from workflows.change_delivery.contract_model import compile_change_delivery_contract
 from workflows.change_delivery.migrations import get_ledger_field
 from workflows.change_delivery.storage import ensure_change_delivery_state_files
 from workflows.change_delivery.runtimes import build_runtimes
@@ -194,30 +195,16 @@ Two factories are provided:
   ``orchestrator``, etc.) looks up workspace attributes by name, so any
   duck-typed accessor works.
 * :func:`load_workspace_from_config` — convenience wrapper that reads the
-  project workflow contract from either ``config/workflow.yaml`` or
-  ``WORKFLOW.md`` and applies the same derived constants the workspace uses
-  internally.
+  project workflow contract from ``WORKFLOW.md`` / ``WORKFLOW-<name>.md`` and
+  applies the same derived constants the workspace uses internally.
 """
 
 
-DEFAULT_YAML_CONFIG_FILENAME = "config/workflow.yaml"
 DEFAULT_WORKFLOW_MARKDOWN_FILENAME = "WORKFLOW.md"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_yaml(path: Path) -> dict[str, Any]:
-    """Load a YAML mapping file."""
-    import yaml  # type: ignore[import]
-
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError(
-            f"{path} must contain a YAML mapping at the top level"
-        )
-    return data
 
 
 def _now_ms() -> int:
@@ -413,12 +400,15 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
 
     workspace_root = Path(workspace_root).resolve()
 
-    # Detect workflow-contract shape (top-level `workflow:` + `runtimes:` +
-    # `agents:`) and project it onto the internal config view the existing
-    # implementation body still consumes.
-    if "workflow" in config and "runtimes" in config and "agents" in config:
-        yaml_cfg = config
-        config = _yaml_to_legacy_view(config, workspace_root=workspace_root)
+    # Detect workflow-contract shape and project it onto the private engine
+    # view the existing implementation body still consumes. For the public
+    # actor/stage/gate contract this compiler produces the internal coder/
+    # reviewer view; operators never need to configure that private shape.
+    if "workflow" in config and "runtimes" in config:
+        if "actors" not in config:
+            raise ValueError("change-delivery workflow contracts require top-level actors:")
+        yaml_cfg = compile_change_delivery_contract(config)
+        config = _yaml_to_legacy_view(yaml_cfg, workspace_root=workspace_root)
     else:
         yaml_cfg = None
     workflow_policy = str((yaml_cfg or {}).get("workflow-policy") or "").strip()
@@ -754,10 +744,8 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     # Build the external reviewer once; downstream shims delegate to it.
     from workflows.change_delivery.reviewers import ReviewerContext, build_reviewer
 
-    # Resolve config from agents.external-reviewer. The legacy top-level
-    # codex-bot block fallback was removed in Phase D-2; operators must use
-    # the modern agents.external-reviewer.{logins,clean-reactions,pending-reactions}
-    # form.
+    # Resolve the private compiled reviewer config. Operators configure this
+    # through a public `pr-comment-approval` gate in WORKFLOW.md.
     _yaml_agents = (yaml_cfg or {}).get("agents", {}) or {}
     ext_reviewer_cfg = dict(_yaml_agents.get("external-reviewer") or {})
 
@@ -780,7 +768,7 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     # Legacy JSON configs synthesize runtime profiles from session/review
     # policy fields. Repo-owned WORKFLOW.md configs use their top-level
     # runtimes block directly, so shared runtimes such as codex-app-server are
-    # configured in one place and selected by agents.*.runtime.
+    # configured in one place and selected by actors.*.runtime.
     _session_policy = config.get("sessionPolicy", {}) or {}
     _review_policy = config.get("reviewPolicy", {}) or {}
 
@@ -835,26 +823,21 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     ns.runtime = _runtime_accessor
     ns.close = _close_runtimes
 
-    # YAML-shape cross-reference validation: every agent's runtime: field must
+    # YAML-shape cross-reference validation: every actor runtime: field must
     # name a key in the top-level runtimes: mapping. The schema doesn't enforce
     # this (it's a structural-vs-referential distinction); the factory does.
     if yaml_cfg is not None:
-        yaml_agents = yaml_cfg.get("agents", {}) or {}
         known_runtimes = set((yaml_cfg.get("runtimes", {}) or {}).keys())
-        for tier_name, tier in (yaml_agents.get("coder") or {}).items():
-            rt = tier.get("runtime")
+        yaml_actors = yaml_cfg.get("actors", {}) or {}
+        for actor_name, actor in yaml_actors.items():
+            if not isinstance(actor, dict):
+                continue
+            rt = actor.get("runtime")
             if rt and rt not in known_runtimes:
                 raise ValueError(
-                    f"agents.coder.{tier_name}.runtime={rt!r} not defined in runtimes: "
+                    f"actors.{actor_name}.runtime={rt!r} not defined in runtimes: "
                     f"{sorted(known_runtimes)}"
                 )
-        int_rev = yaml_agents.get("internal-reviewer", {}) or {}
-        rt = int_rev.get("runtime")
-        if rt and rt not in known_runtimes:
-            raise ValueError(
-                f"agents.internal-reviewer.runtime={rt!r} not defined in runtimes: "
-                f"{sorted(known_runtimes)}"
-            )
 
     return ns
 
@@ -2498,8 +2481,8 @@ def load_workspace_from_config(
     workspace_root = Path(workspace_root)
     if config_path is not None:
         path = Path(config_path)
-        if path.suffix.lower() not in {".yaml", ".yml", ".md"}:
-            raise ValueError(f"workflow config must be YAML or WORKFLOW.md: {path}")
+        if path.suffix.lower() != ".md":
+            raise ValueError(f"workflow config must be WORKFLOW.md / WORKFLOW-<name>.md: {path}")
         config = load_workflow_contract_file(path).config
         return make_workspace(workspace_root=workspace_root, config=config)
 

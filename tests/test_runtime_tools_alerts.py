@@ -955,10 +955,10 @@ def test_doctor_reports_stuck_dispatched_actions(tools_module, monkeypatch):
             DISPATCHED_ACTION_TIMEOUT_SECONDS=relay_stub.DISPATCHED_ACTION_TIMEOUT_SECONDS,
         ),
     )
-    # _build_project_status calls build_workflow_example_status directly (which
-    # reads config/workflow.yaml from disk), bypassing the _load_daedalus_module
-    # mock above. Stub it so the test stays a unit test of doctor-report logic
-    # rather than incidentally requiring a YAML workspace fixture.
+    # _build_project_status calls the workflow status builder directly,
+    # bypassing the _load_daedalus_module mock above. Stub it so the test stays
+    # a unit test of doctor-report logic rather than requiring a workflow
+    # contract fixture.
     monkeypatch.setattr(
         tools_module,
         "_build_project_status",

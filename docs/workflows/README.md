@@ -9,7 +9,7 @@ its own lifecycle, prompts, gates, and operator commands.
 | Workflow | Use it when... | Default template | Managed path |
 |---|---|---|---|
 | [`issue-runner`](issue-runner.md) | you want a generic tracker-driven workflow that selects issues, creates workspaces, runs hooks, and invokes one agent | [`docs/examples/issue-runner.workflow.md`](../examples/issue-runner.workflow.md) | yes — default `bootstrap` + `service-up` |
-| [`change-delivery`](change-delivery.md) | you want the opinionated GitHub-backed SDLC workflow: issue -> code -> review -> PR -> merge | [`docs/examples/change-delivery.workflow.md`](../examples/change-delivery.workflow.md) | yes — `bootstrap --workflow change-delivery` + `service-up` |
+| [`change-delivery`](change-delivery.md) | you want issue -> actor implementation -> gates -> PR -> merge delivery with GitHub as the first-class tracker/code-host path | [`docs/examples/change-delivery.workflow.md`](../examples/change-delivery.workflow.md) | yes — `bootstrap --workflow change-delivery` + `service-up` |
 
 For the contract file itself, see the [`WORKFLOW.md` guide](workflow-contract.md).
 
@@ -17,7 +17,7 @@ For the contract file itself, see the [`WORKFLOW.md` guide](workflow-contract.md
 
 - Generic docs such as [architecture](../architecture.md), [public contract](../public-contract.md), [security](../security.md), and the engine-level concept docs describe Daedalus itself.
 - Workflow docs describe the lifecycle and contract details that belong to one workflow package.
-- If a doc is mostly about GitHub review gates, PR publish/merge stages, or reviewer roles, it belongs to `change-delivery`, not to the generic engine story.
+- If a doc is mostly about PR publish/merge stages, actor/stage/gate policy, or code-host approvals, it belongs to `change-delivery`, not to the generic engine story.
 
 ## Repo Contract Naming
 

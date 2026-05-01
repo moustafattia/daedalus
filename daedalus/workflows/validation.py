@@ -105,8 +105,8 @@ def _contract_kind_check(contract: WorkflowContract) -> dict[str, Any]:
         return _check("contract-format", "pass", "repo-owned Markdown workflow contract")
     return _check(
         "contract-format",
-        "warn",
-        "legacy YAML workflow contract loaded; prefer repo-owned WORKFLOW.md",
+        "fail",
+        f"unsupported workflow contract format: {contract.source_path}",
     )
 
 

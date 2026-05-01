@@ -20,13 +20,8 @@ def _load_workspace_module():
     return module
 
 
-def _yaml_config(repo_path: Path) -> dict:
-    """Minimal valid YAML config that satisfies the schema and the bridge.
-
-    Mirrors the shape used by tests/test_workflows_change_delivery_entrypoint.py
-    in `_write_workflow_yaml` so the same bridge in `_yaml_to_legacy_view`
-    can project it into the legacy view.
-    """
+def _contract_config(repo_path: Path) -> dict:
+    """Minimal valid WORKFLOW.md front-matter config."""
     return {
         "workflow": "change-delivery",
         "schema-version": 1,
@@ -56,28 +51,35 @@ def _yaml_config(repo_path: Path) -> dict:
                 "timeout-seconds": 1200,
             },
         },
-        "agents": {
-            "coder": {
-                "default": {
-                    "name": "Internal_Coder_Agent",
-                    "model": "gpt-5.3-codex-spark/high",
-                    "runtime": "acpx-codex",
-                },
+        "actors": {
+            "implementer": {
+                "name": "Change_Implementer",
+                "model": "gpt-5.3-codex-spark/high",
+                "runtime": "acpx-codex",
             },
-            "internal-reviewer": {
-                "name": "Internal_Reviewer_Agent",
+            "implementer-high-effort": {
+                "name": "Change_Implementer_High_Effort",
+                "model": "gpt-5.4",
+                "runtime": "acpx-codex",
+            },
+            "reviewer": {
+                "name": "Change_Reviewer",
                 "model": "claude-sonnet-4-6",
                 "runtime": "claude-cli",
             },
-            "external-reviewer": {
-                "enabled": True,
-                "name": "External_Reviewer_Agent",
+        },
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
             },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
         },
         "gates": {
-            "internal-review": {},
-            "external-review": {},
-            "merge": {},
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
         },
         "triggers": {
             "lane-selector": {"type": "github-label", "label": "active-lane"},
@@ -95,48 +97,43 @@ def _workflow_markdown(config: dict, *, prompt_role: str = "coder", body: str = 
     return "---\n" + yaml.safe_dump(config, sort_keys=False) + "---\n\n" + body + "\n"
 
 
-def test_load_workspace_from_config_prefers_workflow_yaml(tmp_path):
-    """When workflow.yaml exists, it must be read to build the workspace."""
+def test_load_workspace_from_config_reads_workflow_markdown(tmp_path):
+    """When WORKFLOW.md exists, it must be read to build the workspace."""
     workspace = _load_workspace_module()
     workspace_root = tmp_path / "workflow"
-    config_dir = workspace_root / "config"
-    config_dir.mkdir(parents=True)
-    cfg = _yaml_config(tmp_path / "repo")
-    (config_dir / "workflow.yaml").write_text(
-        yaml.safe_dump(cfg), encoding="utf-8"
-    )
+    workspace_root.mkdir(parents=True)
+    cfg = _contract_config(tmp_path / "repo")
+    (workspace_root / "WORKFLOW.md").write_text(_workflow_markdown(cfg), encoding="utf-8")
 
     ws = workspace.load_workspace_from_config(workspace_root=workspace_root)
 
     assert ws is not None
     assert ws.WORKSPACE == workspace_root.resolve()
-    # The YAML repository.local-path drove repoPath in the bridge.
+    # The front-matter repository.local-path drove repoPath in the bridge.
     assert ws.REPO_PATH == Path(tmp_path / "repo")
     assert ws.ENGINE_OWNER == "hermes"
 
 
-def test_load_workspace_from_config_accepts_explicit_yaml_path(tmp_path):
+def test_load_workspace_from_config_rejects_explicit_yaml_path(tmp_path):
     workspace = _load_workspace_module()
     workspace_root = tmp_path / "workflow"
     config_dir = workspace_root / "config"
     config_dir.mkdir(parents=True)
-    cfg = _yaml_config(tmp_path / "yaml-repo")
+    cfg = _contract_config(tmp_path / "yaml-repo")
     path = config_dir / "workflow.yaml"
     path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
 
-    ws = workspace.load_workspace_from_config(workspace_root=workspace_root, config_path=path)
-
-    assert ws.REPO_PATH == Path(tmp_path / "yaml-repo")
-    assert ws.ENGINE_OWNER == "hermes"
+    with pytest.raises(ValueError, match="WORKFLOW.md"):
+        workspace.load_workspace_from_config(workspace_root=workspace_root, config_path=path)
 
 
 def test_load_workspace_from_config_accepts_explicit_markdown_path(tmp_path):
     workspace = _load_workspace_module()
     workspace_root = tmp_path / "workflow"
     workspace_root.mkdir()
-    cfg = _yaml_config(tmp_path / "markdown-repo")
+    cfg = _contract_config(tmp_path / "markdown-repo")
     path = workspace_root / "WORKFLOW.md"
-    path.write_text(_workflow_markdown(cfg, prompt_role="internal-reviewer"), encoding="utf-8")
+    path.write_text(_workflow_markdown(cfg, prompt_role="reviewer"), encoding="utf-8")
 
     ws = workspace.load_workspace_from_config(workspace_root=workspace_root, config_path=path)
 
@@ -160,7 +157,7 @@ def test_load_workspace_from_config_falls_back_to_workflow_markdown(tmp_path):
     workspace = _load_workspace_module()
     workspace_root = tmp_path / "workflow"
     workspace_root.mkdir()
-    cfg = _yaml_config(tmp_path / "markdown-repo")
+    cfg = _contract_config(tmp_path / "markdown-repo")
     (workspace_root / "WORKFLOW.md").write_text(_workflow_markdown(cfg), encoding="utf-8")
 
     ws = workspace.load_workspace_from_config(workspace_root=workspace_root)

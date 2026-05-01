@@ -24,7 +24,7 @@ Daedalus is built for a **trusted local operator** running on a **trusted host**
 ## Secrets and Logging
 
 - Keep secrets in environment variables, host credential stores, or runtime-specific auth surfaces.
-- Do not commit secrets into `WORKFLOW.md`, legacy `workflow.yaml`, prompts, or hook scripts.
+- Do not commit secrets into `WORKFLOW.md`, workflow prompts, or hook scripts.
 - Daedalus writes structured status/events/audit data for observability. It does not guarantee universal secret redaction across operator-configured prompts, hook output, or third-party runtime stderr/stdout.
 
 ## Safe Deployment Guidance

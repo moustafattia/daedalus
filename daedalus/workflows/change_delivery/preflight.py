@@ -32,7 +32,7 @@ class PreflightResult:
 
 
 _RECOGNIZED_RUNTIME_KINDS = frozenset({"acpx-codex", "claude-cli", "codex-app-server", "hermes-agent"})
-_RECOGNIZED_REVIEWER_KINDS = frozenset({"github-comments", "disabled"})
+_RECOGNIZED_GATE_TYPES = frozenset({"agent-review", "pr-comment-approval", "code-host-checks"})
 _RECOGNIZED_TRACKER_KINDS = frozenset({"github"})
 _RECOGNIZED_CODE_HOST_KINDS = frozenset({"github"})
 
@@ -56,8 +56,10 @@ def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
     #   runtimes:
     #     <name>: { kind: acpx-codex | claude-cli | hermes-agent, ... }
     #     <name>: { ... }
-    #   agents:
-    #     external-reviewer: { kind: github-comments | disabled, ... }  (optional kind)
+    #   actors:
+    #     <name>: { model: ..., runtime: <runtimes key> }
+    #   gates:
+    #     <name>: { type: agent-review | pr-comment-approval | code-host-checks, ... }
     runtimes = config.get("runtimes") or {}
     if isinstance(runtimes, dict):
         for name, rt_cfg in runtimes.items():
@@ -71,17 +73,17 @@ def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
                     f"runtimes.{name}.kind={rk!r} not in {sorted(_RECOGNIZED_RUNTIME_KINDS)}",
                 )
 
-    agents = config.get("agents") or {}
-    if isinstance(agents, dict):
-        reviewer = agents.get("external-reviewer") or {}
-        if isinstance(reviewer, dict):
-            rk2 = reviewer.get("kind")
-            # external-reviewer.kind is optional; only validate when present.
-            if rk2 and rk2 not in _RECOGNIZED_REVIEWER_KINDS:
+    gates = config.get("gates") or {}
+    if isinstance(gates, dict):
+        for name, gate in gates.items():
+            if not isinstance(gate, dict):
+                continue
+            gate_type = gate.get("type")
+            if gate_type and gate_type not in _RECOGNIZED_GATE_TYPES:
                 return PreflightResult(
                     False,
                     "unsupported_reviewer_kind",
-                    f"agents.external-reviewer.kind={rk2!r} not in {sorted(_RECOGNIZED_REVIEWER_KINDS)}",
+                    f"gates.{name}.type={gate_type!r} not in {sorted(_RECOGNIZED_GATE_TYPES)}",
                 )
 
     tracker = config.get("tracker") or {}

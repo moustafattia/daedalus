@@ -34,7 +34,6 @@ from workflows.contract import (
     render_workflow_markdown,
     workflow_contract_pointer_path,
     workflow_named_markdown_path,
-    workflow_yaml_path as legacy_workflow_config_path,
     workflow_markdown_path,
     write_workflow_contract_pointer,
 )
@@ -2683,11 +2682,9 @@ def scaffold_workflow_root(
         workflow_name=workflow_name,
         force=force,
     )
-    legacy_config_path = legacy_workflow_config_path(root)
-    existing_contract_path = contract_path if contract_path.exists() else legacy_config_path
-    if existing_contract_path.exists() and not force:
+    if contract_path.exists() and not force:
         raise DaedalusCommandError(
-            f"refusing to overwrite existing workflow contract: {existing_contract_path} "
+            f"refusing to overwrite existing workflow contract: {contract_path} "
             "(pass --force to replace it)"
         )
 
@@ -2773,8 +2770,6 @@ def scaffold_workflow_root(
         issues_template = PLUGIN_DIR / "workflows" / "issue_runner" / "issues.template.json"
         issues_path = root / "config" / "issues.json"
         issues_path.write_text(issues_template.read_text(encoding="utf-8"), encoding="utf-8")
-    if force and legacy_config_path.exists():
-        legacy_config_path.unlink()
     return {
         "ok": True,
         "workflow_root": str(root),
@@ -3301,7 +3296,7 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         required=True,
         help=(
             "Role to bind. issue-runner: agent. change-delivery: "
-            "coder.default, coder.high-effort, internal-reviewer, coder, reviewer, or all."
+            "actor name such as implementer, reviewer, or all."
         ),
     )
     configure_runtime_cmd.add_argument(

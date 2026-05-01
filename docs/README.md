@@ -32,7 +32,7 @@ What each abstraction *means* — read these before reading code.
 | [Runtimes](concepts/runtimes.md) | The shared execution backends: `claude-cli`, `acpx-codex`, `hermes-agent`, `codex-app-server`. |
 | [Events](concepts/events.md) | Runtime JSONL events plus workflow audit files. Symphony §10.4 taxonomy + `daedalus.*` namespace. |
 | [Stalls](concepts/stalls.md) | `last_activity_ts()` + `stall.timeout_ms` (Symphony §8.5). |
-| [Hot-reload & preflight](concepts/hot-reload.md) | Workflow-contract reload (`WORKFLOW.md` first, legacy `workflow.yaml` still loadable) + per-tick preflight (Symphony §6.2 + §6.3). |
+| [Hot-reload & preflight](concepts/hot-reload.md) | Repo-owned `WORKFLOW.md` / `WORKFLOW-<name>.md` reload + per-tick preflight (Symphony §6.2 + §6.3). |
 | [Shadow → active](concepts/shadow-active.md) | The promotion gate from observation to execution. |
 
 ## Operator surface
@@ -51,6 +51,7 @@ Day-2 commands and observability.
 - [Bundled workflows](workflows/README.md) — overview of `change-delivery` and `issue-runner`
 - [WORKFLOW.md guide](workflows/workflow-contract.md) — repo-owned contract location, front matter, and Markdown body
 - [change-delivery](workflows/change-delivery.md) — opinionated issue-to-PR SDLC workflow
+- [change-delivery contract spec](workflows/change-delivery-contract.md) — actor/stage/gate contract and engine mapping
 - [issue-runner](workflows/issue-runner.md) — generic tracker-driven reference workflow
 - [examples/issue-runner.workflow.md](examples/issue-runner.workflow.md) — copyable default generic tracker-driven contract
 - [examples/change-delivery.workflow.md](examples/change-delivery.workflow.md) — copyable GitHub-first SDLC contract

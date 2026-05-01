@@ -1,7 +1,6 @@
 """Phase B schema validation."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -41,57 +40,56 @@ def _base_config():
                 "session-nudge-cooldown-seconds": 600,
             },
         },
-        "agents": {
-            "coder": {"default": {"name": "c", "model": "m", "runtime": "codex-acpx"}},
-            "internal-reviewer": {"name": "ir", "model": "m", "runtime": "codex-acpx"},
-            "external-reviewer": {"enabled": True, "name": "er"},
+        "actors": {
+            "implementer": {"name": "c", "model": "m", "runtime": "codex-acpx"},
+            "implementer-high-effort": {"name": "c-hi", "model": "m-hi", "runtime": "codex-acpx"},
+            "reviewer": {"name": "ir", "model": "m", "runtime": "codex-acpx"},
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": True},
+            "ci-green": {"type": "code-host-checks", "required-for-merge": True},
+        },
         "triggers": {"lane-selector": {"type": "label", "label": "active"}},
         "storage": {"ledger": "x", "health": "x", "audit-log": "x"},
     }
 
 
-def test_schema_accepts_kind_github_comments():
+def test_schema_accepts_pr_comment_approval_gate():
     cfg = _base_config()
-    cfg["agents"]["external-reviewer"]["kind"] = "github-comments"
     Draft7Validator(_schema()).validate(cfg)
 
 
-def test_schema_accepts_kind_disabled():
+def test_schema_accepts_disabled_pr_comment_approval_gate():
     cfg = _base_config()
-    cfg["agents"]["external-reviewer"]["kind"] = "disabled"
+    cfg["gates"]["maintainer-approval"]["enabled"] = False
     Draft7Validator(_schema()).validate(cfg)
 
 
-def test_schema_rejects_unknown_kind():
+def test_schema_rejects_unknown_gate_type():
     cfg = _base_config()
-    cfg["agents"]["external-reviewer"]["kind"] = "made-up"
+    cfg["gates"]["maintainer-approval"]["type"] = "made-up"
     with pytest.raises(ValidationError):
         Draft7Validator(_schema()).validate(cfg)
 
 
 def test_schema_accepts_repo_slug_override():
     cfg = _base_config()
-    cfg["agents"]["external-reviewer"]["repo-slug"] = "acme/widget"
+    cfg["gates"]["maintainer-approval"]["repo-slug"] = "acme/widget"
     Draft7Validator(_schema()).validate(cfg)
 
 
-def test_schema_accepts_logins_inside_reviewer_block():
+def test_schema_accepts_users_and_reactions_inside_approval_gate():
     cfg = _base_config()
-    cfg["agents"]["external-reviewer"]["logins"] = ["bot[bot]"]
-    cfg["agents"]["external-reviewer"]["clean-reactions"] = ["+1"]
-    cfg["agents"]["external-reviewer"]["pending-reactions"] = ["eyes"]
-    Draft7Validator(_schema()).validate(cfg)
-
-
-def test_existing_installed_workflow_yaml_still_validates():
-    plugin_dir = Path.home() / ".hermes" / "plugins" / "daedalus"
-    if not plugin_dir.exists():
-        pytest.skip("installed workflow plugin not present on this host")
-    workflow_root = plugin_dir.resolve().parents[2]
-    workflow_yaml = workflow_root / "config" / "workflow.yaml"
-    if not workflow_yaml.exists():
-        pytest.skip("installed workflow config not present on this host")
-    cfg = yaml.safe_load(workflow_yaml.read_text())
+    cfg["gates"]["maintainer-approval"]["users"] = ["bot[bot]"]
+    cfg["gates"]["maintainer-approval"]["approvals"] = ["+1"]
+    cfg["gates"]["maintainer-approval"]["pending-reactions"] = ["eyes"]
     Draft7Validator(_schema()).validate(cfg)

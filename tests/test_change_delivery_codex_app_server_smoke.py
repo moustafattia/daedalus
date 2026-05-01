@@ -106,30 +106,32 @@ def _write_workflow_root(
                 "command": [sys.executable, "-c", "print('reviewer disabled for smoke')"],
             },
         },
-        "agents": {
-            "coder": {
-                "default": {
-                    "name": "Smoke_Coder_Agent",
-                    "model": os.environ.get("DAEDALUS_CHANGE_DELIVERY_CODEX_MODEL", ""),
-                    "runtime": "coder-runtime",
-                },
+        "actors": {
+            "implementer": {
+                "name": "Smoke_Implementer",
+                "model": os.environ.get("DAEDALUS_CHANGE_DELIVERY_CODEX_MODEL", ""),
+                "runtime": "coder-runtime",
             },
-            "internal-reviewer": {
-                "name": "Smoke_Internal_Reviewer",
+            "reviewer": {
+                "name": "Smoke_Reviewer",
                 "model": "local-smoke",
                 "runtime": "reviewer-runtime",
-                "freeze-coder-while-running": False,
-            },
-            "external-reviewer": {
-                "enabled": False,
-                "name": "Smoke_External_Reviewer",
-                "kind": "disabled",
             },
         },
+        "stages": {
+            "implement": {"actor": "implementer"},
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
         "gates": {
-            "internal-review": {"require-pass-clean-before-publish": False},
-            "external-review": {"required-for-merge": False},
-            "merge": {"require-ci-acceptable": False},
+            "pre-publish-review": {
+                "type": "agent-review",
+                "actor": "reviewer",
+                "require-pass-clean-before-publish": False,
+                "freeze-actor-while-running": False,
+            },
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False, "required-for-merge": False},
+            "ci-green": {"type": "code-host-checks", "required-for-merge": False},
         },
         "triggers": {"lane-selector": {"type": "github-label", "label": active_label}},
         "jobs": {"core": [], "support": []},

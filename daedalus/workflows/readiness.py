@@ -31,7 +31,7 @@ def build_readiness_recommendations(
         elif name == "contract-format":
             _append_once(
                 recommendations,
-                "Move legacy YAML config to a repo-owned `WORKFLOW.md` contract before publishing the workflow.",
+                "Use a repo-owned `WORKFLOW.md` / `WORKFLOW-<name>.md` contract before publishing the workflow.",
             )
         elif name == "workflow-field":
             _append_once(recommendations, f"Add top-level `workflow:` to {source}.")
@@ -151,7 +151,7 @@ def _runtime_binding_recommendation(*, workflow: str | None) -> str:
     if workflow == "issue-runner":
         return "Run `hermes daedalus configure-runtime --runtime hermes-final --role agent`, or define the referenced runtime profile manually."
     if workflow == "change-delivery":
-        return "Run `hermes daedalus configure-runtime --runtime hermes-final --role coder.default`, or define the referenced runtime profile manually."
+        return "Run `hermes daedalus configure-runtime --runtime hermes-final --role implementer`, or define the referenced runtime profile manually."
     return "Run `hermes daedalus configure-runtime` for the affected role, or define the referenced runtime profile manually."
 
 

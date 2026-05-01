@@ -48,9 +48,9 @@ def test_issue_runner_main_pins_workflow_via_require_workflow(tmp_path):
     import workflows
 
     workspace_root = tmp_path / "workspace"
-    (workspace_root / "config").mkdir(parents=True)
-    (workspace_root / "config" / "workflow.yaml").write_text(
-        "workflow: some-other-workflow\nschema-version: 1\n",
+    workspace_root.mkdir(parents=True)
+    (workspace_root / "WORKFLOW.md").write_text(
+        "---\nworkflow: some-other-workflow\nschema-version: 1\n---\n\nPrompt body\n",
         encoding="utf-8",
     )
 
@@ -58,4 +58,3 @@ def test_issue_runner_main_pins_workflow_via_require_workflow(tmp_path):
     with pytest.raises(workflows.WorkflowContractError) as exc:
         main_mod.main(["--workflow-root", str(workspace_root), "status"])
     assert "require_workflow='issue-runner'" in str(exc.value)
-

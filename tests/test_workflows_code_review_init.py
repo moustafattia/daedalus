@@ -48,9 +48,9 @@ def test_change_delivery_main_pins_workflow_via_require_workflow(tmp_path, monke
 
     import workflows
     workspace_root = tmp_path / "workspace"
-    (workspace_root / "config").mkdir(parents=True)
-    (workspace_root / "config" / "workflow.yaml").write_text(
-        "workflow: some-other-workflow\nschema-version: 1\n",
+    workspace_root.mkdir(parents=True)
+    (workspace_root / "WORKFLOW.md").write_text(
+        "---\nworkflow: some-other-workflow\nschema-version: 1\n---\n\nPrompt body\n",
         encoding="utf-8",
     )
 

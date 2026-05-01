@@ -30,23 +30,38 @@ _VALID_YAML = textwrap.dedent("""\
         kind: claude-cli
         max-turns-per-invocation: 4
         timeout-seconds: 60
-    agents:
-      coder:
-        t1:
-          name: coder
-          model: claude
-          runtime: r1
-      internal-reviewer:
+    actors:
+      implementer:
+        name: coder
+        model: claude
+        runtime: r1
+      implementer-high-effort:
+        name: coder-high
+        model: claude
+        runtime: r1
+      reviewer:
         name: internal
         model: claude
         runtime: r1
-      external-reviewer:
-        enabled: false
-        name: external
+    stages:
+      implement:
+        actor: implementer
+        escalation:
+          after-attempts: 2
+          actor: implementer-high-effort
+      publish:
+        action: pr.publish
+      merge:
+        action: pr.merge
     gates:
-      internal-review: {}
-      external-review: {}
-      merge: {}
+      pre-publish-review:
+        type: agent-review
+        actor: reviewer
+      maintainer-approval:
+        type: pr-comment-approval
+        enabled: false
+      ci-green:
+        type: code-host-checks
     triggers:
       lane-selector:
         type: github-issue-label
@@ -66,8 +81,8 @@ def _valid_workflow_markdown() -> str:
 def test_parse_and_validate_returns_snapshot(tmp_path):
     from workflows.change_delivery.config_watcher import parse_and_validate
 
-    p = tmp_path / "workflow.yaml"
-    p.write_text(_VALID_YAML)
+    p = tmp_path / "WORKFLOW.md"
+    p.write_text(_valid_workflow_markdown())
     snap = parse_and_validate(p)
     assert snap.config["workflow"] == "change-delivery"
     assert snap.source_mtime == p.stat().st_mtime
@@ -85,11 +100,11 @@ def test_parse_and_validate_accepts_workflow_markdown(tmp_path):
     assert snap.config["workflow-policy"] == "You are the workflow prompt."
 
 
-def test_parse_and_validate_raises_on_yaml_syntax_error(tmp_path):
+def test_parse_and_validate_raises_on_front_matter_syntax_error(tmp_path):
     from workflows.change_delivery.config_watcher import parse_and_validate, ParseError
 
-    p = tmp_path / "workflow.yaml"
-    p.write_text("workflow: [unclosed\n")
+    p = tmp_path / "WORKFLOW.md"
+    p.write_text("---\nworkflow: [unclosed\n---\n\nPrompt body\n")
     with pytest.raises(ParseError):
         parse_and_validate(p)
 
@@ -97,18 +112,18 @@ def test_parse_and_validate_raises_on_yaml_syntax_error(tmp_path):
 def test_parse_and_validate_raises_on_schema_violation(tmp_path):
     from workflows.change_delivery.config_watcher import parse_and_validate, ValidationError
 
-    p = tmp_path / "workflow.yaml"
-    p.write_text("workflow: change-delivery\n")  # missing required fields
+    p = tmp_path / "WORKFLOW.md"
+    p.write_text("---\nworkflow: change-delivery\n---\n\nPrompt body\n")  # missing required fields
     with pytest.raises(ValidationError):
         parse_and_validate(p)
 
 
 def _seed_snapshot(tmp_path: Path):
-    """Helper: write valid yaml + return (path, snapshot)."""
+    """Helper: write valid WORKFLOW.md + return (path, snapshot)."""
     from workflows.change_delivery.config_watcher import parse_and_validate
 
-    p = tmp_path / "workflow.yaml"
-    p.write_text(_VALID_YAML)
+    p = tmp_path / "WORKFLOW.md"
+    p.write_text(_valid_workflow_markdown())
     return p, parse_and_validate(p)
 
 
@@ -123,8 +138,8 @@ def test_watcher_poll_swaps_on_mtime_change(tmp_path):
     w = ConfigWatcher(p, ref, lambda t, d: events.append((t, d)))
 
     # Edit file with a future mtime
-    new_yaml = _VALID_YAML.replace("test-instance", "edited-instance")
-    p.write_text(new_yaml)
+    new_contract = _valid_workflow_markdown().replace("test-instance", "edited-instance")
+    p.write_text(new_contract)
     os.utime(p, (initial.source_mtime + 5, initial.source_mtime + 5))
 
     w.poll()
@@ -147,7 +162,7 @@ def test_watcher_poll_no_change_is_noop(tmp_path):
     assert events == []
 
 
-def test_watcher_poll_invalid_yaml_keeps_lkg_and_emits_failure(tmp_path):
+def test_watcher_poll_invalid_contract_keeps_lkg_and_emits_failure(tmp_path):
     import os
     from workflows.change_delivery.config_snapshot import AtomicRef
     from workflows.change_delivery.config_watcher import ConfigWatcher
@@ -157,7 +172,7 @@ def test_watcher_poll_invalid_yaml_keeps_lkg_and_emits_failure(tmp_path):
     events: list[tuple[str, dict]] = []
     w = ConfigWatcher(p, ref, lambda t, d: events.append((t, d)))
 
-    p.write_text("workflow: [unclosed\n")
+    p.write_text("---\nworkflow: [unclosed\n---\n\nPrompt body\n")
     os.utime(p, (initial.source_mtime + 5, initial.source_mtime + 5))
 
     w.poll()
@@ -175,7 +190,7 @@ def test_watcher_poll_schema_invalid_keeps_lkg_and_emits_failure(tmp_path):
     events: list[tuple[str, dict]] = []
     w = ConfigWatcher(p, ref, lambda t, d: events.append((t, d)))
 
-    p.write_text("workflow: change-delivery\n")  # schema-invalid (missing required fields)
+    p.write_text("---\nworkflow: change-delivery\n---\n\nPrompt body\n")  # schema-invalid
     os.utime(p, (initial.source_mtime + 5, initial.source_mtime + 5))
 
     w.poll()
@@ -195,7 +210,7 @@ def test_watcher_poll_does_not_re_emit_for_same_broken_mtime(tmp_path):
     events: list[tuple[str, dict]] = []
     w = ConfigWatcher(p, ref, lambda t, d: events.append((t, d)))
 
-    p.write_text("workflow: [unclosed\n")
+    p.write_text("---\nworkflow: [unclosed\n---\n\nPrompt body\n")
     os.utime(p, (initial.source_mtime + 5, initial.source_mtime + 5))
 
     w.poll()
@@ -222,9 +237,9 @@ def test_watcher_poll_detects_size_change_at_same_mtime(tmp_path):
     events.clear()
 
     # Rewrite with longer content but force-restore the original mtime
-    new_yaml = p.read_text() + "\n# trailing comment to bump size\n"
+    new_contract = p.read_text() + "\n<!-- trailing comment to bump size -->\n"
     original_mtime = p.stat().st_mtime
-    p.write_text(new_yaml)
+    p.write_text(new_contract)
     os.utime(p, (original_mtime, original_mtime))
 
     # mtime is unchanged but size grew. Watcher must still re-parse.
@@ -251,7 +266,7 @@ def test_watcher_poll_missing_file_keeps_lkg_no_event(tmp_path):
 
 
 def test_watcher_post_init_detects_drift_between_bootstrap_and_construction(tmp_path):
-    """Codex P2 on PR #19: workflow.yaml may change between bootstrap parse
+    """Codex P2 on PR #19: WORKFLOW.md may change between bootstrap parse
     and ConfigWatcher construction. The watcher must seed _last_key from
     the snapshot's recorded (mtime, size), NOT the live file — otherwise
     the drifted-but-current bytes look "fresh" and never get reloaded.
@@ -264,8 +279,8 @@ def test_watcher_post_init_detects_drift_between_bootstrap_and_construction(tmp_
 
     # Simulate the race: file changes (size + mtime) between snapshot
     # construction and ConfigWatcher construction.
-    drifted_yaml = p.read_text() + "\n# drift between bootstrap and construction\n"
-    p.write_text(drifted_yaml)
+    drifted_contract = p.read_text() + "\n<!-- drift between bootstrap and construction -->\n"
+    p.write_text(drifted_contract)
 
     ref = AtomicRef(initial)
     events: list[tuple[str, dict]] = []
@@ -285,7 +300,7 @@ def test_watcher_post_init_detects_drift_between_bootstrap_and_construction(tmp_
 def test_watcher_poll_handles_unicode_decode_error(tmp_path):
     """Codex P1 on PR #19: poll() must catch UnicodeDecodeError too.
 
-    Otherwise binary content slipping into workflow.yaml crashes the
+    Otherwise binary content slipping into WORKFLOW.md crashes the
     watcher loop instead of preserving last-known-good config.
     """
     from workflows.change_delivery.config_snapshot import AtomicRef

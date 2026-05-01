@@ -63,13 +63,15 @@ def _write_workflow_with_preflight(tmp_path, *, name="preflight-wf"):
 def test_run_cli_emits_dispatch_skipped_on_preflight_failure(tmp_path, monkeypatch):
     _write_workflow_with_preflight(tmp_path, name="preflight-wf")
     workflow_root = tmp_path / "workflow_root"
-    (workflow_root / "config").mkdir(parents=True)
-    (workflow_root / "config" / "workflow.yaml").write_text(
+    workflow_root.mkdir(parents=True)
+    (workflow_root / "WORKFLOW.md").write_text(
+        "---\n"
         "workflow: preflight-wf\n"
         "schema-version: 1\n"
         "runtimes:\n"
         "  r1:\n"
-        "    kind: totally-bogus\n",
+        "    kind: totally-bogus\n"
+        "---\n\nPrompt body\n",
         encoding="utf-8",
     )
 
@@ -113,13 +115,15 @@ def test_run_cli_skips_preflight_for_non_dispatch_commands(tmp_path, monkeypatch
     """
     _write_workflow_with_preflight(tmp_path, name="preflight-skip-wf")
     workflow_root = tmp_path / "workflow_root_skip"
-    (workflow_root / "config").mkdir(parents=True)
-    (workflow_root / "config" / "workflow.yaml").write_text(
+    workflow_root.mkdir(parents=True)
+    (workflow_root / "WORKFLOW.md").write_text(
+        "---\n"
         "workflow: preflight-skip-wf\n"
         "schema-version: 1\n"
         "runtimes:\n"
         "  r1:\n"
-        "    kind: totally-bogus\n",
+        "    kind: totally-bogus\n"
+        "---\n\nPrompt body\n",
         encoding="utf-8",
     )
 

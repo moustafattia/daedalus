@@ -104,8 +104,8 @@ Common knobs live in the YAML front matter:
 
 - `repository` / `tracker` / `code-host`: checkout path, issue source, PR host
 - `runtimes`: runtime profiles such as Codex app-server, CLI agents, or custom commands
-- `agents`: model/runtime bindings for workflow roles
-- `hooks` / `gates`: workflow-specific lifecycle policy
+- `agent` or `actors`: model/runtime bindings for workflow executors
+- `stages` / `hooks` / `gates`: workflow-specific lifecycle policy
 - `tracker-feedback` / `webhooks` / `server`: tracker updates, outbound notifications, HTTP status
 
 The Markdown body is the workflow policy prompt. The workflow package decides

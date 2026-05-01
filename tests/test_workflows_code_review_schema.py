@@ -44,35 +44,46 @@ def _minimal_valid_config():
                 "timeout-seconds": 1200,
             },
         },
-        "agents": {
-            "coder": {
-                "default": {
-                    "name": "Internal_Coder_Agent",
-                    "model": "gpt-5.3-codex-spark/high",
-                    "runtime": "acpx-codex",
-                },
+        "actors": {
+            "implementer": {
+                "name": "Change_Implementer",
+                "model": "gpt-5.3-codex-spark/high",
+                "runtime": "acpx-codex",
             },
-            "internal-reviewer": {
-                "name": "Internal_Reviewer_Agent",
+            "implementer-high-effort": {
+                "name": "Change_Implementer_High_Effort",
+                "model": "gpt-5.4",
+                "runtime": "acpx-codex",
+            },
+            "reviewer": {
+                "name": "Change_Reviewer",
                 "model": "claude-sonnet-4-6",
                 "runtime": "claude-cli",
-                "freeze-coder-while-running": True,
-            },
-            "external-reviewer": {
-                "enabled": True,
-                "name": "External_Reviewer_Agent",
-                "provider": "codex-cloud",
-                "cache-seconds": 1800,
             },
         },
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
         "gates": {
-            "internal-review": {
+            "pre-publish-review": {
+                "type": "agent-review",
+                "actor": "reviewer",
                 "pass-with-findings-tolerance": 1,
                 "require-pass-clean-before-publish": True,
                 "request-cooldown-seconds": 1200,
             },
-            "external-review": {"required-for-merge": True},
-            "merge": {"require-ci-acceptable": True},
+            "maintainer-approval": {
+                "type": "pr-comment-approval",
+                "required-for-merge": True,
+                "enabled": True,
+                "cache-seconds": 1800,
+            },
+            "ci-green": {"type": "code-host-checks", "required-for-merge": True},
         },
         "triggers": {
             "lane-selector": {"type": "github-label", "label": "active-lane"},
@@ -104,7 +115,7 @@ def test_schema_accepts_codex_app_server_runtime_for_coder():
         "read_timeout_ms": 5000,
         "stall_timeout_ms": 300000,
     }
-    cfg["agents"]["coder"]["default"]["runtime"] = "coder-runtime"
+    cfg["actors"]["implementer"]["runtime"] = "coder-runtime"
 
     jsonschema.validate(cfg, _load_schema())
 
@@ -144,7 +155,7 @@ def test_schema_rejects_agent_pointing_at_unknown_runtime():
     # a key in runtimes). This check lives in workspace.py (Task 4.3).
     # Here we just verify the schema accepts arbitrary string runtime values.
     cfg = _minimal_valid_config()
-    cfg["agents"]["coder"]["default"]["runtime"] = "nonexistent"
+    cfg["actors"]["implementer"]["runtime"] = "nonexistent"
     jsonschema.validate(cfg, _load_schema())
 
 

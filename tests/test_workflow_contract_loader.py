@@ -31,12 +31,24 @@ def _native_config() -> dict:
         },
         "code-host": {"kind": "github", "github_slug": "attmous/daedalus"},
         "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 8, "timeout-seconds": 60}},
-        "agents": {
-            "coder": {"default": {"name": "coder", "model": "gpt-5", "runtime": "r1"}},
-            "internal-reviewer": {"name": "reviewer", "model": "claude", "runtime": "r1"},
-            "external-reviewer": {"enabled": False, "name": "external"},
+        "actors": {
+            "implementer": {"name": "coder", "model": "gpt-5", "runtime": "r1"},
+            "implementer-high-effort": {"name": "coder-high", "model": "gpt-5-high", "runtime": "r1"},
+            "reviewer": {"name": "reviewer", "model": "claude", "runtime": "r1"},
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
+        },
         "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
         "storage": {
             "ledger": "memory/workflow-status.json",
@@ -51,17 +63,14 @@ def _workflow_markdown(config: dict, *, prompt_role: str = "coder", body: str = 
     return "---\n" + yaml.safe_dump(config, sort_keys=False) + "---\n\n" + body + "\n"
 
 
-def test_load_workflow_contract_reads_yaml_mapping(tmp_path):
+def test_load_workflow_contract_ignores_removed_yaml_contract(tmp_path):
     root = tmp_path / "wf"
     (root / "config").mkdir(parents=True)
     path = root / "config" / "workflow.yaml"
     path.write_text(yaml.safe_dump(_native_config()), encoding="utf-8")
 
-    contract = load_workflow_contract(root)
-
-    assert contract.source_path == path
-    assert contract.config["workflow"] == "change-delivery"
-    assert contract.prompt_template == ""
+    with pytest.raises(FileNotFoundError):
+        load_workflow_contract(root)
 
 
 def test_load_workflow_contract_reads_markdown_and_injects_prompt(tmp_path):
@@ -71,7 +80,7 @@ def test_load_workflow_contract_reads_markdown_and_injects_prompt(tmp_path):
     path.write_text(
         _workflow_markdown(
             _native_config(),
-            prompt_role="internal-reviewer",
+            prompt_role="reviewer",
             body="Review the lane strictly.",
         ),
         encoding="utf-8",
@@ -107,15 +116,14 @@ def test_load_workflow_contract_markdown_rejects_duplicate_policy_sources(tmp_pa
         load_workflow_contract_file(path)
 
 
-def test_find_workflow_contract_path_prefers_markdown_when_both_exist(tmp_path):
+def test_load_workflow_contract_file_rejects_yaml_contract(tmp_path):
     root = tmp_path / "wf"
     (root / "config").mkdir(parents=True)
     yaml_path = root / "config" / "workflow.yaml"
     yaml_path.write_text(yaml.safe_dump(_native_config()), encoding="utf-8")
-    markdown_path = root / "WORKFLOW.md"
-    markdown_path.write_text(_workflow_markdown(_native_config()), encoding="utf-8")
 
-    assert find_workflow_contract_path(root) == markdown_path
+    with pytest.raises(WorkflowContractError, match="expected Markdown"):
+        load_workflow_contract_file(yaml_path)
 
 
 def test_load_workflow_contract_follows_workflow_root_pointer_to_repo_contract(tmp_path):

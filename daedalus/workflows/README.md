@@ -75,8 +75,7 @@ workflows/
 ## How a workflow runs
 
 1. Daedalus loads the repo-owned `WORKFLOW.md` / `WORKFLOW-<workflow>.md`
-   contract referenced by the workflow root pointer (or legacy
-   `config/workflow.yaml` when migrating older instances).
+   contract referenced by the workflow root pointer.
 2. The dispatcher imports the workflow package referenced by
    `workflow:` in the config (e.g. `change-delivery`).
 3. `make_workspace(workflow_root, config)` returns the workspace

@@ -69,10 +69,10 @@ def test_resolve_workflow_root_requires_value(tmp_path, monkeypatch):
         main_module.resolve_workflow_root(["--workflow-root"])
 
 
-def _write_workflow_yaml(config_dir: Path, config: dict) -> None:
-    """Write a minimal workflow.yaml for the change-delivery workflow."""
+def _write_workflow_markdown(workflow_root: Path, config: dict) -> None:
+    """Write a minimal WORKFLOW.md for the change-delivery workflow."""
     import yaml  # type: ignore[import]
-    full_yaml_config = {
+    full_config = {
         "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
@@ -101,28 +101,35 @@ def _write_workflow_yaml(config_dir: Path, config: dict) -> None:
                 "timeout-seconds": 1200,
             },
         },
-        "agents": {
-            "coder": {
-                "default": {
-                    "name": "Internal_Coder_Agent",
-                    "model": "gpt-5.3-codex-spark/high",
-                    "runtime": "acpx-codex",
-                },
+        "actors": {
+            "implementer": {
+                "name": "Change_Implementer",
+                "model": "gpt-5.3-codex-spark/high",
+                "runtime": "acpx-codex",
             },
-            "internal-reviewer": {
-                "name": "Internal_Reviewer_Agent",
+            "implementer-high-effort": {
+                "name": "Change_Implementer_High_Effort",
+                "model": "gpt-5.4",
+                "runtime": "acpx-codex",
+            },
+            "reviewer": {
+                "name": "Change_Reviewer",
                 "model": "claude-sonnet-4-6",
                 "runtime": "claude-cli",
             },
-            "external-reviewer": {
-                "enabled": True,
-                "name": "External_Reviewer_Agent",
+        },
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
             },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
         },
         "gates": {
-            "internal-review": {},
-            "external-review": {},
-            "merge": {},
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
         },
         "triggers": {
             "lane-selector": {"type": "github-label", "label": "active-lane"},
@@ -133,8 +140,9 @@ def _write_workflow_yaml(config_dir: Path, config: dict) -> None:
             "audit-log": "memory/workflow-audit.jsonl",
         },
     }
-    (config_dir / "workflow.yaml").write_text(
-        yaml.dump(full_yaml_config),
+    workflow_root.mkdir(parents=True, exist_ok=True)
+    (workflow_root / "WORKFLOW.md").write_text(
+        "---\n" + yaml.safe_dump(full_config, sort_keys=False) + "---\n\nPrompt body\n",
         encoding="utf-8",
     )
 
@@ -142,10 +150,8 @@ def _write_workflow_yaml(config_dir: Path, config: dict) -> None:
 def test_main_calls_cli_main_with_workspace(tmp_path, monkeypatch):
     """The entrypoint wires ``workflow_root → workspace`` and forwards argv to cli.main."""
     workflow_root = tmp_path / "workflow"
-    config_dir = workflow_root / "config"
-    config_dir.mkdir(parents=True)
     config = _minimal_config(tmp_path)
-    _write_workflow_yaml(config_dir, config)
+    _write_workflow_markdown(workflow_root, config)
 
     main_module = load_module("daedalus_workflows_change_delivery_main_test", "workflows/change_delivery/__main__.py")
 
@@ -182,9 +188,7 @@ def test_main_calls_cli_main_with_workspace(tmp_path, monkeypatch):
 def test_main_subprocess_calledprocesserror_returns_nonzero(tmp_path, monkeypatch):
     """If cli.main raises CalledProcessError, the entrypoint prints + returns its exit code."""
     workflow_root = tmp_path / "workflow"
-    config_dir = workflow_root / "config"
-    config_dir.mkdir(parents=True)
-    _write_workflow_yaml(config_dir, _minimal_config(tmp_path))
+    _write_workflow_markdown(workflow_root, _minimal_config(tmp_path))
 
     main_module = load_module("daedalus_workflows_change_delivery_main_test", "workflows/change_delivery/__main__.py")
 

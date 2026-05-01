@@ -27,8 +27,8 @@ _DEFAULT_CACHE_SECONDS = 1800
 class GithubCommentsReviewer:
     """Reads PR review threads from GitHub via ``gh api graphql``.
 
-    Config shape (YAML, inside ``agents.external-reviewer:``):
-        kind: github-comments
+    Private compiled config shape, generated from a public
+    ``pr-comment-approval`` gate:
         logins: ["chatgpt-codex-connector[bot]"]
         clean-reactions: ["+1", "rocket"]
         pending-reactions: ["eyes"]

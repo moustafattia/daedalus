@@ -84,15 +84,24 @@ def test_configure_runtime_uses_workflow_root_pointer_for_change_delivery(tmp_pa
                 "coder-runtime": {"kind": "acpx-codex"},
                 "reviewer-runtime": {"kind": "claude-cli"},
             },
-            "agents": {
-                "coder": {
-                    "default": {"name": "coder", "model": "gpt-5", "runtime": "coder-runtime"},
-                    "high-effort": {"name": "coder-hi", "model": "gpt-5.5", "runtime": "coder-runtime"},
-                },
-                "internal-reviewer": {"name": "reviewer", "model": "gpt-5", "runtime": "reviewer-runtime"},
-                "external-reviewer": {"enabled": False, "name": "external", "kind": "disabled"},
+            "actors": {
+                "implementer": {"name": "coder", "model": "gpt-5", "runtime": "coder-runtime"},
+                "implementer-high-effort": {"name": "coder-hi", "model": "gpt-5.5", "runtime": "coder-runtime"},
+                "reviewer": {"name": "reviewer", "model": "gpt-5", "runtime": "reviewer-runtime"},
             },
-            "gates": {},
+            "stages": {
+                "implement": {
+                    "actor": "implementer",
+                    "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+                },
+                "publish": {"action": "pr.publish"},
+                "merge": {"action": "pr.merge"},
+            },
+            "gates": {
+                "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+                "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+                "ci-green": {"type": "code-host-checks"},
+            },
             "triggers": {},
             "storage": {"ledger": "memory/status.json", "health": "memory/health.json", "audit-log": "memory/audit.jsonl"},
         },
@@ -102,14 +111,14 @@ def test_configure_runtime_uses_workflow_root_pointer_for_change_delivery(tmp_pa
     result = configure_runtime_contract(
         workflow_root=workflow_root,
         preset_name="codex-service",
-        role="coder.default",
+        role="implementer",
         runtime_name="codex",
     )
     cfg = load_workflow_contract_file(contract_path).config
 
-    assert result["changed_roles"] == ["coder.default"]
-    assert cfg["agents"]["coder"]["default"]["runtime"] == "codex"
-    assert cfg["agents"]["coder"]["high-effort"]["runtime"] == "coder-runtime"
+    assert result["changed_roles"] == ["implementer"]
+    assert cfg["actors"]["implementer"]["runtime"] == "codex"
+    assert cfg["actors"]["implementer-high-effort"]["runtime"] == "coder-runtime"
     assert cfg["runtimes"]["codex"] == {
         "kind": "codex-app-server",
         "mode": "external",

@@ -12,6 +12,11 @@ from workflows.contract import (
     load_workflow_contract,
     render_workflow_markdown,
 )
+from workflows.change_delivery.contract_model import (
+    actor_config as change_delivery_actor_config,
+    bind_actor_runtime,
+    change_delivery_actor_names,
+)
 
 
 RUNTIME_PRESETS: dict[str, dict[str, Any]] = {
@@ -136,19 +141,18 @@ def runtime_role_bindings(config: dict[str, Any]) -> list[dict[str, Any]]:
         _append_binding(bindings, role="agent", runtime_name=agent.get("runtime"), runtimes=runtimes)
         return bindings
     if workflow_name == "change-delivery":
-        agents = config.get("agents") if isinstance(config.get("agents"), dict) else {}
-        coder = agents.get("coder") if isinstance(agents.get("coder"), dict) else {}
-        for tier_name in sorted(coder):
-            tier = coder.get(tier_name)
-            if isinstance(tier, dict):
-                _append_binding(bindings, role=f"coder.{tier_name}", runtime_name=tier.get("runtime"), runtimes=runtimes)
-        reviewer = agents.get("internal-reviewer") if isinstance(agents.get("internal-reviewer"), dict) else {}
-        _append_binding(
-            bindings,
-            role="internal-reviewer",
-            runtime_name=reviewer.get("runtime"),
-            runtimes=runtimes,
-        )
+        actors = config.get("actors") if isinstance(config.get("actors"), dict) else {}
+        if actors:
+            for actor_name in change_delivery_actor_names(config):
+                actor = change_delivery_actor_config(config, actor_name)
+                if isinstance(actor, dict):
+                    _append_binding(
+                        bindings,
+                        role=actor_name,
+                        runtime_name=actor.get("runtime"),
+                        runtimes=runtimes,
+                    )
+            return bindings
     return bindings
 
 
@@ -238,41 +242,15 @@ def _bind_issue_runner_role(*, config: dict[str, Any], role: str, runtime_name: 
 
 
 def _bind_change_delivery_role(*, config: dict[str, Any], role: str, runtime_name: str) -> list[str]:
-    agents = config.setdefault("agents", {})
-    if not isinstance(agents, dict):
-        raise RuntimePresetError("change-delivery agents must be a mapping")
+    if isinstance(config.get("actors"), dict):
+        try:
+            return bind_actor_runtime(config, role=role, runtime_name=runtime_name)
+        except ValueError as exc:
+            raise RuntimePresetError(str(exc)) from exc
 
-    changed: list[str] = []
-    if role in {"coder.default", "coder", "all"}:
-        changed.extend(_bind_coder_tiers(agents=agents, tiers=("default",), runtime_name=runtime_name))
-    if role in {"coder.high-effort", "coder", "all"}:
-        changed.extend(_bind_coder_tiers(agents=agents, tiers=("high-effort",), runtime_name=runtime_name))
-    if role in {"internal-reviewer", "reviewer", "all"}:
-        reviewer = agents.setdefault("internal-reviewer", {})
-        if not isinstance(reviewer, dict):
-            raise RuntimePresetError("agents.internal-reviewer must be a mapping")
-        reviewer["runtime"] = runtime_name
-        changed.append("internal-reviewer")
-    if changed:
-        return changed
     raise RuntimePresetError(
-        "change-delivery supports --role coder.default, coder.high-effort, coder, "
-        "internal-reviewer, reviewer, or all"
+        "change-delivery configure-runtime requires an actors: block; use --role <actor-name> or --role all"
     )
-
-
-def _bind_coder_tiers(*, agents: dict[str, Any], tiers: tuple[str, ...], runtime_name: str) -> list[str]:
-    coder = agents.setdefault("coder", {})
-    if not isinstance(coder, dict):
-        raise RuntimePresetError("agents.coder must be a mapping")
-    changed = []
-    for tier_name in tiers:
-        tier = coder.setdefault(tier_name, {})
-        if not isinstance(tier, dict):
-            raise RuntimePresetError(f"agents.coder.{tier_name} must be a mapping")
-        tier["runtime"] = runtime_name
-        changed.append(f"coder.{tier_name}")
-    return changed
 
 
 def _append_binding(

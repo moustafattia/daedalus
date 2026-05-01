@@ -6,12 +6,10 @@ from pathlib import Path
 from typing import Mapping
 
 from workflows.contract import (
-    DEFAULT_WORKFLOW_CONFIG_FILENAME,
     DEFAULT_WORKFLOW_MARKDOWN_FILENAME,
     find_workflow_contract_path,
     load_workflow_contract,
     workflow_markdown_path as _workflow_markdown_path,
-    workflow_yaml_path as _workflow_yaml_path,
 )
 
 DEFAULT_WORKFLOW_ROOT_ENV_VARS = ("DAEDALUS_WORKFLOW_ROOT",)
@@ -49,10 +47,6 @@ def derive_workflow_instance_name(*, repo_slug: str, workflow_name: str) -> str:
     return f"{owner}-{repo}-{workflow}"
 
 
-def workflow_config_path(workflow_root: Path) -> Path:
-    return _workflow_yaml_path(workflow_root)
-
-
 def workflow_markdown_path(workflow_root: Path) -> Path:
     return _workflow_markdown_path(workflow_root)
 
@@ -66,7 +60,7 @@ def workflow_contract_path(workflow_root: Path) -> Path:
     if path is None:
         raise FileNotFoundError(
             f"workflow contract not found under {Path(workflow_root).resolve()} "
-            f"(looked for {DEFAULT_WORKFLOW_CONFIG_FILENAME} and {DEFAULT_WORKFLOW_MARKDOWN_FILENAME})"
+            f"(looked for {DEFAULT_WORKFLOW_MARKDOWN_FILENAME} / WORKFLOW-<name>.md)"
         )
     return path
 
@@ -166,8 +160,6 @@ def _find_workflow_root(start: Path) -> Path | None:
     for candidate in (path, *path.parents):
         if workflow_markdown_path(candidate).exists() and _is_discoverable_markdown_workflow_root(candidate):
             return candidate
-        if workflow_config_path(candidate).exists():
-            return candidate
         pointer_path = repo_local_workflow_pointer_path(candidate)
         if pointer_path.exists():
             try:
@@ -207,7 +199,5 @@ def resolve_default_workflow_root(
     plugin_dir = plugin_root_path(plugin_dir=plugin_dir)
     repo_parent = plugin_dir.parent.resolve()
     if workflow_markdown_path(repo_parent).exists() and _is_discoverable_markdown_workflow_root(repo_parent):
-        return repo_parent
-    if workflow_config_path(repo_parent).exists():
         return repo_parent
     return cwd_path

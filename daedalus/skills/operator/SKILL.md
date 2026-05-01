@@ -32,8 +32,8 @@ Inside Hermes sessions:
 /daedalus shadow-report
 /daedalus doctor
 /daedalus configure-runtime --runtime hermes-final --role agent
-/daedalus configure-runtime --runtime hermes-chat --role internal-reviewer
-/daedalus configure-runtime --runtime codex-service --role coder.default
+/daedalus configure-runtime --runtime hermes-chat --role reviewer
+/daedalus configure-runtime --runtime codex-service --role implementer
 /daedalus active-gate-status
 /daedalus set-active-execution --enabled true
 /daedalus set-active-execution --enabled false
@@ -118,22 +118,21 @@ runtimes:
     session-nudge-cooldown-seconds: 600
 ```
 
-**Agent role** picks a runtime and optionally overrides `command:` (full replacement) and/or `prompt:` (template path):
+**Actor** picks a runtime and optionally overrides `command:` (full replacement) and/or `prompt:` (template path):
 
 ```yaml
-agents:
-  coder:
-    default:
-      runtime: codex-acpx
-      model: gpt-5
-      # prompt: implied as <workspace>/config/prompts/coder.md,
-      #         falls back to bundled prompts/coder.md
-    high:
-      runtime: codex-acpx
-      model: gpt-5
-      command: ["acpx", "--model", "{model}", "--cwd", "{worktree}",
-                "codex", "prompt", "-s", "{session_name}",
-                "--reasoning", "high", "{prompt_path}"]
+actors:
+  implementer:
+    runtime: codex-acpx
+    model: gpt-5
+    # prompt: implied as <workspace>/config/prompts/implement.md,
+    #         falls back to bundled prompts/coder.md
+  implementer-high-effort:
+    runtime: codex-acpx
+    model: gpt-5
+    command: ["acpx", "--model", "{model}", "--cwd", "{worktree}",
+              "codex", "prompt", "-s", "{session_name}",
+              "--reasoning", "high", "{prompt_path}"]
 ```
 
 **Placeholders** filled by the dispatcher:
@@ -143,9 +142,9 @@ agents:
 - `{session_name}` — lane session identifier
 
 **Prompt resolution order** (highest priority first):
-1. `prompt:` on the agent role (absolute or relative to `<workspace>/config/`)
-2. `<workspace>/config/prompts/<role>.md`
-3. Bundled `workflows/change_delivery/prompts/<role>.md`
+1. `prompt:` on the actor (absolute or relative to `<workspace>/config/`)
+2. `<workspace>/config/prompts/<stage-or-actor>.md`
+3. Bundled `workflows/change_delivery/prompts/<stage-or-role>.md`
 
 **Runtime kinds:**
 - `acpx-codex` — persistent Codex sessions via `acpx`
@@ -153,44 +152,37 @@ agents:
 - `hermes-agent` — Hermes CLI runtime; built-in `final` mode uses `hermes -z`, `chat` mode uses `hermes chat --quiet -q`, and custom `command:` overrides are supported
 - `codex-app-server` — managed stdio or external WebSocket Codex app-server runtime with durable thread resume
 
-To swap a coder from Codex to Claude, change one line:
+To swap the implementer from Codex to Claude, change one line:
 
 ```yaml
-agents:
-  coder:
-    default:
-      runtime: claude-oneshot   # was: codex-acpx
-      model: claude-sonnet-4
+actors:
+  implementer:
+    runtime: claude-oneshot   # was: codex-acpx
+    model: claude-sonnet-4
 ```
 
 No code changes required.
 
-## External reviewer config (Phase B — pluggable)
+## PR comment approval gate
 
-Pick a reviewer kind via `agents.external-reviewer.kind`:
+Use a `pr-comment-approval` gate when merge must wait for registered PR
+commenters or reactions:
 
 ```yaml
-agents:
-  external-reviewer:
+gates:
+  maintainer-approval:
+    type: pr-comment-approval
     enabled: true
-    name: ChatGPT_Codex_Cloud
-    kind: github-comments         # default; reads PR review threads
-    repo-slug: owner/repo         # optional; falls back to code-host.github_slug
+    required-for-merge: true
+    repo-slug: owner/repo
     cache-seconds: 300
-    logins:
-      - chatgpt-codex-connector[bot]
-    clean-reactions: ["+1", "rocket", "heart", "hooray"]
+    users:
+      - maintainer
+    approvals: ["+1", "rocket", "heart", "hooray"]
     pending-reactions: ["eyes"]
 ```
 
-**Kinds:**
-- `github-comments` — reads PR review threads via `gh api graphql`. Configurable bot logins, clean/pending reactions, repo slug, cache TTL.
-- `disabled` — no external review; placeholder review with `status: skipped`.
-
-**`enabled: false`** is equivalent to `kind: disabled` regardless of any other field.
-
-**Retired:** the top-level `codex-bot:` block is no longer the public config
-surface. Keep external reviewer settings under `agents.external-reviewer:`.
+Set `enabled: false` to skip the approval gate.
 
 **Prompt overrides:** the repair-handoff prompt now lives at `workflows/change_delivery/prompts/external-reviewer-repair-handoff.md`. Drop a file at `<workspace>/config/prompts/external-reviewer-repair-handoff.md` to override it (Phase A resolution chain).
 
@@ -270,7 +262,6 @@ around the canonical provider-neutral keys.
 
 The one-release back-compat aliases introduced in Phases B / D-1 have been removed:
 - `render_codex_cloud_repair_handoff_prompt` no longer importable — use `render_external_reviewer_repair_handoff_prompt`
-- Top-level `codex-bot:` block in `WORKFLOW.md` is no longer honored — move `logins` / `clean-reactions` / `pending-reactions` into `agents.external-reviewer:`
 - The `run_claude_review` action-type literal is no longer dispatched — only `run_internal_review`
 - `get_review(reviews, key)` no longer falls back to legacy ledger keys — `migrate_persisted_ledger` already ran on D-1 boot
 - 8 functions in `workflows/change_delivery/reviews.py` were renamed (`fetch_codex_cloud_review` → `fetch_external_review`, etc.); old names retained as one-release aliases

@@ -227,12 +227,16 @@ def _make_change_delivery_root(root: Path) -> None:
                     "coder-runtime": {"kind": "codex-app-server", "command": "codex app-server"},
                     "reviewer-runtime": {"kind": "claude-cli", "max-turns-per-invocation": 24, "timeout-seconds": 1200},
                 },
-                "agents": {
-                    "coder": {"default": {"name": "coder", "model": "gpt-5.5", "runtime": "coder-runtime"}},
-                    "internal-reviewer": {"name": "reviewer", "model": "claude-sonnet-4-6", "runtime": "reviewer-runtime"},
-                    "external-reviewer": {"enabled": False, "name": "external"},
+                "actors": {
+                    "implementer": {"name": "coder", "model": "gpt-5.5", "runtime": "coder-runtime"},
+                    "reviewer": {"name": "reviewer", "model": "claude-sonnet-4-6", "runtime": "reviewer-runtime"},
                 },
-                "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+                "stages": {"implement": {"actor": "implementer"}},
+                "gates": {
+                    "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+                    "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+                    "ci-green": {"type": "code-host-checks"},
+                },
                 "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
                 "storage": {
                     "ledger": "memory/workflow-status.json",

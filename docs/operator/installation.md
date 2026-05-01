@@ -152,8 +152,8 @@ At minimum, set:
 - any gates, webhooks, or tracker-feedback settings your repo needs
 
 The YAML front matter is the structured config. The Markdown body below it is
-the workflow policy contract. `change-delivery` composes it into its role
-prompts; `issue-runner` renders it as the issue prompt template.
+the workflow policy contract. `change-delivery` composes it into actor prompts;
+`issue-runner` renders it as the issue prompt template.
 
 For common runtime choices, use the preset command instead of hand-editing the
 runtime block:
@@ -162,8 +162,8 @@ runtime block:
 # default issue-runner role
 hermes daedalus configure-runtime --runtime hermes-final --role agent
 
-# change-delivery coder role backed by the shared Codex listener
-hermes daedalus configure-runtime --runtime codex-service --role coder.default
+# change-delivery implementer actor backed by the shared Codex listener
+hermes daedalus configure-runtime --runtime codex-service --role implementer
 ```
 
 `configure-runtime` edits the repo-owned `WORKFLOW.md` contract, writes the
@@ -326,7 +326,3 @@ cd daedalus
 ./scripts/install.sh
 hermes plugins enable daedalus
 ```
-
-## Legacy migration
-
-`scripts/migrate_config.py` is only for migrating older JSON configs into the new `WORKFLOW.md` shape. It is not the primary onboarding path for new installs.

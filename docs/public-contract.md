@@ -11,7 +11,6 @@ These are the surfaces we should treat as `v1` public contract:
   - `WORKFLOW-<workflow>.md` when a repo carries multiple workflows
   - bootstrap promotion from `WORKFLOW.md` to named contracts must not
     overwrite existing named contracts
-- legacy `config/workflow.yaml` loading for existing instances
 - `hermes plugins install attmous/daedalus --enable`
 - the `hermes_agent.plugins` entry point name `daedalus`
 - `hermes daedalus bootstrap`
@@ -50,6 +49,5 @@ We can refactor those freely as long as the stable surfaces above keep working.
 
 The preferred and scaffolded public path is a repo-owned `WORKFLOW*.md`.
 
-`config/workflow.yaml` remains loadable for legacy workflow roots, but new
-docs, templates, and operators should treat it as migration input rather than
-the primary contract.
+`config/workflow.yaml` is not a supported public workflow contract. Use
+repo-owned `WORKFLOW.md` or `WORKFLOW-<workflow>.md`.

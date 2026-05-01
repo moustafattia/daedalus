@@ -215,12 +215,21 @@ def test_schema_accepts_stall_section():
         "tracker": {"kind": "github", "github_slug": "o/r", "active_states": ["open"], "terminal_states": ["closed"]},
         "code-host": {"kind": "github", "github_slug": "o/r"},
         "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}},
-        "agents": {
-            "coder": {"t1": {"name": "c", "model": "m", "runtime": "r1"}},
-            "internal-reviewer": {"name": "i", "model": "m", "runtime": "r1"},
-            "external-reviewer": {"enabled": False, "name": "e"},
+        "actors": {
+            "implementer": {"name": "c", "model": "m", "runtime": "r1"},
+            "implementer-high-effort": {"name": "c-hi", "model": "m-hi", "runtime": "r1"},
+            "reviewer": {"name": "i", "model": "m", "runtime": "r1"},
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {"actor": "implementer", "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"}},
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
+        },
         "triggers": {"lane-selector": {"type": "github-issue-label", "label": "x"}},
         "storage": {"ledger": "l", "health": "h", "audit-log": "a"},
         "stall": {"timeout_ms": 60000},
@@ -243,12 +252,21 @@ def test_schema_rejects_negative_stall_timeout():
         "tracker": {"kind": "github", "github_slug": "o/r", "active_states": ["open"], "terminal_states": ["closed"]},
         "code-host": {"kind": "github", "github_slug": "o/r"},
         "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}},
-        "agents": {
-            "coder": {"t1": {"name": "c", "model": "m", "runtime": "r1"}},
-            "internal-reviewer": {"name": "i", "model": "m", "runtime": "r1"},
-            "external-reviewer": {"enabled": False, "name": "e"},
+        "actors": {
+            "implementer": {"name": "c", "model": "m", "runtime": "r1"},
+            "implementer-high-effort": {"name": "c-hi", "model": "m-hi", "runtime": "r1"},
+            "reviewer": {"name": "i", "model": "m", "runtime": "r1"},
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {"actor": "implementer", "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"}},
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
+        },
         "triggers": {"lane-selector": {"type": "github-issue-label", "label": "x"}},
         "storage": {"ledger": "l", "health": "h", "audit-log": "a"},
         "stall": {"timeout_ms": -1},

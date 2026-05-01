@@ -95,13 +95,14 @@ for a known runtime shape instead of editing role bindings by hand:
 
 ```bash
 hermes daedalus configure-runtime --runtime hermes-final --role agent
-hermes daedalus configure-runtime --runtime hermes-chat --role internal-reviewer
-hermes daedalus configure-runtime --runtime codex-service --role coder.default
+hermes daedalus configure-runtime --runtime hermes-chat --role reviewer
+hermes daedalus configure-runtime --runtime codex-service --role implementer
 ```
 
 Built-in presets are `hermes-final`, `hermes-chat`, and `codex-service`.
-`issue-runner` supports `agent`; `change-delivery` supports `coder.default`,
-`coder.high-effort`, `internal-reviewer`, `coder`, `reviewer`, and `all`.
+`issue-runner` supports `agent`; `change-delivery` supports the actor names in
+`actors:` such as `implementer`, `implementer-high-effort`, `reviewer`, and
+`all`.
 Run `hermes daedalus validate` and `hermes daedalus doctor` after changing a
 binding. Doctor reports each role-to-runtime binding and whether the required
 CLI or external Codex service appears reachable. Use
@@ -113,7 +114,7 @@ through the configured role runtimes without touching trackers or code hosts.
 The Markdown body is policy text. Workflows decide how to use it:
 
 - `issue-runner` renders it as the issue prompt template.
-- `change-delivery` composes it into workflow-specific role prompts.
+- `change-delivery` composes it into workflow-specific actor prompts.
 
 Treat edits to the body like prompt changes: review them carefully and rely on
 hot reload to keep the last known good config if a bad edit lands.

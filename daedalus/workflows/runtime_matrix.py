@@ -9,6 +9,7 @@ from typing import Any
 from runtimes import build_runtimes
 from runtimes.stages import prompt_result_from_stage, run_runtime_stage
 from workflows.contract import load_workflow_contract
+from workflows.change_delivery.contract_model import actor_config as change_delivery_actor_config
 from workflows.runtime_presets import (
     runtime_availability_checks,
     runtime_binding_checks,
@@ -243,17 +244,10 @@ def _agent_cfg_for_role(config: dict[str, Any], role: str) -> dict[str, Any] | N
 
     if str(config.get("workflow") or "") != "change-delivery":
         return None
-    agents = config.get("agents")
-    if not isinstance(agents, dict):
-        return None
-    if role.startswith("coder."):
-        coder = agents.get("coder")
-        if not isinstance(coder, dict):
-            return None
-        tier = coder.get(role.split(".", 1)[1])
-        return tier if isinstance(tier, dict) else None
-    reviewer = agents.get(role)
-    return reviewer if isinstance(reviewer, dict) else None
+    actors = config.get("actors")
+    if isinstance(actors, dict):
+        return change_delivery_actor_config(config, role)
+    return None
 
 
 def _normalized_filter(values: list[str] | None) -> set[str]:

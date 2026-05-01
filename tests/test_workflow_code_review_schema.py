@@ -16,7 +16,7 @@ def _load_schema() -> dict:
 
 
 def _minimal_valid_config() -> dict:
-    """Smallest workflow.yaml dict that satisfies the existing required fields."""
+    """Smallest change-delivery contract dict that satisfies the required fields."""
     return {
         "workflow": "change-delivery",
         "schema-version": 1,
@@ -41,17 +41,23 @@ def _minimal_valid_config() -> dict:
                 "session-nudge-cooldown-seconds": 1,
             }
         },
-        "agents": {
-            "coder": {
-                "default": {"name": "x", "model": "y", "runtime": "acpx-codex"}
+        "actors": {
+            "implementer": {"name": "x", "model": "y", "runtime": "acpx-codex"},
+            "implementer-high-effort": {"name": "x-hi", "model": "y-hi", "runtime": "acpx-codex"},
+            "reviewer": {"name": "x", "model": "y", "runtime": "acpx-codex"},
+        },
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
             },
-            "internal-reviewer": {"name": "x", "model": "y", "runtime": "acpx-codex"},
-            "external-reviewer": {"enabled": True, "name": "x"},
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
         },
         "gates": {
-            "internal-review": {},
-            "external-review": {},
-            "merge": {},
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
         },
         "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
         "storage": {

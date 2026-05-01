@@ -1,13 +1,8 @@
 """Workflow contract loading for Daedalus.
 
-Daedalus supports two workflow-contract entrypoints:
-
-- ``WORKFLOW.md``: the native public contract
-- ``config/workflow.yaml``: a legacy load-only input
-
-Both ultimately feed the same internal config object. ``WORKFLOW.md`` uses YAML
-front matter for the structured config and its Markdown body as the shared
-workflow policy text.
+Daedalus uses repo-owned ``WORKFLOW.md`` / ``WORKFLOW-<name>.md`` contracts.
+The Markdown file uses YAML front matter for structured config and its body as
+the shared workflow policy text.
 """
 from __future__ import annotations
 
@@ -18,7 +13,6 @@ from typing import Any
 
 import yaml
 
-DEFAULT_WORKFLOW_CONFIG_FILENAME = "config/workflow.yaml"
 DEFAULT_WORKFLOW_MARKDOWN_FILENAME = "WORKFLOW.md"
 WORKFLOW_MARKDOWN_PREFIX = "WORKFLOW-"
 WORKFLOW_CONTRACT_POINTER_RELATIVE_PATH = Path("config") / "workflow-contract-path"
@@ -37,10 +31,6 @@ class WorkflowContract:
     config: dict[str, Any]
     prompt_template: str
     front_matter: dict[str, Any]
-
-
-def workflow_yaml_path(workflow_root: Path) -> Path:
-    return workflow_root.resolve() / DEFAULT_WORKFLOW_CONFIG_FILENAME
 
 
 def workflow_markdown_path(workflow_root: Path) -> Path:
@@ -152,8 +142,7 @@ def find_workflow_contract_path(
     Resolution order:
     1. explicit workflow-root pointer to a repo-owned contract
     2. direct repo-owned contract files under the given path
-    3. legacy in-root ``WORKFLOW.md``
-    4. legacy ``config/workflow.yaml``
+    3. in-root ``WORKFLOW.md``
     """
     root = workflow_root.resolve()
     pointer_target = read_workflow_contract_pointer(root)
@@ -168,9 +157,6 @@ def find_workflow_contract_path(
     if markdown_path.exists():
         return markdown_path
 
-    yaml_path = workflow_yaml_path(root)
-    if yaml_path.exists():
-        return yaml_path
     return None
 
 
@@ -179,7 +165,7 @@ def load_workflow_contract(workflow_root: Path) -> WorkflowContract:
     if path is None:
         raise FileNotFoundError(
             f"workflow contract not found under {Path(workflow_root).resolve()} "
-            f"(looked for {DEFAULT_WORKFLOW_CONFIG_FILENAME} and {DEFAULT_WORKFLOW_MARKDOWN_FILENAME})"
+            f"(looked for {DEFAULT_WORKFLOW_MARKDOWN_FILENAME} / WORKFLOW-<name>.md)"
         )
     return load_workflow_contract_file(path)
 
@@ -187,32 +173,11 @@ def load_workflow_contract(workflow_root: Path) -> WorkflowContract:
 def load_workflow_contract_file(path: Path) -> WorkflowContract:
     resolved = Path(path).expanduser().resolve()
     suffix = resolved.suffix.lower()
-    if suffix in {".yaml", ".yml"}:
-        return _load_yaml_contract(resolved)
     if suffix == ".md":
         return _load_markdown_contract(resolved)
     raise WorkflowContractError(
         f"unsupported workflow contract format for {resolved}; "
-        "expected YAML (.yaml/.yml) or Markdown (.md)"
-    )
-
-
-def _load_yaml_contract(path: Path) -> WorkflowContract:
-    try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise WorkflowContractError(f"YAML parse error in {path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise WorkflowContractError(
-            f"{path} must contain a YAML mapping at the top level"
-        )
-    return WorkflowContract(
-        source_path=path,
-        config=payload,
-        prompt_template=str(payload.get(WORKFLOW_POLICY_KEY) or "").strip()
-        if isinstance(payload.get(WORKFLOW_POLICY_KEY), str)
-        else "",
-        front_matter={},
+        "expected Markdown (.md)"
     )
 
 

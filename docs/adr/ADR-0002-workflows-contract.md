@@ -1,6 +1,6 @@
-# ADR-0002: Workflows contract + YAML config surface
+# ADR-0002: Workflows contract surface
 
-**Status:** Accepted (2026-04-24)
+**Status:** Superseded by repo-owned `WORKFLOW.md` contracts (2026-05-01)
 **Supersedes:** the early `adapters/<project>/` layout
 
 ## Context
@@ -23,16 +23,16 @@ Re-frame the plugin around a **workflow-plugin contract**:
 - Each package exposes a five-attribute contract: `NAME`,
   `SUPPORTED_SCHEMA_VERSIONS`, `CONFIG_SCHEMA_PATH`, `make_workspace`,
   `cli_main`.
-- A dispatcher at `workflows/__init__.py` reads
-  `<workspace>/config/workflow.yaml`, validates against the workflow's
-  JSON Schema, and hands off to `cli_main`.
+- A dispatcher at `workflows/__init__.py` reads the repo-owned `WORKFLOW.md`
+  or `WORKFLOW-<name>.md`, validates the front-matter config against the
+  workflow's JSON Schema, and hands off to `cli_main`.
 - Runtimes (how we talk to models) are pluggable behind a `Runtime`
   `Protocol`; `acpx-codex` and `claude-cli` are the initial
   implementations. Adding a new runtime (Kimi, Gemini, HTTP-API) is a
   new module + schema entry; no dispatcher change.
 - The workspace accessor exposes named runtime instances via
   `ws.runtime(name)`.
-- The YAML config cleanly separates **role** (coder, reviewer) from
+- The contract front matter cleanly separates **role** (coder, reviewer) from
   **identity** (name, model) from **runtime** (plumbing); no more
   Claude-prefixed and inter-review-agent-prefixed aliases for the same
   concept.
@@ -53,8 +53,8 @@ Positive:
 
 Negative:
 
-- Config file shape changed; operators with custom configs must migrate
-  via `scripts/migrate_config.py`.
+- Config file shape changed; operators use the scaffolded repo-owned
+  `WORKFLOW*.md` contract. Workflow-root YAML contracts are no longer loaded.
 - `plugin_entrypoint_path` now returns the generic dispatcher, not the
   per-workflow module; callers that need to pin a workflow use the
   `-m workflows.<name>` form.

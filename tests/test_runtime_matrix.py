@@ -90,12 +90,23 @@ def test_runtime_matrix_reports_change_delivery_role_bindings(tmp_path):
                     "keep_alive": True,
                 },
             },
-            "agents": {
-                "coder": {
-                    "default": {"name": "coder", "model": "gpt-5", "runtime": "codex-service"},
-                    "high-effort": {"name": "coder-hi", "model": "gpt-5.5", "runtime": "hermes-final"},
+            "actors": {
+                "implementer": {"name": "coder", "model": "gpt-5", "runtime": "codex-service"},
+                "implementer-high-effort": {"name": "coder-hi", "model": "gpt-5.5", "runtime": "hermes-final"},
+                "reviewer": {"name": "reviewer", "model": "gpt-5", "runtime": "codex-service"},
+            },
+            "stages": {
+                "implement": {
+                    "actor": "implementer",
+                    "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
                 },
-                "internal-reviewer": {"name": "reviewer", "model": "gpt-5", "runtime": "codex-service"},
+                "publish": {"action": "pr.publish"},
+                "merge": {"action": "pr.merge"},
+            },
+            "gates": {
+                "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+                "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+                "ci-green": {"type": "code-host-checks"},
             },
         },
     )
@@ -104,10 +115,10 @@ def test_runtime_matrix_reports_change_delivery_role_bindings(tmp_path):
     roles = {item["role"]: item for item in report["matrix"]}
 
     assert report["ok"] is True
-    assert set(roles) == {"coder.default", "coder.high-effort", "internal-reviewer"}
-    assert roles["coder.default"]["kind"] == "codex-app-server"
-    assert roles["coder.high-effort"]["kind"] == "hermes-agent"
-    assert roles["internal-reviewer"]["runtime"] == "codex-service"
+    assert set(roles) == {"implementer", "implementer-high-effort", "reviewer"}
+    assert roles["implementer"]["kind"] == "codex-app-server"
+    assert roles["implementer-high-effort"]["kind"] == "hermes-agent"
+    assert roles["reviewer"]["runtime"] == "codex-service"
     assert all(check["status"] == "pass" for check in report["binding_checks"])
 
 
@@ -156,12 +167,17 @@ def test_runtime_matrix_role_filter_ignores_unselected_broken_role(tmp_path):
             "runtimes": {
                 "hermes-command": {"kind": "hermes-agent", "command": _runtime_smoke_command()},
             },
-            "agents": {
-                "coder": {
-                    "default": {"name": "coder", "model": "gpt-5", "runtime": "hermes-command"},
-                    "high-effort": {"name": "coder-hi", "model": "gpt-5.5", "runtime": "missing-runtime"},
-                },
-                "internal-reviewer": {"name": "reviewer", "model": "gpt-5", "runtime": "missing-runtime"},
+            "actors": {
+                "implementer": {"name": "coder", "model": "gpt-5", "runtime": "hermes-command"},
+                "reviewer": {"name": "reviewer", "model": "gpt-5", "runtime": "missing-runtime"},
+            },
+            "stages": {
+                "implement": {"actor": "implementer"},
+                "publish": {"action": "pr.publish"},
+                "merge": {"action": "pr.merge"},
+            },
+            "gates": {
+                "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
             },
         },
     )
@@ -169,11 +185,11 @@ def test_runtime_matrix_role_filter_ignores_unselected_broken_role(tmp_path):
     report = build_runtime_matrix_report(
         workflow_root=root,
         execute=True,
-        roles=["coder.default"],
+        roles=["implementer"],
     )
 
     assert report["ok"] is True
-    assert [item["role"] for item in report["matrix"]] == ["coder.default"]
+    assert [item["role"] for item in report["matrix"]] == ["implementer"]
     assert report["matrix"][0]["smoke"]["ok"] is True
 
 

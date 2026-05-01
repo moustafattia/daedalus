@@ -1,4 +1,4 @@
-"""Schema validation for the lane-selection block in workflow.yaml."""
+"""Schema validation for the lane-selection block in workflow contracts."""
 from pathlib import Path
 
 import jsonschema
@@ -39,12 +39,24 @@ def _minimal_valid_config() -> dict:
                 "session-nudge-cooldown-seconds": 1,
             }
         },
-        "agents": {
-            "coder": {"default": {"name": "x", "model": "y", "runtime": "acpx-codex"}},
-            "internal-reviewer": {"name": "x", "model": "y", "runtime": "acpx-codex"},
-            "external-reviewer": {"enabled": True, "name": "x"},
+        "actors": {
+            "implementer": {"name": "x", "model": "y", "runtime": "acpx-codex"},
+            "implementer-high-effort": {"name": "x-hi", "model": "y-hi", "runtime": "acpx-codex"},
+            "reviewer": {"name": "x", "model": "y", "runtime": "acpx-codex"},
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
+        },
         "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
         "storage": {"ledger": "l", "health": "h", "audit-log": "a"},
     }

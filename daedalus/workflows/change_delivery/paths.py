@@ -24,7 +24,6 @@ _PUBLIC_NAMES = (
     "normalize_project_key",
     "normalize_workflow_instance_segment",
     "derive_workflow_instance_name",
-    "workflow_config_path",
     "workflow_markdown_path",
     "repo_local_workflow_pointer_path",
     "workflow_contract_path",

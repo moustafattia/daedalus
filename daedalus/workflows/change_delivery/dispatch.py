@@ -5,10 +5,9 @@ loads and renders the resolved prompt template, materializes the rendered
 text to a file inside the worktree, fills placeholders in the command argv,
 and invokes the runtime.
 
-Phase A only — no model-tied call sites. The dispatcher itself owns
-template loading + rendering so that the workspace prompt-override surface
-(``agents.<role>.prompt`` or ``<workspace>/config/prompts/<role>.md``)
-actually drives what the agent sees.
+The dispatcher consumes the private compiled execution view. Operators use
+`actors.<name>.prompt` in `WORKFLOW.md`; `change-delivery` compiles that into
+the role/tier shape used here before dispatch.
 """
 from __future__ import annotations
 

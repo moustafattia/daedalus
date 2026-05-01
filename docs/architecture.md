@@ -204,14 +204,14 @@ bundled workflow packages.
 
 | Workflow | Shape | Best for | Docs |
 |---|---|---|---|
-| `change-delivery` | issue -> code -> internal review -> PR -> external review -> merge | opinionated SDLC automation | [`workflows/change-delivery.md`](workflows/change-delivery.md) |
+| `change-delivery` | issue -> actor implementation -> gates -> PR -> merge | SDLC automation with code-host gates | [`workflows/change-delivery.md`](workflows/change-delivery.md) |
 | `issue-runner` | tracker issue -> workspace -> hooks -> prompt -> one agent run | generic tracker-driven automation | [`workflows/issue-runner.md`](workflows/issue-runner.md) |
 
 The workflow package owns the lifecycle. Daedalus owns the durable execution
 machinery around it.
 
 That means:
-- `change-delivery` can define reviewer roles, PR publish, and merge gates.
+- `change-delivery` can define actors, stages, PR publish, approval gates, and merge gates.
 - `issue-runner` can stay smaller and focus on issue selection plus isolated execution.
 - both reuse the same workflow contract loader, runtime adapters, hot-reload primitives, and stall detection.
 

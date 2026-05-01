@@ -16,46 +16,6 @@ def load_module(module_name: str, relative_path: str):
     return module
 
 
-def _write_workflow_yaml(workflow_root: Path, *, instance_name: str = "blueprint-engine") -> None:
-    config_dir = workflow_root / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "workflow.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "workflow": "change-delivery",
-                "schema-version": 1,
-                "instance": {"name": instance_name, "engine-owner": "hermes"},
-                "repository": {
-                    "local-path": str(workflow_root / "repo"),
-                    "slug": "owner/repo",
-                    "active-lane-label": "active-lane",
-                },
-                "tracker": {
-                    "kind": "github",
-                    "github_slug": "owner/repo",
-                    "active_states": ["open"],
-                    "terminal_states": ["closed"],
-                },
-                "code-host": {"kind": "github", "github_slug": "owner/repo"},
-                "runtimes": {"acpx-codex": {"kind": "acpx-codex"}},
-                "agents": {
-                    "coder": {"default": {"name": "Internal_Coder_Agent", "model": "gpt-5.3-codex", "runtime": "acpx-codex"}},
-                    "internal-reviewer": {"name": "Internal_Reviewer_Agent", "model": "claude-sonnet-4-6", "runtime": "acpx-codex"},
-                    "external-reviewer": {"enabled": True, "name": "External_Reviewer_Agent"},
-                },
-                "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
-                "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
-                "storage": {
-                    "ledger": "memory/workflow-status.json",
-                    "health": "memory/workflow-health.json",
-                    "audit-log": "memory/workflow-audit.jsonl",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-
 def _write_workflow_markdown(workflow_root: Path, *, instance_name: str = "blueprint-engine") -> None:
     config = {
         "workflow": "change-delivery",
@@ -74,12 +34,24 @@ def _write_workflow_markdown(workflow_root: Path, *, instance_name: str = "bluep
         },
         "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {"acpx-codex": {"kind": "acpx-codex"}},
-        "agents": {
-            "coder": {"default": {"name": "Internal_Coder_Agent", "model": "gpt-5.3-codex", "runtime": "acpx-codex"}},
-            "internal-reviewer": {"name": "Internal_Reviewer_Agent", "model": "claude-sonnet-4-6", "runtime": "acpx-codex"},
-            "external-reviewer": {"enabled": True, "name": "External_Reviewer_Agent"},
+        "actors": {
+            "implementer": {"name": "Change_Implementer", "model": "gpt-5.3-codex", "runtime": "acpx-codex"},
+            "implementer-high-effort": {"name": "Change_Implementer_High_Effort", "model": "gpt-5.4", "runtime": "acpx-codex"},
+            "reviewer": {"name": "Change_Reviewer", "model": "claude-sonnet-4-6", "runtime": "acpx-codex"},
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
+        },
         "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
         "storage": {
             "ledger": "memory/workflow-status.json",
@@ -141,11 +113,14 @@ def test_resolve_default_workflow_root_prefers_env_var(tmp_path):
     assert resolved == workflow_root.resolve()
 
 
-def test_resolve_default_workflow_root_detects_cwd_ancestor_with_config(tmp_path):
+def test_resolve_default_workflow_root_detects_cwd_ancestor_with_workflow_contract(tmp_path):
     paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
     workflow_root = tmp_path / "workflow-root"
     nested = workflow_root / "workspace" / "repo" / "src"
-    _write_workflow_yaml(workflow_root)
+    _write_workflow_markdown(workflow_root)
+    (workflow_root / "runtime").mkdir(parents=True, exist_ok=True)
+    (workflow_root / "memory").mkdir(parents=True, exist_ok=True)
+    (workflow_root / "state").mkdir(parents=True, exist_ok=True)
     nested.mkdir(parents=True)
 
     resolved = paths_module.resolve_default_workflow_root(
@@ -237,13 +212,6 @@ def test_workflow_cli_argv_uses_global_plugin_entrypoint(tmp_path):
     import sys as _sys
     argv = paths_module.workflow_cli_argv(workflow_root, "status", "--json")
     assert argv == [_sys.executable, str(paths_module.plugin_entrypoint_path(workflow_root)), "status", "--json"]
-
-
-def test_project_key_for_workflow_root_reads_instance_name_from_workflow_yaml(tmp_path):
-    paths_module = load_module("daedalus_workflows_change_delivery_paths_test", "workflows/change_delivery/paths.py")
-    workflow_root = tmp_path / "workflow"
-    _write_workflow_yaml(workflow_root, instance_name="Blueprint Engine")
-    assert paths_module.project_key_for_workflow_root(workflow_root) == "blueprint-engine"
 
 
 def test_project_key_for_workflow_root_reads_instance_name_from_workflow_markdown(tmp_path):

@@ -16,15 +16,14 @@ from workflows.change_delivery.preflight import PreflightResult, run_preflight
 def _minimal_ok_config() -> dict:
     """Minimal config matching the actual change-delivery schema field paths.
 
-    Codex P2 on PR #21 fix: the preflight reads ``runtimes.<name>.kind``
-    and ``agents.external-reviewer.kind`` (the real schema layout), not
-    legacy top-level ``runtime`` / ``external-reviewer`` keys.
+    Preflight reads ``runtimes.<name>.kind`` and public gate types.
     """
     return {
         "workflow": "change-delivery",
         "schema-version": 1,
         "runtimes": {"r1": {"kind": "claude-cli"}},
-        "agents": {"external-reviewer": {"kind": "github-comments"}},
+        "actors": {"reviewer": {"name": "reviewer", "model": "m", "runtime": "r1"}},
+        "gates": {"pre-publish-review": {"type": "agent-review", "actor": "reviewer"}},
         "tracker": {"kind": "github"},
         "code-host": {"kind": "github"},
         "repository": {"github-token": "literal-token"},
@@ -66,9 +65,9 @@ def test_unknown_runtime_kind():
     assert result.can_reconcile is True
 
 
-def test_unknown_reviewer_kind():
+def test_unknown_gate_type():
     cfg = _minimal_ok_config()
-    cfg["agents"]["external-reviewer"]["kind"] = "carrier-pigeon"
+    cfg["gates"]["pre-publish-review"]["type"] = "carrier-pigeon"
     result = run_preflight(cfg)
     assert result.ok is False
     assert result.error_code == "unsupported_reviewer_kind"

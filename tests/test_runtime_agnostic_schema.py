@@ -1,7 +1,6 @@
 """Phase A schema validation tests."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -41,16 +40,24 @@ def _base_config():
                 "session-nudge-cooldown-seconds": 600,
             },
         },
-        "agents": {
-            "coder": {
-                "default": {"name": "c", "model": "m", "runtime": "codex-acpx"},
-            },
-            "internal-reviewer": {
-                "name": "ir", "model": "m", "runtime": "codex-acpx",
-            },
-            "external-reviewer": {"enabled": False, "name": "er"},
+        "actors": {
+            "implementer": {"name": "c", "model": "m", "runtime": "codex-acpx"},
+            "implementer-high-effort": {"name": "c-hi", "model": "m-hi", "runtime": "codex-acpx"},
+            "reviewer": {"name": "ir", "model": "m", "runtime": "codex-acpx"},
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks", "required-for-merge": True},
+        },
         "triggers": {"lane-selector": {"type": "label", "label": "active"}},
         "storage": {"ledger": "x", "health": "x", "audit-log": "x"},
     }
@@ -68,15 +75,15 @@ def test_schema_accepts_command_override_on_runtime():
     Draft7Validator(_schema()).validate(cfg)
 
 
-def test_schema_accepts_command_override_on_coder_tier():
+def test_schema_accepts_command_override_on_actor():
     cfg = _base_config()
-    cfg["agents"]["coder"]["default"]["command"] = ["acpx", "{model}", "{prompt_path}"]
+    cfg["actors"]["implementer"]["command"] = ["acpx", "{model}", "{prompt_path}"]
     Draft7Validator(_schema()).validate(cfg)
 
 
-def test_schema_accepts_prompt_override_on_internal_reviewer():
+def test_schema_accepts_prompt_override_on_actor():
     cfg = _base_config()
-    cfg["agents"]["internal-reviewer"]["prompt"] = "prompts/internal-reviewer.md"
+    cfg["actors"]["reviewer"]["prompt"] = "prompts/reviewer.md"
     Draft7Validator(_schema()).validate(cfg)
 
 
@@ -87,18 +94,6 @@ def test_schema_rejects_empty_command_array():
     cfg["runtimes"]["codex-acpx"]["command"] = []
     with pytest.raises(ValidationError):
         Draft7Validator(_schema()).validate(cfg)
-
-
-def test_existing_installed_workflow_yaml_still_validates():
-    plugin_dir = Path.home() / ".hermes" / "plugins" / "daedalus"
-    if not plugin_dir.exists():
-        pytest.skip("installed workflow plugin not present on this host")
-    workflow_root = plugin_dir.resolve().parents[2]
-    workflow_yaml = workflow_root / "config" / "workflow.yaml"
-    if not workflow_yaml.exists():
-        pytest.skip("installed workflow config not present on this host")
-    cfg = yaml.safe_load(workflow_yaml.read_text())
-    Draft7Validator(_schema()).validate(cfg)
 
 
 def test_schema_rejects_typo_in_runtime_command_field():

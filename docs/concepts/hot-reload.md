@@ -4,7 +4,7 @@ Symphony §6.2 + §6.3. The two halves of "edits to the workflow contract should
 
 ## §6.2 Hot-reload
 
-The workflow contract (`WORKFLOW.md` for new instances, `config/workflow.yaml` for legacy ones) is re-parsed and re-validated on every tick. The new config replaces the old one **only if** parse + validate both succeed. A bad edit keeps the previous good config alive — the next valid save picks up automatically.
+The workflow contract (`WORKFLOW.md` or `WORKFLOW-<name>.md`) is re-parsed and re-validated on every tick. The new config replaces the old one **only if** parse + validate both succeed. A bad edit keeps the previous good config alive — the next valid save picks up automatically.
 
 ```mermaid
 flowchart TD

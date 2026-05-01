@@ -70,16 +70,19 @@ runtimes:
     session-idle-grace-seconds: 1800
     session-nudge-cooldown-seconds: 600
 
-agents:
-  coder:
-    t1: { name: claude-coder, model: opus, runtime: coder-runtime }
-  internal-reviewer:
+actors:
+  implementer:
+    name: claude-implementer
+    model: opus
+    runtime: coder-runtime
+  reviewer:
     name: codex-reviewer
     model: gpt-5
     runtime: reviewer-runtime
 ```
 
-The preflight pass walks `runtimes.<name>.kind` and `agents.external-reviewer.kind` to confirm every referenced runtime resolves to a registered adapter before a tick dispatches.
+The preflight pass walks `runtimes.<name>.kind` and workflow-specific gate
+types to confirm the contract can dispatch safely before a tick runs.
 
 ## Configure with Presets
 
@@ -87,12 +90,12 @@ For common choices, let Daedalus edit the repo-owned workflow contract:
 
 ```bash
 hermes daedalus configure-runtime --runtime hermes-final --role agent
-hermes daedalus configure-runtime --runtime hermes-chat --role internal-reviewer
-hermes daedalus configure-runtime --runtime codex-service --role coder.default
+hermes daedalus configure-runtime --runtime hermes-chat --role reviewer
+hermes daedalus configure-runtime --runtime codex-service --role implementer
 ```
 
 The command writes a named profile under `runtimes:` and updates the selected
-role under `agent:` or `agents:`. Use `--runtime-name` if you want the profile
+role under `agent:` or actor under `actors:`. Use `--runtime-name` if you want the profile
 key to be different from the preset name. Use `--dry-run --json` to inspect the
 change without writing the file.
 
