@@ -323,6 +323,217 @@ def test_derive_shadow_actions_requests_internal_review_without_review_row(runti
     ]
 
 
+def test_derive_shadow_actions_dispatches_local_review_repair_handoff_when_session_routable(runtime_module):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "workflow_state": "claude_prepublish_findings",
+            "active_pr_number": None,
+            "current_head_sha": "abc123",
+            "repair_brief_json": json.dumps(
+                {
+                    "forHeadSha": "abc123",
+                    "mustFix": [{"summary": "Fix validation"}],
+                    "shouldFix": [],
+                }
+            ),
+        },
+        reviews=[
+            {
+                "reviewer_scope": "internal",
+                "status": "completed",
+                "verdict": "PASS_WITH_FINDINGS",
+                "review_scope": "local-prepublish",
+                "reviewed_head_sha": "abc123",
+                "completed_at": "2026-04-22T00:05:00Z",
+            }
+        ],
+        actor_row={
+            "backend_identity": "lane-221",
+            "runtime_status": "healthy",
+            "session_action_recommendation": "continue-session",
+            "metadata_json": json.dumps({"sessionControl": {}}),
+        },
+    )
+
+    assert actions == [
+        {
+            "action_type": "dispatch_repair_handoff",
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "target_head_sha": "abc123",
+            "reason": "local-review-findings-need-repair",
+        }
+    ]
+
+
+def test_derive_shadow_actions_skips_duplicate_local_review_repair_handoff(runtime_module):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "workflow_state": "claude_prepublish_findings",
+            "active_pr_number": None,
+            "current_head_sha": "abc123",
+            "repair_brief_json": json.dumps(
+                {
+                    "forHeadSha": "abc123",
+                    "mustFix": [{"summary": "Fix validation"}],
+                    "shouldFix": [],
+                }
+            ),
+        },
+        reviews=[
+            {
+                "reviewer_scope": "internal",
+                "status": "completed",
+                "verdict": "PASS_WITH_FINDINGS",
+                "review_scope": "local-prepublish",
+                "reviewed_head_sha": "abc123",
+                "completed_at": "2026-04-22T00:05:00Z",
+            }
+        ],
+        actor_row={
+            "backend_identity": "lane-221",
+            "runtime_status": "healthy",
+            "session_action_recommendation": "continue-session",
+            "metadata_json": json.dumps(
+                {
+                    "sessionControl": {
+                        "lastClaudeRepairHandoff": {
+                            "sessionName": "lane-221",
+                            "headSha": "abc123",
+                            "reviewedAt": "2026-04-22T00:05:00Z",
+                        }
+                    }
+                }
+            ),
+        },
+    )
+
+    assert actions == []
+
+
+def test_persist_shadow_actions_returns_existing_action_on_idempotency_conflict(runtime_module, tmp_path):
+    workflow_root = tmp_path / "workflow"
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    paths = runtime_module._runtime_paths(workflow_root)
+    now_iso = "2026-04-22T00:00:00Z"
+    repair_brief = {
+        "forHeadSha": "abc123",
+        "mustFix": [{"summary": "Fix validation"}],
+        "shouldFix": [],
+    }
+    conn = runtime_module._connect(paths["db_path"])
+    try:
+        conn.execute(
+            """
+            INSERT INTO lanes (
+              lane_id, issue_number, issue_url, issue_title, repo_path, actor_backend,
+              lane_status, workflow_state, review_state, merge_state, current_head_sha,
+              repair_brief_json, active_actor_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "lane:221",
+                221,
+                "https://example.com/issues/221",
+                "Issue 221",
+                "/tmp/repo",
+                "acpx-codex",
+                "active",
+                "claude_prepublish_findings",
+                "findings_open",
+                "blocked",
+                "abc123",
+                json.dumps(repair_brief),
+                "actor:lane:221:coder",
+                now_iso,
+                now_iso,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO lane_actors (
+              actor_id, lane_id, actor_role, actor_name, backend_type, backend_identity,
+              model_name, runtime_status, session_action_recommendation, last_seen_at,
+              last_used_at, can_continue, can_nudge, restart_count, failure_count,
+              metadata_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "actor:lane:221:coder",
+                "lane:221",
+                "Internal_Coder_Agent",
+                "Internal_Coder_Agent",
+                "acpx-codex",
+                "lane-221",
+                "gpt-5.3-codex",
+                "healthy",
+                "continue-session",
+                now_iso,
+                now_iso,
+                1,
+                0,
+                0,
+                0,
+                json.dumps({"sessionControl": {}}),
+                now_iso,
+                now_iso,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO lane_reviews (
+              review_id, lane_id, reviewer_scope, reviewer_role, reviewer_name,
+              backend_type, status, verdict, reviewed_head_sha, review_scope,
+              completed_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "review:lane:221:internal",
+                "lane:221",
+                "internal",
+                "Internal_Reviewer_Agent",
+                "Internal_Reviewer_Agent",
+                "internalReview",
+                "completed",
+                "PASS_WITH_FINDINGS",
+                "abc123",
+                "local-prepublish",
+                "2026-04-22T00:05:00Z",
+                now_iso,
+                now_iso,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    first = runtime_module.persist_shadow_actions(
+        workflow_root=workflow_root,
+        lane_id="lane:221",
+        now_iso="2026-04-22T00:06:00Z",
+    )
+    second = runtime_module.persist_shadow_actions(
+        workflow_root=workflow_root,
+        lane_id="lane:221",
+        now_iso="2026-04-22T00:07:00Z",
+    )
+
+    assert first[0]["action_type"] == "dispatch_repair_handoff"
+    assert second == first
+    conn = runtime_module._connect(paths["db_path"])
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM lane_actions WHERE action_mode='shadow' AND action_type='dispatch_repair_handoff'"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1
+
+
 def test_execute_requested_action_records_ambiguous_failure_without_name_error(runtime_module, tmp_path):
     workflow_root = tmp_path / "workflow"
     paths = runtime_module._runtime_paths(workflow_root)

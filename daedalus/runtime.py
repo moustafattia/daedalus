@@ -1267,6 +1267,14 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
         and (repair_brief.get("mustFix") or repair_brief.get("shouldFix"))
     )
     last_codex_cloud_handoff = session_control.get("lastCodexCloudRepairHandoff") or {}
+    last_claude_handoff = session_control.get("lastClaudeRepairHandoff") or {}
+    internal_review_completed_at = (internal_review or {}).get("completed_at")
+    local_repair_handoff_already_sent = bool(
+        last_claude_handoff.get("sessionName") == actor_row.get("backend_identity")
+        and last_claude_handoff.get("headSha") == current_head_sha
+        and internal_review
+        and last_claude_handoff.get("reviewedAt") == internal_review_completed_at
+    )
     repair_handoff_already_sent = bool(
         last_codex_cloud_handoff.get("sessionName") == actor_row.get("backend_identity")
         and last_codex_cloud_handoff.get("headSha") == current_head_sha
@@ -1302,6 +1310,28 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
             "issue_number": lane_row.get("issue_number"),
             "target_head_sha": current_head_sha,
             "reason": "implementation-in-progress",
+        }]
+    if (
+        workflow_state in {"claude_prepublish_findings", "rework_required"}
+        and not active_pr_number
+        and internal_review
+        and internal_review.get("status") == "completed"
+        and internal_review.get("verdict") in {"PASS_WITH_FINDINGS", "REWORK"}
+        and current_head_sha
+        and internal_review.get("reviewed_head_sha") == current_head_sha
+        and internal_review.get("review_scope") == "local-prepublish"
+        and has_actionable_repair_brief
+        and actor_row.get("runtime_status") == "healthy"
+        and actor_row.get("session_action_recommendation") in {"continue-session", "poke-session"}
+        and actor_row.get("backend_identity")
+        and not local_repair_handoff_already_sent
+    ):
+        return [{
+            "action_type": "dispatch_repair_handoff",
+            "lane_id": lane_row.get("lane_id"),
+            "issue_number": lane_row.get("issue_number"),
+            "target_head_sha": current_head_sha,
+            "reason": "local-review-findings-need-repair",
         }]
     if (
         workflow_state in {"claude_prepublish_findings", "rework_required"}
@@ -1472,6 +1502,17 @@ def persist_shadow_actions(*, workflow_root: Path, lane_id: str, now_iso: str | 
                         "mode": "shadow",
                     },
                 })
+            else:
+                existing = conn.execute(
+                    """
+                    SELECT action_id
+                    FROM lane_actions
+                    WHERE idempotency_key=?
+                    """,
+                    (idempotency_key,),
+                ).fetchone()
+                if existing:
+                    persisted.append({**action, "action_id": dict(existing)["action_id"]})
         conn.commit()
     finally:
         conn.close()
