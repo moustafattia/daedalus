@@ -13,6 +13,7 @@ It is specifically written for the opinionated `change-delivery` workflow.
 |:---|:---|
 | **Check status** | `/daedalus status` |
 | **Full health check** | `/daedalus doctor` |
+| **Validate config** | `/daedalus validate` |
 | **Live dashboard** | `/daedalus watch` |
 | **Event retention posture** | `/daedalus events stats` |
 | **Service health** | `systemctl --user status daedalus-active@<profile>.service` |
@@ -54,6 +55,7 @@ It is specifically written for the opinionated `change-delivery` workflow.
 ```text
 /daedalus status              # Runtime row, lane count, paths, freshness
 /daedalus doctor              # Full health check across all subsystems
+/daedalus validate            # Validate WORKFLOW.md, schema, and preflight rules
 /daedalus watch               # Live TUI: lanes + alerts + events
 /daedalus events stats        # Event counts plus retention limit posture
 /daedalus shadow-report       # Diff shadow plan vs active reality

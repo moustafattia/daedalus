@@ -157,8 +157,14 @@ prompts; `issue-runner` renders it as the issue prompt template.
 ## Bring it up
 
 ```bash
+hermes daedalus validate
 hermes daedalus service-up
 ```
+
+Run `validate` after editing `WORKFLOW.md`. It checks the contract file,
+workflow schema, schema version, instance naming, repository path, service mode,
+and workflow preflight rules. `service-up` runs the same validation again before
+it installs or starts the user service.
 
 `service-up` runs the supported post-edit path in one command:
 

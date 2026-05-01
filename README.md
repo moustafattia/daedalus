@@ -43,6 +43,7 @@ hermes plugins install attmous/daedalus --enable
 cd /path/to/your/repo
 hermes daedalus bootstrap
 $EDITOR WORKFLOW.md
+hermes daedalus validate
 hermes daedalus service-up
 hermes
 ```
@@ -77,6 +78,7 @@ Inside Hermes Agent:
 # Daedalus engine and service commands
 /daedalus status                            # show runtime state, workflow root, and important paths
 /daedalus doctor                            # run health checks across config, service, state, and integrations
+/daedalus validate                          # validate WORKFLOW.md, schema, service mode, and preflight
 /daedalus watch                             # render a live operator view
 /daedalus events --limit 20                 # inspect the durable engine event ledger
 /daedalus service-status                    # show the systemd user service state

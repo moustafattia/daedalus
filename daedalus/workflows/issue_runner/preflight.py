@@ -21,15 +21,15 @@ class PreflightResult:
     error_detail: str | None = None
 
 
-def run_preflight(config: dict[str, Any]) -> PreflightResult:
+def run_preflight(config: dict[str, Any], *, workflow_root: Path | None = None) -> PreflightResult:
     try:
-        _validate_config(config)
+        _validate_config(config, workflow_root=workflow_root or Path("."))
     except RuntimeError as exc:
         return PreflightResult(ok=False, error_code="invalid-config", error_detail=str(exc))
     return PreflightResult(ok=True)
 
 
-def _validate_config(config: dict[str, Any]) -> None:
+def _validate_config(config: dict[str, Any], *, workflow_root: Path) -> None:
     daedalus_cfg = config.get("daedalus") or {}
     runtimes = config.get("runtimes") or (daedalus_cfg.get("runtimes") if isinstance(daedalus_cfg, dict) else {}) or {}
     agent = config.get("agent") or {}
@@ -53,7 +53,6 @@ def _validate_config(config: dict[str, Any]) -> None:
     elif not (agent.get("command") or codex_cfg.get("command")):
         raise RuntimeError("issue-runner requires agent.runtime, agent.command, or codex.command")
 
-    workflow_root = Path(".")
     tracker_cfg = config.get("tracker") or {}
     repository_cfg = config.get("repository") or {}
     repo_raw = str(
@@ -86,7 +85,9 @@ def _validate_config(config: dict[str, Any]) -> None:
                 repo_path=repo_path,
             )
         if str(tracker_cfg.get("kind") or "").strip() == "local-json":
-            resolve_tracker_path(workflow_root=workflow_root, tracker_cfg=tracker_cfg)
+            path = resolve_tracker_path(workflow_root=workflow_root, tracker_cfg=tracker_cfg)
+            if not path.exists():
+                raise TrackerConfigError(f"tracker.path does not exist: {path}")
         client = build_tracker_client(
             workflow_root=workflow_root,
             tracker_cfg=tracker_client_cfg,

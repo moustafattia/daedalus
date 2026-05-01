@@ -13,6 +13,7 @@ must expose these five attributes in its package ``__init__.py``:
 from __future__ import annotations
 
 import importlib
+import inspect
 from pathlib import Path
 from types import ModuleType
 
@@ -115,7 +116,10 @@ def run_cli(
         and invoked_command in gated_commands
     )
     if should_gate:
-        result = preflight_fn(cfg)
+        if "workflow_root" in inspect.signature(preflight_fn).parameters:
+            result = preflight_fn(cfg, workflow_root=workflow_root)
+        else:
+            result = preflight_fn(cfg)
         if not getattr(result, "ok", True):
             _emit_dispatch_skipped_event(
                 workflow_root=workflow_root,

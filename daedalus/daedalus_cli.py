@@ -38,6 +38,7 @@ from workflows.contract import (
     workflow_markdown_path,
     write_workflow_contract_pointer,
 )
+from workflows.validation import validate_workflow_contract
 from workflows.shared.paths import (
     derive_workflow_instance_name,
     plugin_runtime_path,
@@ -423,13 +424,21 @@ def install_supervised_service(
     interval_seconds: int,
     service_name: str | None = None,
     service_mode: str = "shadow",
+    validate_contract: bool = True,
 ) -> dict[str, Any]:
     plugin_runtime_path = _expected_plugin_runtime_path(workflow_root)
     if not plugin_runtime_path.exists():
         raise DaedalusCommandError(
             f"Daedalus plugin runtime not found at {plugin_runtime_path}; install the plugin into ~/.hermes/plugins/daedalus before installing the service"
         )
-    workflow_name = _assert_service_mode_supported(workflow_root=workflow_root, service_mode=service_mode)
+    if validate_contract:
+        preflight_result = _validate_workflow_contract_preflight_for_service(
+            workflow_root=workflow_root,
+            service_mode=service_mode,
+        )
+        workflow_name = str(preflight_result.get("workflow") or "")
+    else:
+        workflow_name = _assert_service_mode_supported(workflow_root=workflow_root, service_mode=service_mode)
     workspace = workflow_root.name
     resolved_service_name = _resolve_service_name(
         service_name=service_name, service_mode=service_mode, workspace=workspace
@@ -460,51 +469,51 @@ def install_supervised_service(
 
 
 def _validate_workflow_contract_preflight(workflow_root: Path) -> dict[str, Any]:
-    import jsonschema
-    from workflows import load_workflow
+    return _validate_workflow_contract_preflight_for_service(
+        workflow_root=workflow_root,
+        service_mode=None,
+    )
 
-    contract = load_workflow_contract(workflow_root)
-    config = contract.config
-    workflow_name = config.get("workflow")
-    if not workflow_name:
-        raise DaedalusCommandError(
-            f"{contract.source_path} is missing top-level `workflow:` field"
-        )
-    module = load_workflow(str(workflow_name))
-    schema = yaml.safe_load(module.CONFIG_SCHEMA_PATH.read_text(encoding="utf-8"))
-    jsonschema.validate(config, schema)
-    schema_version = int(config.get("schema-version", 1))
-    if schema_version not in module.SUPPORTED_SCHEMA_VERSIONS:
-        raise DaedalusCommandError(
-            f"workflow {workflow_name!r} does not support schema-version={schema_version}; "
-            f"supported: {list(module.SUPPORTED_SCHEMA_VERSIONS)}"
-        )
-    preflight_fn = getattr(module, "run_preflight", None)
-    if callable(preflight_fn):
-        result = preflight_fn(config)
-        if not getattr(result, "ok", True):
-            raise DaedalusCommandError(
-                f"workflow preflight failed for {workflow_name!r}: "
-                f"code={getattr(result, 'error_code', None)} "
-                f"detail={getattr(result, 'error_detail', None)}"
-            )
-        return {
-            "ok": True,
-            "workflow": workflow_name,
-            "schema_version": schema_version,
-            "preflight": {
-                "ok": True,
-                "error_code": getattr(result, "error_code", None),
-                "error_detail": getattr(result, "error_detail", None),
-            },
-            "source_path": str(contract.source_path),
-        }
+
+def build_validate_report(*, workflow_root: Path, service_mode: str | None = None) -> dict[str, Any]:
+    return validate_workflow_contract(workflow_root, service_mode=service_mode)
+
+
+def _validation_failure_summary(report: dict[str, Any]) -> str:
+    failures = report.get("failures") or []
+    if not failures:
+        return "workflow contract validation failed"
+    lines = ["workflow contract validation failed:"]
+    for check in failures[:8]:
+        lines.append(f"- {check.get('name')}: {check.get('detail')}")
+        for item in (check.get("items") or [])[:5]:
+            path = item.get("path") or "<root>"
+            message = item.get("message") or item
+            lines.append(f"  {path}: {message}")
+    if len(failures) > 8:
+        lines.append(f"- ... {len(failures) - 8} more failing checks")
+    return "\n".join(lines)
+
+
+def _assert_workflow_validation_ok(report: dict[str, Any]) -> None:
+    if not report.get("ok"):
+        raise DaedalusCommandError(_validation_failure_summary(report))
+
+
+def _validate_workflow_contract_preflight_for_service(
+    *,
+    workflow_root: Path,
+    service_mode: str | None,
+) -> dict[str, Any]:
+    report = build_validate_report(workflow_root=workflow_root, service_mode=service_mode)
+    _assert_workflow_validation_ok(report)
     return {
         "ok": True,
-        "workflow": workflow_name,
-        "schema_version": schema_version,
-        "preflight": {"ok": True, "error_code": None, "error_detail": None},
-        "source_path": str(contract.source_path),
+        "workflow": report.get("workflow"),
+        "schema_version": report.get("schema_version"),
+        "source_path": report.get("source_path"),
+        "checks": report.get("checks") or [],
+        "warnings": report.get("warnings") or [],
     }
 
 
@@ -796,7 +805,10 @@ def service_up(
     service_name: str | None = None,
     service_mode: str = "active",
 ) -> dict[str, Any]:
-    preflight_result = _validate_workflow_contract_preflight(workflow_root)
+    preflight_result = _validate_workflow_contract_preflight_for_service(
+        workflow_root=workflow_root,
+        service_mode=service_mode,
+    )
     workflow_name = preflight_result.get("workflow")
     if workflow_name == "change-delivery":
         daedalus = _load_daedalus_module(workflow_root)
@@ -816,6 +828,7 @@ def service_up(
         interval_seconds=interval_seconds,
         service_name=service_name,
         service_mode=service_mode,
+        validate_contract=False,
     )
     if not install_result.get("installed"):
         daemon_reload = install_result.get("daemon_reload") or {}
@@ -2934,6 +2947,18 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     doctor_cmd.set_defaults(func=run_cli_command)
 
+    validate_cmd = sub.add_parser("validate", help="Validate the repo-owned WORKFLOW.md contract and workflow preflight rules.")
+    validate_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
+    validate_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES))
+    validate_cmd.add_argument("--json", action="store_true")
+    validate_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
+    validate_cmd.set_defaults(func=run_cli_command)
+
     runs_cmd = sub.add_parser("runs", help="Inspect durable engine run history and run timelines.")
     runs_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     runs_cmd.add_argument("runs_action", nargs="?", default="list", choices=["list", "failed", "stale", "show"])
@@ -3396,7 +3421,7 @@ def _resolve_format(format_arg: str | None, json_flag: bool | None) -> str:
 def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     workflow_root = Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
     daedalus = _load_daedalus_module(workflow_root) if workflow_root is not None else None
-    eventless_commands = {"codex-app-server", "runs", "events"}
+    eventless_commands = {"codex-app-server", "runs", "events", "validate"}
     if (
         workflow_root is not None
         and daedalus is not None
@@ -3443,6 +3468,11 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
         return build_doctor_report(
             workflow_root=workflow_root,
             recent_actions_limit=args.recent_actions_limit,
+        )
+    if args.daedalus_command == "validate":
+        return build_validate_report(
+            workflow_root=workflow_root,
+            service_mode=getattr(args, "service_mode", None),
         )
     if args.daedalus_command == "runs":
         return build_runs_report(
@@ -3735,6 +3765,26 @@ def render_result(
             spec.loader.exec_module(mod)
             _fmt = mod.format_doctor
         return _fmt(result)
+    if command == "validate":
+        checks = result.get("checks") or []
+        failures = result.get("failures") or []
+        warnings = result.get("warnings") or []
+        lines = [
+            f"workflow contract valid={result.get('ok')} workflow={result.get('workflow')}",
+            f"source={result.get('source_path')}",
+            f"checks={len(checks)} failures={len(failures)} warnings={len(warnings)}",
+        ]
+        for check in checks:
+            prefix = {"pass": "PASS", "warn": "WARN", "fail": "FAIL", "skip": "SKIP"}.get(
+                str(check.get("status")),
+                str(check.get("status")).upper(),
+            )
+            lines.append(f"- {prefix} {check.get('name')}: {check.get('detail')}")
+            for item in (check.get("items") or [])[:5]:
+                path = item.get("path") if isinstance(item, dict) else None
+                message = item.get("message") if isinstance(item, dict) else str(item)
+                lines.append(f"  {path or '<root>'}: {message}")
+        return "\n".join(lines)
     if command == "runs":
         if result.get("mode") == "show":
             run = result.get("run") or {}

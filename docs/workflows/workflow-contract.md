@@ -66,6 +66,26 @@ The YAML front matter is structured operator configuration:
 
 Each workflow validates this section against its own schema before dispatch.
 
+Validate it explicitly after every config edit:
+
+```bash
+hermes daedalus validate
+hermes daedalus validate --service-mode active --format json
+```
+
+The validator checks:
+
+| Check | What it catches |
+|---|---|
+| Contract file | Missing file, parse errors, unsupported format |
+| Workflow package | Unknown workflow names or broken workflow packages |
+| Schema | Missing fields, wrong types, unsupported enum values |
+| Schema version | Contract versions not supported by the installed plugin |
+| Service mode | Invalid modes, such as `shadow` for `issue-runner` |
+| Instance name | `instance.name` not matching the workflow root directory |
+| Repository path | Missing or non-directory `repository.local-path` |
+| Workflow preflight | Tracker/runtime references that cannot dispatch safely |
+
 ## Markdown Body
 
 The Markdown body is policy text. Workflows decide how to use it:
@@ -78,5 +98,11 @@ hot reload to keep the last known good config if a bad edit lands.
 
 ## Examples
 
-- [`docs/examples/issue-runner.workflow.md`](../examples/issue-runner.workflow.md)
-- [`docs/examples/change-delivery.workflow.md`](../examples/change-delivery.workflow.md)
+| Example | Use it when |
+|---|---|
+| [`docs/examples/issue-runner.workflow.md`](../examples/issue-runner.workflow.md) | You want the default generic issue-runner contract. |
+| [`docs/examples/change-delivery.workflow.md`](../examples/change-delivery.workflow.md) | You want the opinionated issue-to-PR-to-merge contract. |
+
+For production, start from the same examples and fill in tracker credentials,
+real runtime profiles, retention limits, hooks, gates, and observability
+settings before running `hermes daedalus service-up`.
