@@ -37,7 +37,7 @@ should be backed by documentation, tests, or an operator smoke path.
 | Public-surface guardrails | Strong | Generic examples, placeholder-only `projects/`, packaging checks |
 | Agent-legible workflows | Good | Workflow docs link the default templates and operator paths |
 | Custom structural checks | Good | Public harness tests and workflow-template drift checks |
-| Live integration evidence | Partial | GitHub and real Codex app-server smoke tests are opt-in |
+| Live integration evidence | Partial | Opt-in GitHub smoke covers feedback, retry recovery, and terminal cleanup; real Codex app-server smokes remain opt-in |
 | Recurring cleanup discipline | Partial | Guardrails exist, but no scheduled quality task yet |
 
 ## Gates Before Community Launch
@@ -49,18 +49,20 @@ should be backed by documentation, tests, or an operator smoke path.
 5. Keep Linear documented as experimental until it has first-class operator docs.
 6. Keep workflow examples synchronized with packaged templates.
 7. Keep Codex app-server real-runtime tests opt-in and fake protocol tests in CI.
-8. Add live GitHub coverage for comments, labels, and failure recovery before
-   calling GitHub automation production-grade.
-9. Add an end-to-end `change-delivery` Codex app-server smoke before calling the
-   flagship workflow app-server-complete.
+8. Keep the live GitHub smoke runnable before calling GitHub automation
+   production-grade.
+9. Expand the `change-delivery` Codex app-server smoke from fixture validation
+   into a full issue-to-PR-to-review-to-merge E2E before calling the flagship
+   workflow app-server-complete.
 10. Add scheduled cleanup or scorecard refresh work before claiming mature
     harness-engineering discipline.
 
 ## Next Hardening Slice
 
-The highest-leverage next implementation slice is live integration evidence:
+The highest-leverage next implementation slice is public-surface drift control:
 
-1. Extend the GitHub smoke to cover issue comments, labels, and retry/failure
-   recovery.
-2. Add a skipped-by-default `change-delivery` Codex app-server end-to-end smoke.
-3. Add docs/CLI drift checks for commands shown in operator docs.
+1. Add docs/CLI drift checks for commands shown in operator docs.
+2. Teach the `change-delivery` Codex app-server smoke fixture to create and
+   clean up its own GitHub artifacts.
+3. Add a one-command local harness that runs all opt-in live smokes when the
+   required environment variables are present.

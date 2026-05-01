@@ -36,7 +36,7 @@ tracker-feedback:
 
 | Tracker | Feedback behavior |
 |---|---|
-| GitHub | Posts issue comments through `gh issue comment`. |
+| GitHub | Posts issue comments through `gh issue comment`; applies configured `open`/`closed` state updates and ignores other tracker states. |
 | `local-json` | Appends `comments[]`, updates `updated_at`, and applies configured state changes. |
 | Linear | Adapter exists for reads; feedback publishing is deferred. |
 

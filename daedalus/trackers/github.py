@@ -131,6 +131,16 @@ def _subprocess_run_json(command: list[str], *, cwd: Path | None = None) -> Any:
     return payload
 
 
+def _subprocess_run(command: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=str(cwd) if cwd else None,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def github_slug_from_config(
     tracker_cfg: dict[str, Any],
     repository_cfg: dict[str, Any] | None = None,
@@ -243,6 +253,7 @@ class GithubTrackerClient:
         workflow_root: Path,
         tracker_cfg: dict[str, Any],
         repo_path: Path | None = None,
+        run: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         run_json: Callable[..., Any] | None = None,
     ):
         self._workflow_root = workflow_root
@@ -254,6 +265,7 @@ class GithubTrackerClient:
             required=github_slug_from_config(tracker_cfg) is None,
         )
         self._repo_slug = github_slug_from_config(tracker_cfg)
+        self._run = run or _subprocess_run
         self._run_json = run_json or _subprocess_run_json
 
     @property
@@ -426,19 +438,34 @@ class GithubTrackerClient:
         issue_number = _coerce_issue_number(issue_id)
         if issue_number is None:
             raise TrackerConfigError("issue_id is required when posting GitHub feedback")
-        completed = subprocess.run(
+        completed = self._run(
             self._with_repo(["gh", "issue", "comment", issue_number, "--body", body]),
-            cwd=str(self._repo_path) if self._repo_path else None,
-            check=True,
-            capture_output=True,
-            text=True,
+            cwd=self._repo_path,
         )
+        applied_state = None
+        requested_state = str(state or "").strip().lower()
+        if requested_state:
+            if requested_state == "closed":
+                self._run(
+                    self._with_repo(["gh", "issue", "close", issue_number]),
+                    cwd=self._repo_path,
+                )
+                applied_state = "closed"
+            elif requested_state == "open":
+                self._run(
+                    self._with_repo(["gh", "issue", "reopen", issue_number]),
+                    cwd=self._repo_path,
+                )
+                applied_state = "open"
+            else:
+                applied_state = None
         return {
             "ok": True,
             "kind": self.kind,
             "issue_id": issue_number,
             "event": event,
-            "state": None,
+            "state": applied_state,
             "requested_state": state,
+            "unsupported_state": requested_state if requested_state and applied_state is None else None,
             "url": (completed.stdout or "").strip() or None,
         }

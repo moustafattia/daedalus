@@ -2060,6 +2060,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
             workflow_root=self.path,
             tracker_cfg=tracker_client_cfg,
             repo_path=repo_path,
+            run=self._run,
             run_json=self._run_json,
         )
         previous_scheduler_path = self.scheduler_path
@@ -2125,12 +2126,15 @@ def load_workspace_from_config(
             path = (root / path).resolve()
         return path
 
+    runner = run or _subprocess_run
+    runner_json = run_json or _subprocess_run_json
     tracker_source = describe_tracker_source(workflow_root=root, tracker_cfg=tracker_source_cfg)
     tracker_client = build_tracker_client(
         workflow_root=root,
         tracker_cfg=tracker_client_cfg,
         repo_path=repo_path,
-        run_json=run_json or _subprocess_run_json,
+        run=runner,
+        run_json=runner_json,
     )
     issue_workspace_root = _resolve_path(_cfg_value(workspace_cfg, "root", default="workspace/issues"), "workspace/issues")
     status_path = _resolve_path(storage_cfg.get("status") or "memory/workflow-status.json", "memory/workflow-status.json")
@@ -2145,8 +2149,6 @@ def load_workspace_from_config(
         now_epoch=_now_epoch,
     )
 
-    runner = run or _subprocess_run
-    runner_json = run_json or _subprocess_run_json
     runtimes = _build_runtimes_from_config(cfg, run=runner, run_json=runner_json)
 
     workspace = IssueRunnerWorkspace(

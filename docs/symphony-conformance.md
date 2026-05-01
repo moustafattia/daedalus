@@ -54,8 +54,8 @@ Daedalus currently differs from the Symphony draft in four material ways:
    extensions isolated under `daedalus:`.
 2. Add stronger cancellation semantics for command-style runtimes, including
    subprocess group termination where safe.
-3. Add broader GitHub integration coverage for comments, labels, and failure
-   recovery against a real repository.
+3. Expand the opt-in `change-delivery` Codex app-server fixture smoke into a
+   full issue-to-PR-to-review-to-merge live E2E.
 4. Expand harness checks for public docs, generic examples, workflow-template
    drift, and operator CLI/docs drift.
 

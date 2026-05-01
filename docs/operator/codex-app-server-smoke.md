@@ -44,6 +44,23 @@ Keep this test opt-in. It depends on local Codex installation, account state,
 quota, model availability, and live runtime timing. Use it before production
 changes to Codex runtime/service behavior, not as a required CI gate.
 
+## Change-Delivery Fixture Smoke
+
+`change-delivery` has an opt-in fixture smoke skeleton for prepared workflow
+roots. It does not create GitHub issues or PRs by itself; point it at a workflow
+root you already prepared with a `change-delivery` `WORKFLOW.md` and at least
+one `codex-app-server` runtime profile.
+
+```bash
+DAEDALUS_CHANGE_DELIVERY_CODEX_E2E=1 \
+DAEDALUS_CHANGE_DELIVERY_E2E_WORKFLOW_ROOT=~/.hermes/workflows/your-org-your-repo-change-delivery \
+pytest tests/test_change_delivery_codex_app_server_smoke.py -q -s
+```
+
+This is the first harness anchor for a fuller issue-to-PR-to-review-to-merge
+Codex app-server E2E. Keep it opt-in until the fixture can create and clean up
+its own GitHub issue, branch, PR, and review artifacts.
+
 ## Token Accounting Rule
 
 When Codex emits both `tokenUsage.last` and cumulative `tokenUsage.total`,
