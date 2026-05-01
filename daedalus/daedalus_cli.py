@@ -24,6 +24,7 @@ from engine.state import (
     read_engine_runs,
     read_engine_scheduler_state,
 )
+from engine.retention import normalize_event_retention
 from engine.store import EngineStore
 from workflows.contract import (
     WorkflowContractError,
@@ -695,33 +696,33 @@ def build_events_report(
         "event_type": event_type,
         "severity": severity,
     }
+    retention_cfg = normalize_event_retention(_workflow_event_retention(workflow_root))
+    if max_age_days is not None:
+        retention_cfg["configured"] = True
+        retention_cfg["max_age_days"] = max_age_days
+        retention_cfg["max_age_seconds"] = max_age_days * 86400
+    if max_rows is not None:
+        retention_cfg["configured"] = True
+        retention_cfg["max_rows"] = max_rows
+    if action == "stats":
+        return {
+            "mode": "stats",
+            "workflow": workflow_name,
+            "stats": store.event_stats(retention_cfg),
+        }
     if action == "prune":
-        retention_cfg = _workflow_event_retention(workflow_root)
-        resolved_max_age_days = max_age_days
-        if resolved_max_age_days is None and retention_cfg.get("max-age-days") is not None:
-            resolved_max_age_days = float(retention_cfg["max-age-days"])
-        if resolved_max_age_days is None and retention_cfg.get("max_age_days") is not None:
-            resolved_max_age_days = float(retention_cfg["max_age_days"])
-        resolved_max_rows = max_rows
-        if resolved_max_rows is None and retention_cfg.get("max-rows") is not None:
-            resolved_max_rows = int(retention_cfg["max-rows"])
-        if resolved_max_rows is None and retention_cfg.get("max_rows") is not None:
-            resolved_max_rows = int(retention_cfg["max_rows"])
-        if resolved_max_age_days is None and resolved_max_rows is None:
+        if not retention_cfg.get("configured"):
             raise DaedalusCommandError(
                 "events prune requires --max-age-days, --max-rows, or retention.events in WORKFLOW.md"
             )
         result = store.prune_events(
-            max_age_seconds=(resolved_max_age_days * 86400) if resolved_max_age_days is not None else None,
-            max_rows=resolved_max_rows,
+            max_age_seconds=retention_cfg.get("max_age_seconds"),
+            max_rows=retention_cfg.get("max_rows"),
         )
         return {
             "mode": "prune",
             "workflow": workflow_name,
-            "retention": {
-                "max_age_days": resolved_max_age_days,
-                "max_rows": resolved_max_rows,
-            },
+            "retention": retention_cfg,
             **result,
         }
     events = read_engine_events(
@@ -2077,6 +2078,39 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
         )
     )
 
+    event_retention = _workflow_event_retention(workflow_root)
+    event_stats = EngineStore(
+        db_path=runtime_paths(workflow_root)["db_path"],
+        workflow="change-delivery",
+    ).event_stats(event_retention)
+    retention = event_stats.get("retention") or {}
+    retention_reasons = []
+    if not retention.get("configured") and event_stats.get("total_events"):
+        retention_reasons.append("not-configured")
+    if retention.get("excess_rows"):
+        retention_reasons.append("row-limit-exceeded")
+    if retention.get("age_overdue"):
+        retention_reasons.append("age-limit-exceeded")
+    checks.append(
+        _make_check(
+            code="engine_event_retention",
+            status="warn" if retention_reasons else "pass",
+            severity="warning" if retention_reasons else "info",
+            summary=(
+                "Engine event retention needs attention"
+                if retention_reasons
+                else "No engine event retention issue detected"
+            ),
+            details={
+                "reasons": retention_reasons,
+                "total_events": event_stats.get("total_events"),
+                "oldest_event_at": event_stats.get("oldest_event_at"),
+                "oldest_age_seconds": event_stats.get("oldest_age_seconds"),
+                "retention": retention,
+            },
+        )
+    )
+
     active_lane_id = active_lane.get("lane_id")
     stuck_dispatched_actions = daedalus.query_stuck_dispatched_actions(
         workflow_root=workflow_root,
@@ -2917,7 +2951,7 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
 
     events_cmd = sub.add_parser("events", help="Inspect and prune the durable engine event ledger.")
     events_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    events_cmd.add_argument("events_action", nargs="?", default="list", choices=["list", "prune"])
+    events_cmd.add_argument("events_action", nargs="?", default="list", choices=["list", "stats", "prune"])
     events_cmd.add_argument("--run-id")
     events_cmd.add_argument("--work-id")
     events_cmd.add_argument("--type", dest="event_type")
@@ -3749,6 +3783,26 @@ def render_result(
             )
         return "\n".join(lines)
     if command == "events":
+        if result.get("mode") == "stats":
+            stats = result.get("stats") or {}
+            retention = stats.get("retention") or {}
+            lines = [
+                f"workflow={result.get('workflow')} total_events={stats.get('total_events')}",
+                f"oldest_event_at={stats.get('oldest_event_at')} oldest_age_seconds={stats.get('oldest_age_seconds')}",
+                f"newest_event_at={stats.get('newest_event_at')}",
+                (
+                    f"retention_configured={retention.get('configured')} "
+                    f"overdue={retention.get('overdue')} "
+                    f"max_age_seconds={retention.get('max_age_seconds')} "
+                    f"max_rows={retention.get('max_rows')} "
+                    f"excess_rows={retention.get('excess_rows')}"
+                ),
+            ]
+            if stats.get("by_type"):
+                lines.append(f"by_type={stats.get('by_type')}")
+            if stats.get("by_severity"):
+                lines.append(f"by_severity={stats.get('by_severity')}")
+            return "\n".join(lines)
         if result.get("mode") == "prune":
             retention = result.get("retention") or {}
             return (

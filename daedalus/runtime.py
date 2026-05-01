@@ -15,6 +15,7 @@ from engine.leases import acquire_engine_lease, init_engine_leases, release_engi
 from engine.store import EngineStore
 from engine.state import init_engine_state
 from engine.sqlite import connect_daedalus_db
+from workflows.contract import WorkflowContractError, load_workflow_contract
 from workflows.shared.paths import (
     plugin_entrypoint_path,
     project_key_for_workflow_root,
@@ -716,6 +717,31 @@ def release_lease(
 
 def _runtime_paths(workflow_root: Path) -> dict[str, Path]:
     return runtime_paths(workflow_root)
+
+
+def _workflow_event_retention(workflow_root: Path) -> dict[str, Any]:
+    try:
+        contract = load_workflow_contract(Path(workflow_root))
+    except (FileNotFoundError, WorkflowContractError, OSError, UnicodeDecodeError):
+        return {}
+    retention = contract.config.get("retention") or {}
+    return retention if isinstance(retention, dict) else {}
+
+
+def _apply_workflow_event_retention(*, workflow_root: Path, workflow: str) -> dict[str, Any]:
+    try:
+        return EngineStore(
+            db_path=runtime_paths(Path(workflow_root))["db_path"],
+            workflow=workflow,
+            now_iso=_now_iso,
+            now_epoch=time.time,
+        ).apply_event_retention(_workflow_event_retention(workflow_root))
+    except Exception as exc:
+        return {
+            "workflow": workflow,
+            "applied": False,
+            "reason": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def _project_key_for(workflow_root: Path) -> str:
@@ -3684,6 +3710,7 @@ def run_shadow_loop(
             }
     iterations = 0
     last_result = None
+    last_retention = _apply_workflow_event_retention(workflow_root=workflow_root, workflow="change-delivery")
     try:
         while True:
             legacy_status = legacy_status_provider() if legacy_status_provider else None
@@ -3692,6 +3719,10 @@ def run_shadow_loop(
                 instance_id=instance_id,
                 legacy_status=legacy_status,
                 now_iso=_now_iso(),
+            )
+            last_retention = _apply_workflow_event_retention(
+                workflow_root=workflow_root,
+                workflow="change-delivery",
             )
             iterations += 1
             if max_iterations is not None and iterations >= max_iterations:
@@ -3703,12 +3734,14 @@ def run_shadow_loop(
             "instance_id": instance_id,
             "iterations": iterations,
             "last_result": last_result,
+            "event_retention": last_retention,
         }
     return {
         "loop_status": "completed",
         "instance_id": instance_id,
         "iterations": iterations,
         "last_result": last_result,
+        "event_retention": last_retention,
     }
 
 
@@ -4049,6 +4082,7 @@ def run_active_loop(
         owned_action_runners = _default_active_action_runners(workflow_root=workflow_root)
         action_runners = owned_action_runners
     loop_status = "completed"
+    last_retention = _apply_workflow_event_retention(workflow_root=workflow_root, workflow="change-delivery")
     try:
         while True:
             completed, supervised_iteration = _reconcile_active_loop_iteration(supervised_iteration)
@@ -4127,6 +4161,10 @@ def run_active_loop(
                     "running_iteration": _active_loop_running_snapshot(supervised_iteration),
                 }
             iterations += 1
+            last_retention = _apply_workflow_event_retention(
+                workflow_root=workflow_root,
+                workflow="change-delivery",
+            )
             if max_iterations is not None and iterations >= max_iterations:
                 break
             sleep_fn(interval_seconds)
@@ -4154,6 +4192,7 @@ def run_active_loop(
         "iterations": iterations,
         "last_result": last_result,
         "running_iteration": _active_loop_running_snapshot(supervised_iteration),
+        "event_retention": last_retention,
     }
 
 

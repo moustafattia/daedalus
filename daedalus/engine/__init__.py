@@ -19,6 +19,7 @@ from .leases import (
     read_engine_lease,
     release_engine_lease,
 )
+from .retention import normalize_event_retention
 from .scheduler import (
     RestoredSchedulerState,
     build_scheduler_payload,
@@ -31,6 +32,7 @@ from .scheduler import (
 from .sqlite import connect_daedalus_db
 from .state import (
     append_engine_event_to_connection,
+    engine_event_stats_from_connection,
     engine_events_from_connection,
     engine_events_for_run_from_connection,
     engine_run_from_connection,
@@ -40,6 +42,7 @@ from .state import (
     latest_engine_runs_from_connection,
     load_engine_scheduler_state,
     prune_engine_events_to_connection,
+    read_engine_event_stats,
     read_engine_events,
     read_engine_events_for_run,
     read_engine_run,
@@ -75,6 +78,7 @@ __all__ = [
     "clear_work_entries",
     "codex_threads_snapshot",
     "connect_daedalus_db",
+    "engine_event_stats_from_connection",
     "engine_events_from_connection",
     "engine_events_for_run_from_connection",
     "engine_run_from_connection",
@@ -87,7 +91,9 @@ __all__ = [
     "load_optional_json",
     "mark_running_work",
     "make_audit_fn",
+    "normalize_event_retention",
     "prune_engine_events_to_connection",
+    "read_engine_event_stats",
     "read_engine_lease",
     "read_engine_events",
     "read_engine_events_for_run",

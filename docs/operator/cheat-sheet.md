@@ -14,6 +14,7 @@ It is specifically written for the opinionated `change-delivery` workflow.
 | **Check status** | `/daedalus status` |
 | **Full health check** | `/daedalus doctor` |
 | **Live dashboard** | `/daedalus watch` |
+| **Event retention posture** | `/daedalus events stats` |
 | **Service health** | `systemctl --user status daedalus-active@<profile>.service` |
 | **Recent logs** | `journalctl --user -u daedalus-active@<profile>.service -n 200` |
 | **Lane actions (SQL)** | `select action_id, action_type, status, retry_count from lane_actions where lane_id='lane:220' order by requested_at desc;` |
@@ -54,6 +55,7 @@ It is specifically written for the opinionated `change-delivery` workflow.
 /daedalus status              # Runtime row, lane count, paths, freshness
 /daedalus doctor              # Full health check across all subsystems
 /daedalus watch               # Live TUI: lanes + alerts + events
+/daedalus events stats        # Event counts plus retention limit posture
 /daedalus shadow-report       # Diff shadow plan vs active reality
 /daedalus active-gate-status  # What's blocking promotion to active
 /daedalus service-status      # systemd health snapshot

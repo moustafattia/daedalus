@@ -421,7 +421,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
         except Exception as exc:
             checks.append({"name": "agent-runtime", "status": "fail", "detail": str(exc)})
 
-        checks.extend(self.engine_store.doctor())
+        checks.extend(self.engine_store.doctor(event_retention=self.config.get("retention") or {}))
         ok = all(check["status"] == "pass" for check in checks)
         return {
             "ok": ok,
@@ -480,6 +480,16 @@ class IssueRunnerWorkspace(WorkflowDriver):
         except Exception as exc:
             checks.append({"name": "github-repo", "status": "fail", "detail": str(exc)})
         return checks
+
+    def _apply_event_retention(self) -> dict[str, Any]:
+        try:
+            return self.engine_store.apply_event_retention(self.config.get("retention") or {})
+        except Exception as exc:
+            return {
+                "workflow": "issue-runner",
+                "applied": False,
+                "reason": f"{type(exc).__name__}: {exc}",
+            }
 
     def _runtime_diagnostics(self) -> dict[str, dict[str, Any]]:
         diagnostics: dict[str, dict[str, Any]] = {}
@@ -1528,6 +1538,8 @@ class IssueRunnerWorkspace(WorkflowDriver):
         except Exception as exc:
             self._fail_engine_run_after_exception(engine_run, exc)
             raise
+        finally:
+            self._apply_event_retention()
 
     def _cleanup_terminal_workspaces(self, issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
         tracker_cfg = self.config.get("tracker") or {}
@@ -1788,11 +1800,13 @@ class IssueRunnerWorkspace(WorkflowDriver):
     ) -> dict[str, Any]:
         iterations = 0
         last_result = None
+        last_retention = self._apply_event_retention()
         loop_status = "completed"
         try:
             while True:
                 self.reload_contract()
                 last_result = self.supervise_once()
+                last_retention = self._apply_event_retention()
                 iterations += 1
                 if max_iterations is not None and iterations >= max_iterations:
                     break
@@ -1806,6 +1820,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
             "loop_status": loop_status,
             "iterations": iterations,
             "last_result": last_result,
+            "event_retention": last_retention,
         }
 
     def reload_contract(self) -> None:

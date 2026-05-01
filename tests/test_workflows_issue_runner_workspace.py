@@ -881,6 +881,35 @@ def test_issue_runner_run_loop_reconciles_completed_worker_before_interrupt_exit
     assert workspace.build_status()["scheduler"]["running"] == []
 
 
+def test_issue_runner_run_loop_applies_event_retention(tmp_path):
+    from workflows.issue_runner.workspace import load_workspace_from_config
+
+    cfg = _config(tmp_path)
+    cfg["retention"] = {"events": {"max-rows": 1}}
+    workflow_root = tmp_path / "attmous-daedalus-issue-runner"
+    workflow_root.mkdir()
+    _write_issue_runner_contract(
+        workflow_root=workflow_root,
+        cfg=cfg,
+        issues=[],
+    )
+
+    workspace = load_workspace_from_config(
+        workspace_root=workflow_root,
+        run=lambda *args, **kwargs: None,
+        run_json=lambda *args, **kwargs: {},
+    )
+    workspace.engine_store.append_event(event_type="old", payload={"issue_id": "ISSUE-1"})
+    workspace.engine_store.append_event(event_type="new", payload={"issue_id": "ISSUE-2"})
+
+    result = workspace.run_loop(interval_seconds=1, max_iterations=1, sleep_fn=lambda _seconds: None)
+    stats = workspace.engine_store.event_stats(cfg["retention"])
+
+    assert result["event_retention"]["applied"] is True
+    assert stats["total_events"] <= 1
+    assert stats["retention"]["overdue"] is False
+
+
 def test_issue_runner_supervised_terminal_issue_requests_cancel_and_defers_cleanup(tmp_path):
     from workflows.issue_runner.workspace import load_workspace_from_config
 

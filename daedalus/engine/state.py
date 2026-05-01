@@ -1138,6 +1138,148 @@ def read_engine_events(
         conn.close()
 
 
+def engine_event_stats_from_connection(
+    conn: sqlite3.Connection,
+    *,
+    workflow: str,
+    now_epoch: float,
+    retention: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    init_engine_state(conn)
+    retention_cfg = dict(retention or {})
+    row = conn.execute(
+        """
+        SELECT COUNT(*), MIN(created_at_epoch), MAX(created_at_epoch)
+        FROM engine_events
+        WHERE workflow=?
+        """,
+        (workflow,),
+    ).fetchone()
+    total = int((row or [0])[0] or 0)
+    oldest_epoch = None if row is None or row[1] is None else float(row[1])
+    newest_epoch = None if row is None or row[2] is None else float(row[2])
+    oldest_at = None
+    newest_at = None
+    if oldest_epoch is not None:
+        oldest_at = conn.execute(
+            """
+            SELECT created_at
+            FROM engine_events
+            WHERE workflow=? AND created_at_epoch=?
+            ORDER BY event_id ASC
+            LIMIT 1
+            """,
+            (workflow, oldest_epoch),
+        ).fetchone()[0]
+    if newest_epoch is not None:
+        newest_at = conn.execute(
+            """
+            SELECT created_at
+            FROM engine_events
+            WHERE workflow=? AND created_at_epoch=?
+            ORDER BY event_id DESC
+            LIMIT 1
+            """,
+            (workflow, newest_epoch),
+        ).fetchone()[0]
+    by_type = {
+        str(event_type): int(count or 0)
+        for event_type, count in conn.execute(
+            """
+            SELECT event_type, COUNT(*)
+            FROM engine_events
+            WHERE workflow=?
+            GROUP BY event_type
+            ORDER BY COUNT(*) DESC, event_type ASC
+            """,
+            (workflow,),
+        ).fetchall()
+    }
+    by_severity = {
+        str(severity): int(count or 0)
+        for severity, count in conn.execute(
+            """
+            SELECT severity, COUNT(*)
+            FROM engine_events
+            WHERE workflow=?
+            GROUP BY severity
+            ORDER BY COUNT(*) DESC, severity ASC
+            """,
+            (workflow,),
+        ).fetchall()
+    }
+    oldest_age_seconds = None
+    if oldest_epoch is not None:
+        oldest_age_seconds = max(float(now_epoch) - oldest_epoch, 0)
+    max_age_seconds = retention_cfg.get("max_age_seconds")
+    max_rows = retention_cfg.get("max_rows")
+    excess_rows = max(total - int(max_rows), 0) if max_rows is not None else 0
+    age_overdue = bool(
+        max_age_seconds is not None
+        and oldest_age_seconds is not None
+        and oldest_age_seconds > float(max_age_seconds)
+    )
+    overdue = bool(excess_rows > 0 or age_overdue)
+    return {
+        "workflow": workflow,
+        "total_events": total,
+        "oldest_event_at": oldest_at,
+        "oldest_event_epoch": oldest_epoch,
+        "oldest_age_seconds": oldest_age_seconds,
+        "newest_event_at": newest_at,
+        "newest_event_epoch": newest_epoch,
+        "by_type": by_type,
+        "by_severity": by_severity,
+        "retention": {
+            **retention_cfg,
+            "excess_rows": excess_rows,
+            "age_overdue": age_overdue,
+            "overdue": overdue,
+        },
+    }
+
+
+def read_engine_event_stats(
+    db_path: Path,
+    *,
+    workflow: str,
+    now_epoch: float,
+    retention: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    empty_retention = dict(retention or {})
+    empty = {
+        "workflow": workflow,
+        "total_events": 0,
+        "oldest_event_at": None,
+        "oldest_event_epoch": None,
+        "oldest_age_seconds": None,
+        "newest_event_at": None,
+        "newest_event_epoch": None,
+        "by_type": {},
+        "by_severity": {},
+        "retention": {**empty_retention, "excess_rows": 0, "age_overdue": False, "overdue": False},
+    }
+    if not db_path.exists():
+        return empty
+    try:
+        conn = sqlite3.connect(db_path)
+    except sqlite3.OperationalError:
+        return empty
+    try:
+        if not _table_exists(conn, "engine_events"):
+            return empty
+        return engine_event_stats_from_connection(
+            conn,
+            workflow=workflow,
+            now_epoch=now_epoch,
+            retention=retention,
+        )
+    except sqlite3.OperationalError:
+        return empty
+    finally:
+        conn.close()
+
+
 def prune_engine_events_to_connection(
     conn: sqlite3.Connection,
     *,

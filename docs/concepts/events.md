@@ -100,8 +100,14 @@ retention:
 Apply it manually or from automation:
 
 ```bash
+hermes daedalus events stats --workflow-root ~/.hermes/workflows/<profile>
 hermes daedalus events prune --workflow-root ~/.hermes/workflows/<profile>
 ```
+
+The long-running service applies configured SQLite event retention automatically
+at startup and after each supervised loop/tick. Manual `events prune` is for
+one-off cleanup, emergency compaction, or testing a new retention policy before
+running the service.
 
 For JSONL tails, archive files normally if they grow too large. The next event
 write creates a fresh `daedalus-events.jsonl`.
@@ -135,6 +141,7 @@ All events share a common envelope:
 Use the engine ledger first:
 
 ```bash
+hermes daedalus events stats --workflow-root ~/.hermes/workflows/<profile>
 hermes daedalus events --workflow-root ~/.hermes/workflows/<profile> --limit 50
 hermes daedalus events --workflow-root ~/.hermes/workflows/<profile> --run-id <run_id>
 hermes daedalus events --workflow-root ~/.hermes/workflows/<profile> --work-id ISSUE-123

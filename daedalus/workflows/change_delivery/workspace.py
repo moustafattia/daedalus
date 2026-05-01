@@ -2096,7 +2096,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         after = before
         if before["health"] != "healthy" or fix_watchers:
             after = ns.reconcile(fix_watchers=fix_watchers)
-        engine_checks = ns.ENGINE_STORE.doctor()
+        engine_checks = ns.ENGINE_STORE.doctor(event_retention=(ns.WORKFLOW_YAML or {}).get("retention") or {})
         ns.audit(
             "doctor",
             f"Doctor checked workflow: {before['health']} -> {after['health']}",
@@ -2110,6 +2110,16 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             "engineChecks": engine_checks,
             "fixed": before["health"] != after["health"] or bool(after.get("actionsTaken", {}).get("jobs")),
         }
+
+    def apply_event_retention():
+        try:
+            return ns.ENGINE_STORE.apply_event_retention((ns.WORKFLOW_YAML or {}).get("retention") or {})
+        except Exception as exc:
+            return {
+                "workflow": "change-delivery",
+                "applied": False,
+                "reason": f"{type(exc).__name__}: {exc}",
+            }
 
     # -----------------------------------------------------------------
     # Cron operator commands: pause / resume / wake.
@@ -2382,6 +2392,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
                 pass
             raise
         finally:
+            ns.apply_event_retention()
             ns.CURRENT_ENGINE_RUN_ID = previous_run_id
 
     def dispatch_implementation_turn():

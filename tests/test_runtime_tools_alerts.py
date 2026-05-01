@@ -427,6 +427,40 @@ def test_run_active_loop_reconciles_fast_supervised_iteration_before_bounded_exi
     assert action_status == "completed"
 
 
+def test_runtime_event_retention_uses_repo_owned_workflow_contract(runtime_module, tmp_path):
+    from engine.store import EngineStore
+    from workflows.contract import render_workflow_markdown
+
+    workflow_root = tmp_path / "workflow"
+    workflow_root.mkdir()
+    (workflow_root / "WORKFLOW.md").write_text(
+        render_workflow_markdown(
+            config={
+                "workflow": "change-delivery",
+                "retention": {"events": {"max-rows": 1}},
+            },
+            prompt_template="Deliver the active change.",
+        ),
+        encoding="utf-8",
+    )
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    store = EngineStore(
+        db_path=runtime_module._runtime_paths(workflow_root)["db_path"],
+        workflow="change-delivery",
+    )
+    store.append_event(event_type="old", payload={"lane_id": "lane:1"})
+    store.append_event(event_type="new", payload={"lane_id": "lane:2"})
+
+    result = runtime_module._apply_workflow_event_retention(
+        workflow_root=workflow_root,
+        workflow="change-delivery",
+    )
+
+    assert result["applied"] is True
+    assert result["deleted"] == 1
+    assert len(store.events()) == 1
+
+
 def test_run_active_loop_heartbeats_while_supervised_iteration_is_running(runtime_module, tmp_path, monkeypatch):
     workflow_root = tmp_path / "workflow"
     paths = runtime_module._runtime_paths(workflow_root)

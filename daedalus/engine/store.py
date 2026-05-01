@@ -12,10 +12,12 @@ from .leases import (
     read_engine_lease,
     release_engine_lease,
 )
+from .retention import normalize_event_retention
 from .sqlite import connect_daedalus_db
 from .state import (
     ENGINE_STATE_TABLES,
     append_engine_event_to_connection,
+    engine_event_stats_from_connection,
     engine_events_from_connection,
     engine_events_for_run_from_connection,
     engine_run_from_connection,
@@ -384,7 +386,44 @@ class EngineStore:
                 max_rows=max_rows,
             )
 
-    def doctor(self, *, stale_running_seconds: int = 600) -> list[dict[str, Any]]:
+    def apply_event_retention(self, event_retention: dict[str, Any] | None) -> dict[str, Any]:
+        retention = normalize_event_retention(event_retention)
+        if not retention.get("configured"):
+            return {
+                "workflow": self.workflow,
+                "applied": False,
+                "reason": "not-configured",
+                "retention": retention,
+            }
+        result = self.prune_events(
+            max_age_seconds=retention.get("max_age_seconds"),
+            max_rows=retention.get("max_rows"),
+        )
+        return {
+            **result,
+            "applied": True,
+            "retention": retention,
+        }
+
+    def event_stats(self, event_retention: dict[str, Any] | None = None) -> dict[str, Any]:
+        retention = normalize_event_retention(event_retention)
+        conn = self.connect()
+        try:
+            return engine_event_stats_from_connection(
+                conn,
+                workflow=self.workflow,
+                now_epoch=self._now_epoch(),
+                retention=retention,
+            )
+        finally:
+            conn.close()
+
+    def doctor(
+        self,
+        *,
+        stale_running_seconds: int = 600,
+        event_retention: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         checks: list[dict[str, Any]] = []
         try:
             conn = self.connect()
@@ -503,6 +542,42 @@ class EngineStore:
                         else f"{int(event_count or 0)} event(s); no orphaned run references"
                     ),
                     "items": [row[0] for row in orphaned_events],
+                }
+            )
+            event_retention_cfg = normalize_event_retention(event_retention)
+            event_stats = engine_event_stats_from_connection(
+                conn,
+                workflow=self.workflow,
+                now_epoch=now_epoch,
+                retention=event_retention_cfg,
+            )
+            retention = event_stats.get("retention") or {}
+            retention_reasons: list[str] = []
+            if not retention.get("configured") and event_stats.get("total_events"):
+                retention_reasons.append("not configured")
+            if retention.get("excess_rows"):
+                retention_reasons.append(f"excess_rows={retention.get('excess_rows')}")
+            if retention.get("age_overdue"):
+                retention_reasons.append(
+                    f"oldest_age_seconds={int(event_stats.get('oldest_age_seconds') or 0)}"
+                )
+            if retention_reasons:
+                retention_detail = "; ".join(retention_reasons)
+            elif retention.get("configured"):
+                retention_detail = "configured and within retention limits"
+            else:
+                retention_detail = "not configured; no durable events"
+            checks.append(
+                {
+                    "name": "engine-event-retention",
+                    "status": "warn" if retention_reasons else "pass",
+                    "detail": retention_detail
+                    + (
+                        f"; total_events={event_stats.get('total_events')}"
+                        f"; max_age_seconds={retention.get('max_age_seconds')}"
+                        f"; max_rows={retention.get('max_rows')}"
+                    ),
+                    "details": event_stats,
                 }
             )
 

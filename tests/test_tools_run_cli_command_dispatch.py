@@ -183,12 +183,18 @@ def test_execute_raw_args_events_lists_and_prunes_engine_events(tmp_path):
 
     output = tools.execute_raw_args(f"events --workflow-root {root} --work-id ISSUE-2 --json")
     payload = json.loads(output)
+    stats_output = tools.execute_raw_args(f"events --workflow-root {root} stats --json")
+    stats_payload = json.loads(stats_output)
     prune_output = tools.execute_raw_args(f"events --workflow-root {root} prune --json")
     prune_payload = json.loads(prune_output)
 
     assert payload["workflow"] == "issue-runner"
     assert payload["events"][0]["event_type"] == "b"
     assert payload["events"][0]["work_id"] == "ISSUE-2"
+    assert stats_payload["mode"] == "stats"
+    assert stats_payload["stats"]["total_events"] == 2
+    assert stats_payload["stats"]["retention"]["max_rows"] == 1
+    assert stats_payload["stats"]["retention"]["excess_rows"] == 1
     assert prune_payload["deleted"] == 1
     assert prune_payload["remaining"] == 1
 

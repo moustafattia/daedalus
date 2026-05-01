@@ -390,9 +390,26 @@ def test_engine_store_filters_and_prunes_events(tmp_path):
     assert [event["work_id"] for event in store.events(work_id="ISSUE-1", order="asc")] == ["ISSUE-1", "ISSUE-1"]
     assert store.events(severity="warn")[0]["work_id"] == "ISSUE-2"
 
-    pruned = store.prune_events(max_rows=1)
+    stats = store.event_stats({"events": {"max-age-seconds": 1, "max-rows": 2}})
+    checks = {
+        check["name"]: check
+        for check in store.doctor(event_retention={"events": {"max-age-seconds": 1, "max-rows": 2}})
+    }
+    not_configured = store.apply_event_retention({})
+    pruned = store.apply_event_retention({"events": {"max-rows": 1}})
     remaining = store.events()
 
+    assert stats["total_events"] == 3
+    assert stats["oldest_age_seconds"] == 2.0
+    assert stats["by_type"] == {"b": 2, "a": 1}
+    assert stats["by_severity"] == {"info": 2, "warn": 1}
+    assert stats["retention"]["excess_rows"] == 1
+    assert stats["retention"]["age_overdue"] is True
+    assert checks["engine-event-retention"]["status"] == "warn"
+    assert "excess_rows=1" in checks["engine-event-retention"]["detail"]
+    assert not_configured["applied"] is False
+    assert not_configured["reason"] == "not-configured"
+    assert pruned["applied"] is True
     assert pruned["deleted"] == 2
     assert pruned["remaining"] == 1
     assert remaining[0]["event_type"] == "b"
