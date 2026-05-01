@@ -39,6 +39,13 @@ from workflows.contract import (
     write_workflow_contract_pointer,
 )
 from workflows.validation import validate_workflow_contract
+from workflows.runtime_presets import (
+    RuntimePresetError,
+    available_runtime_presets,
+    configure_runtime_contract,
+    runtime_availability_checks,
+    runtime_binding_checks,
+)
 from workflows.shared.paths import (
     derive_workflow_instance_name,
     plugin_runtime_path,
@@ -2123,6 +2130,7 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
             },
         )
     )
+    checks.extend(_runtime_doctor_checks(workflow_root))
 
     active_lane_id = active_lane.get("lane_id")
     stuck_dispatched_actions = daedalus.query_stuck_dispatched_actions(
@@ -2227,6 +2235,43 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
         "recent_shadow_actions": shadow_report.get("recent_shadow_actions"),
         "recent_failures": recent_failures,
     }
+
+
+def _runtime_doctor_checks(workflow_root: Path) -> list[dict[str, Any]]:
+    try:
+        config = load_workflow_contract(workflow_root).config
+    except Exception as exc:
+        return [
+            _make_check(
+                code="runtime_contract",
+                status="fail",
+                severity="critical",
+                summary=f"Unable to load workflow contract for runtime checks: {exc}",
+            )
+        ]
+
+    checks = []
+    for check in [*runtime_binding_checks(config), *runtime_availability_checks(config)]:
+        status = str(check.get("status") or "info")
+        severity = "info"
+        if status == "fail":
+            severity = "critical"
+        elif status == "warn":
+            severity = "warning"
+        checks.append(
+            _make_check(
+                code=str(check.get("name") or "runtime-check").replace(":", "_"),
+                status=status,
+                severity=severity,
+                summary=str(check.get("detail") or ""),
+                details={
+                    key: value
+                    for key, value in check.items()
+                    if key not in {"name", "status", "detail"}
+                },
+            )
+        )
+    return checks
 
 
 def _lazy_cmd_watch(args, parser):
@@ -2734,6 +2779,26 @@ def cmd_bootstrap_workflow(args, parser) -> str:
     return "\n".join(lines)
 
 
+def configure_runtime_preset(
+    *,
+    workflow_root: Path,
+    runtime_preset: str,
+    role: str,
+    runtime_name: str | None,
+    dry_run: bool,
+) -> dict[str, Any]:
+    try:
+        return configure_runtime_contract(
+            workflow_root=workflow_root,
+            preset_name=runtime_preset,
+            role=role,
+            runtime_name=runtime_name,
+            dry_run=dry_run,
+        )
+    except (RuntimePresetError, WorkflowContractError, FileNotFoundError, OSError) as exc:
+        raise DaedalusCommandError(str(exc)) from exc
+
+
 def cmd_migrate_filesystem(args, parser) -> str:
     """Run the filesystem migrator for the given workflow root.
 
@@ -3160,6 +3225,34 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     bootstrap_cmd.add_argument("--json", action="store_true")
     bootstrap_cmd.set_defaults(handler=cmd_bootstrap_workflow, func=run_cli_command)
 
+    configure_runtime_cmd = sub.add_parser(
+        "configure-runtime",
+        help="Bind a workflow role to a built-in runtime preset in the repo-owned WORKFLOW.md contract.",
+    )
+    configure_runtime_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
+    configure_runtime_cmd.add_argument("--runtime", required=True, choices=available_runtime_presets())
+    configure_runtime_cmd.add_argument(
+        "--role",
+        required=True,
+        help=(
+            "Role to bind. issue-runner: agent. change-delivery: "
+            "coder.default, coder.high-effort, internal-reviewer, coder, reviewer, or all."
+        ),
+    )
+    configure_runtime_cmd.add_argument(
+        "--runtime-name",
+        help="Optional profile name to write under runtimes: (defaults to the preset name).",
+    )
+    configure_runtime_cmd.add_argument("--dry-run", action="store_true")
+    configure_runtime_cmd.add_argument("--json", action="store_true")
+    configure_runtime_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
+    configure_runtime_cmd.set_defaults(func=run_cli_command)
+
     codex_cmd = sub.add_parser(
         "codex-app-server",
         help="Install and control the shared Codex app-server systemd user service.",
@@ -3328,7 +3421,7 @@ def _resolve_format(format_arg: str | None, json_flag: bool | None) -> str:
 def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     workflow_root = Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
     daedalus = _load_daedalus_module(workflow_root) if workflow_root is not None else None
-    eventless_commands = {"codex-app-server", "runs", "events", "validate"}
+    eventless_commands = {"codex-app-server", "runs", "events", "validate", "configure-runtime"}
     if (
         workflow_root is not None
         and daedalus is not None
@@ -3380,6 +3473,14 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
         return build_validate_report(
             workflow_root=workflow_root,
             service_mode=getattr(args, "service_mode", None),
+        )
+    if args.daedalus_command == "configure-runtime":
+        return configure_runtime_preset(
+            workflow_root=workflow_root,
+            runtime_preset=args.runtime,
+            role=args.role,
+            runtime_name=args.runtime_name,
+            dry_run=args.dry_run,
         )
     if args.daedalus_command == "runs":
         return build_runs_report(
@@ -3691,6 +3792,26 @@ def render_result(
                 path = item.get("path") if isinstance(item, dict) else None
                 message = item.get("message") if isinstance(item, dict) else str(item)
                 lines.append(f"  {path or '<root>'}: {message}")
+        return "\n".join(lines)
+    if command == "configure-runtime":
+        bindings = result.get("bindings") or []
+        availability = result.get("availability_checks") or []
+        mode = "dry-run " if result.get("dry_run") else ""
+        lines = [
+            (
+                f"{mode}configured runtime preset={result.get('runtime_preset')} "
+                f"profile={result.get('runtime_name')} workflow={result.get('workflow')}"
+            ),
+            f"contract={result.get('contract_path')}",
+            "changed_roles=" + ", ".join(result.get("changed_roles") or []),
+        ]
+        for binding in bindings:
+            lines.append(
+                f"- {binding.get('role')} -> {binding.get('runtime')} "
+                f"kind={binding.get('kind')} exists={binding.get('profile_exists')}"
+            )
+        for check in availability:
+            lines.append(f"- {check.get('status')} {check.get('name')}: {check.get('detail')}")
         return "\n".join(lines)
     if command == "runs":
         if result.get("mode") == "show":

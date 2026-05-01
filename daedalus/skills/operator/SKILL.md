@@ -31,6 +31,9 @@ Inside Hermes sessions:
 /daedalus status
 /daedalus shadow-report
 /daedalus doctor
+/daedalus configure-runtime --runtime hermes-final --role agent
+/daedalus configure-runtime --runtime hermes-chat --role internal-reviewer
+/daedalus configure-runtime --runtime codex-service --role coder.default
 /daedalus active-gate-status
 /daedalus set-active-execution --enabled true
 /daedalus set-active-execution --enabled false
@@ -60,6 +63,7 @@ Inside Hermes sessions:
 - Default workflow root is detected from the current directory or `DAEDALUS_WORKFLOW_ROOT`.
 - Workflow root directories should be named `<owner>-<repo>-<workflow-type>`, and `instance.name` in `WORKFLOW.md` should match.
 - Use `--workflow-root` to point at a different test root.
+- Use `configure-runtime` to bind a workflow role to a built-in runtime preset in the repo-owned `WORKFLOW.md`; follow with `validate` and `doctor`.
 - `service-up` is the preferred post-edit command: it validates the workflow contract, initializes state when needed, installs/enables/starts the systemd user unit, and reports status.
 - `change-delivery` supports shadow and active service modes. `issue-runner` supports active mode.
 - `run-shadow` remains shadow-only: it derives and records `change-delivery` actions but does not execute active side effects.

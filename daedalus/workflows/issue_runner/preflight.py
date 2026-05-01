@@ -41,7 +41,16 @@ def _validate_config(config: dict[str, Any], *, workflow_root: Path) -> None:
         runtime_cfg = runtimes.get(runtime_name) or {}
         runtime_kind = str(runtime_cfg.get("kind") or "").strip()
         if runtime_kind == "codex-app-server":
-            if not (runtime_cfg.get("command") or codex_cfg.get("command")):
+            runtime_mode = str(
+                runtime_cfg.get("mode")
+                or codex_cfg.get("mode")
+                or ("external" if runtime_cfg.get("endpoint") or codex_cfg.get("endpoint") else "managed")
+            ).strip()
+            if runtime_mode == "external" and not (runtime_cfg.get("endpoint") or codex_cfg.get("endpoint")):
+                raise RuntimeError(
+                    "external codex-app-server runtime requires endpoint on the runtime profile or codex block"
+                )
+            if runtime_mode != "external" and not (runtime_cfg.get("command") or codex_cfg.get("command")):
                 raise RuntimeError(
                     "codex-app-server runtime requires command on the runtime profile or codex block"
                 )

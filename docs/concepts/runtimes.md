@@ -81,6 +81,21 @@ agents:
 
 The preflight pass walks `runtimes.<name>.kind` and `agents.external-reviewer.kind` to confirm every referenced runtime resolves to a registered adapter before a tick dispatches.
 
+## Configure with Presets
+
+For common choices, let Daedalus edit the repo-owned workflow contract:
+
+```bash
+hermes daedalus configure-runtime --runtime hermes-final --role agent
+hermes daedalus configure-runtime --runtime hermes-chat --role internal-reviewer
+hermes daedalus configure-runtime --runtime codex-service --role coder.default
+```
+
+The command writes a named profile under `runtimes:` and updates the selected
+role under `agent:` or `agents:`. Use `--runtime-name` if you want the profile
+key to be different from the preset name. Use `--dry-run --json` to inspect the
+change without writing the file.
+
 ### `hermes-agent` runtime
 
 The `hermes-agent` runtime delegates turns to a local Hermes Agent CLI. By

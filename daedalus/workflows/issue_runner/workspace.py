@@ -50,6 +50,7 @@ from workflows.issue_runner.tracker import (
     issue_workspace_slug,
     select_issue,
 )
+from workflows.runtime_presets import runtime_availability_checks, runtime_binding_checks
 from trackers.feedback import publish_tracker_feedback
 from trackers.github import (
     github_auth_host_from_slug,
@@ -422,9 +423,11 @@ class IssueRunnerWorkspace(WorkflowDriver):
             checks.append({"name": "agent-runtime", "status": "pass", "detail": runtime_name})
         except Exception as exc:
             checks.append({"name": "agent-runtime", "status": "fail", "detail": str(exc)})
+        checks.extend(runtime_binding_checks(self.config))
+        checks.extend(runtime_availability_checks(self.config))
 
         checks.extend(self.engine_store.doctor(event_retention=self.config.get("retention") or {}))
-        ok = all(check["status"] == "pass" for check in checks)
+        ok = all(check["status"] != "fail" for check in checks)
         return {
             "ok": ok,
             "workflow": "issue-runner",

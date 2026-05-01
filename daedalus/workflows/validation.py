@@ -10,6 +10,7 @@ import yaml
 
 from . import load_workflow
 from .contract import WorkflowContract, WorkflowContractError, load_workflow_contract
+from .runtime_presets import runtime_binding_checks
 
 
 SERVICE_MODES = frozenset({"active", "shadow"})
@@ -202,6 +203,7 @@ def validate_workflow_contract(
 
     checks.append(_instance_name_check(workflow_root=root, config=config))
     checks.append(_repository_path_check(workflow_root=root, config=config))
+    checks.extend(runtime_binding_checks(config))
 
     if module is not None and run_preflight:
         preflight_fn = getattr(module, "run_preflight", None)

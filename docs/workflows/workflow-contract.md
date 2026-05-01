@@ -88,6 +88,24 @@ The validator checks:
 | Repository path | Missing or non-directory `repository.local-path` |
 | Workflow preflight | Tracker/runtime references that cannot dispatch safely |
 
+## Runtime Presets
+
+Use `configure-runtime` when you want the plugin to update the YAML front matter
+for a known runtime shape instead of editing role bindings by hand:
+
+```bash
+hermes daedalus configure-runtime --runtime hermes-final --role agent
+hermes daedalus configure-runtime --runtime hermes-chat --role internal-reviewer
+hermes daedalus configure-runtime --runtime codex-service --role coder.default
+```
+
+Built-in presets are `hermes-final`, `hermes-chat`, and `codex-service`.
+`issue-runner` supports `agent`; `change-delivery` supports `coder.default`,
+`coder.high-effort`, `internal-reviewer`, `coder`, `reviewer`, and `all`.
+Run `hermes daedalus validate` and `hermes daedalus doctor` after changing a
+binding. Doctor reports each role-to-runtime binding and whether the required
+CLI or external Codex service appears reachable.
+
 ## Markdown Body
 
 The Markdown body is policy text. Workflows decide how to use it:
