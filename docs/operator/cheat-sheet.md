@@ -61,7 +61,6 @@ It is specifically written for the opinionated `change-delivery` workflow.
 /daedalus shadow-report       # Diff shadow plan vs active reality
 /daedalus active-gate-status  # What's blocking promotion to active
 /daedalus service-status      # systemd health snapshot
-/daedalus get-observability   # Effective config (merged layers)
 ```
 
 ### Workflow CLI (Direct)
@@ -359,23 +358,6 @@ python3 ~/.hermes/plugins/daedalus/workflows/__main__.py \
 
 ---
 
-## Comments Debugging
-
-### Show comment publisher state
-```bash
-python3 ~/.hermes/plugins/daedalus/workflows/__main__.py \
-  --workflow-root ~/.hermes/workflows/<profile> \
-  status --json | jq '.comments'
-```
-
-### Force a comment sync
-```bash
-/daedalus set-observability --workflow change-delivery --github-comments on
-# Then trigger any action; the comment will update on the next tick.
-```
-
----
-
 ## Config Hot-Reload
 
 ### Check if a bad WORKFLOW.md edit is being ignored
@@ -390,10 +372,7 @@ Look for `config_reload_failed` in the event tail or doctor output.
 touch /path/to/repo/WORKFLOW.md
 ```
 
-### Show effective config (merged layers)
-```bash
-/daedalus get-observability --workflow change-delivery
-```
+Tracker feedback is configured in `WORKFLOW.md` under `tracker-feedback`.
 
 ---
 

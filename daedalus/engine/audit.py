@@ -40,7 +40,7 @@ def make_audit_fn(
         try:
             publisher(action=action, summary=summary, extra=dict(extra))
         except Exception:
-            # Observability subscribers must never break workflow execution.
+            # Audit subscribers must never break workflow execution.
             pass
 
     return audit

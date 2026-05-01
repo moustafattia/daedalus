@@ -6,6 +6,8 @@ required:
   - schema-version
   - instance
   - repository
+  - tracker
+  - code-host
   - runtimes
   - agents
   - gates
@@ -29,20 +31,22 @@ properties:
 
   repository:
     type: object
-    required: [local-path, github-slug, active-lane-label]
+    required: [local-path, slug, active-lane-label]
+    additionalProperties: false
     properties:
       local-path: {type: string}
       slug: {type: string}
-      github-slug: {type: string}
       active-lane-label: {type: string}
 
   tracker:
     type: object
-    required: [kind]
+    required: [kind, github_slug]
+    additionalProperties: false
     properties:
       kind:
         type: string
         enum: [github]
+      github_slug: {type: string}
       active_states:
         type: array
         items: {type: string}
@@ -55,6 +59,16 @@ properties:
       terminal-states:
         type: array
         items: {type: string}
+
+  code-host:
+    type: object
+    required: [kind, github_slug]
+    additionalProperties: false
+    properties:
+      kind:
+        type: string
+        enum: [github]
+      github_slug: {type: string}
 
   tracker-feedback:
     $ref: "#/definitions/tracker-feedback"
@@ -262,20 +276,6 @@ properties:
       tiebreak:
         type: string
         enum: [oldest, newest, random]
-
-  observability:
-    type: object
-    properties:
-      github-comments:
-        type: object
-        required: [enabled]
-        additionalProperties: false
-        properties:
-          enabled: {type: boolean}
-          mode: {type: string, enum: [edit-in-place]}
-          include-events:
-            type: array
-            items: {type: string}
 
   server:
     type: object

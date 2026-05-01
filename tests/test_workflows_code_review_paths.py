@@ -27,9 +27,16 @@ def _write_workflow_yaml(workflow_root: Path, *, instance_name: str = "blueprint
                 "instance": {"name": instance_name, "engine-owner": "hermes"},
                 "repository": {
                     "local-path": str(workflow_root / "repo"),
-                    "github-slug": "owner/repo",
+                    "slug": "owner/repo",
                     "active-lane-label": "active-lane",
                 },
+                "tracker": {
+                    "kind": "github",
+                    "github_slug": "owner/repo",
+                    "active_states": ["open"],
+                    "terminal_states": ["closed"],
+                },
+                "code-host": {"kind": "github", "github_slug": "owner/repo"},
                 "runtimes": {"acpx-codex": {"kind": "acpx-codex"}},
                 "agents": {
                     "coder": {"default": {"name": "Internal_Coder_Agent", "model": "gpt-5.3-codex", "runtime": "acpx-codex"}},
@@ -56,9 +63,16 @@ def _write_workflow_markdown(workflow_root: Path, *, instance_name: str = "bluep
         "instance": {"name": instance_name, "engine-owner": "hermes"},
         "repository": {
             "local-path": str(workflow_root / "repo"),
-            "github-slug": "owner/repo",
+            "slug": "owner/repo",
             "active-lane-label": "active-lane",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "owner/repo",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {"acpx-codex": {"kind": "acpx-codex"}},
         "agents": {
             "coder": {"default": {"name": "Internal_Coder_Agent", "model": "gpt-5.3-codex", "runtime": "acpx-codex"}},

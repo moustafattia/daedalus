@@ -2622,8 +2622,13 @@ def scaffold_workflow_root(
     repository_cfg["local-path"] = str(resolved_repo_path)
     repository_cfg["slug"] = resolved_repo_slug
     if workflow_name == "change-delivery":
-        repository_cfg["github-slug"] = resolved_repo_slug
+        tracker_cfg = config.setdefault("tracker", {})
+        code_host_cfg = config.setdefault("code-host", {})
         repository_cfg["active-lane-label"] = active_lane_label
+        tracker_cfg["kind"] = "github"
+        tracker_cfg["github_slug"] = resolved_repo_slug
+        code_host_cfg["kind"] = "github"
+        code_host_cfg["github_slug"] = resolved_repo_slug
     triggers_cfg = config.get("triggers")
     if isinstance(triggers_cfg, dict):
         lane_selector_cfg = triggers_cfg.get("lane-selector")
@@ -2809,86 +2814,6 @@ def cmd_migrate_systemd(args, parser) -> str:
     lines.append(
         f"to start active mode: systemctl --user start {_instance_unit_name('active', workspace)}"
     )
-    return "\n".join(lines)
-
-
-def cmd_set_observability(args, parser) -> str:
-    """``/daedalus set-observability --workflow X --github-comments on|off|unset``."""
-    try:
-        from observability_overrides import set_override, unset_override
-    except ImportError:
-        path = PLUGIN_DIR / "observability_overrides.py"
-        spec = importlib.util.spec_from_file_location("daedalus_observability_overrides_for_cli", path)
-        if spec is None or spec.loader is None:
-            raise DaedalusCommandError(f"unable to load observability_overrides from {path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        set_override = module.set_override
-        unset_override = module.unset_override
-
-    workflow_root = Path(args.workflow_root).expanduser().resolve()
-    state_dir = workflow_root / "runtime" / "state" / "daedalus"
-    workflow_name = args.workflow
-    setting = (args.github_comments or "").strip().lower()
-
-    if setting == "on":
-        set_override(state_dir, workflow_name=workflow_name, github_comments_enabled=True)
-        return f"observability override set: {workflow_name}.github-comments = on"
-    if setting == "off":
-        set_override(state_dir, workflow_name=workflow_name, github_comments_enabled=False)
-        return f"observability override set: {workflow_name}.github-comments = off"
-    if setting == "unset":
-        unset_override(state_dir, workflow_name=workflow_name)
-        return f"observability override removed for {workflow_name}"
-    raise DaedalusCommandError(
-        f"--github-comments must be one of: on, off, unset (got {args.github_comments!r})"
-    )
-
-
-def cmd_get_observability(args, parser) -> str:
-    """``/daedalus get-observability --workflow X``: show effective config + source."""
-    try:
-        from workflows.change_delivery.observability import resolve_effective_config
-    except ImportError:
-        path = PLUGIN_DIR / "workflows" / "change_delivery" / "observability.py"
-        spec = importlib.util.spec_from_file_location("daedalus_observability_for_cli", path)
-        if spec is None or spec.loader is None:
-            raise DaedalusCommandError(f"unable to load observability resolver from {path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        resolve_effective_config = module.resolve_effective_config
-
-    workflow_root = Path(args.workflow_root).expanduser().resolve()
-    workflow_name = args.workflow
-    workflow_yaml = {}
-    try:
-        workflow_yaml = load_workflow_contract(workflow_root).config
-    except FileNotFoundError:
-        workflow_yaml = {}
-    except (WorkflowContractError, OSError, UnicodeDecodeError) as exc:
-        return f"error reading workflow contract: {exc}"
-
-    eff = resolve_effective_config(
-        workflow_yaml=workflow_yaml,
-        override_dir=workflow_root / "runtime" / "state" / "daedalus",
-        workflow_name=workflow_name,
-    )
-    gh = eff["github-comments"]
-    source = eff["source"]["github-comments"]
-    include_events = gh.get("include-events")
-    if not include_events:
-        # Empty list = explicit firehose ("everything"); flag the risk visibly
-        # so an operator who sees this output understands every audit action
-        # will become a comment update.
-        include_events_display = "[] (FIREHOSE — every audit action)"
-    else:
-        include_events_display = ", ".join(include_events)
-    lines = [
-        f"workflow: {workflow_name}",
-        f"github-comments.enabled: {gh.get('enabled')} (source: {source})",
-        f"github-comments.mode: {gh.get('mode')}",
-        f"github-comments.include-events: {include_events_display}",
-    ]
     return "\n".join(lines)
 
 
@@ -3202,23 +3127,6 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     watch_cmd.add_argument("--interval", type=float, default=2.0, help="Poll interval in live mode.")
     watch_cmd.set_defaults(handler=_lazy_cmd_watch, func=run_cli_command)
 
-    set_obs_cmd = sub.add_parser(
-        "set-observability",
-        help="Override observability config for a workflow (writes runtime override file).",
-    )
-    set_obs_cmd.add_argument("--workflow-root", type=Path, default=default_workflow_root_path)
-    set_obs_cmd.add_argument("--workflow", required=True, help="Workflow name (e.g. change-delivery)")
-    set_obs_cmd.add_argument("--github-comments", choices=["on", "off", "unset"], required=True)
-    set_obs_cmd.set_defaults(handler=cmd_set_observability, func=run_cli_command)
-
-    get_obs_cmd = sub.add_parser(
-        "get-observability",
-        help="Show effective observability config + which layer (default/yaml/override) won.",
-    )
-    get_obs_cmd.add_argument("--workflow-root", type=Path, default=default_workflow_root_path)
-    get_obs_cmd.add_argument("--workflow", required=True)
-    get_obs_cmd.set_defaults(handler=cmd_get_observability, func=run_cli_command)
-
     scaffold_cmd = sub.add_parser(
         "scaffold-workflow",
         help="Create a new workflow root and repo-owned workflow contract.",
@@ -3366,8 +3274,7 @@ def _record_operator_command_event(*, workflow_root: Path, args: argparse.Namesp
     arguments_json = {}
     for key, value in vars(args).items():
         # Skip non-serializable argparse plumbing. ``handler`` is a function
-        # reference set by the new string-returning subcommands (watch,
-        # set-observability, get-observability) — it would crash json.dumps.
+        # reference set by string-returning subcommands such as watch.
         if key in {"func", "handler", "json", "_command_source"}:
             continue
         if isinstance(value, Path):
@@ -4081,16 +3988,10 @@ def execute_raw_args(raw_args: str) -> str:
             return cmd_migrate_filesystem(args, parser)
         if args.daedalus_command == "migrate-systemd":
             return cmd_migrate_systemd(args, parser)
-        # New commands return strings directly (not dicts), so they bypass
-        # execute_namespace which only knows about the legacy dict-returning
-        # branches. Without these explicit routes the new subcommands fall
-        # through to "unknown daedalus command".
+        # String-returning commands bypass execute_namespace, which only knows
+        # about the legacy dict-returning branches.
         if args.daedalus_command == "watch":
             return _lazy_cmd_watch(args, parser)
-        if args.daedalus_command == "set-observability":
-            return cmd_set_observability(args, parser)
-        if args.daedalus_command == "get-observability":
-            return cmd_get_observability(args, parser)
         if args.daedalus_command == "scaffold-workflow":
             return cmd_scaffold_workflow(args, parser)
         if args.daedalus_command == "bootstrap":
@@ -4118,8 +4019,6 @@ def run_cli_command(args: argparse.Namespace) -> None:
         "migrate-filesystem",
         "migrate-systemd",
         "watch",
-        "set-observability",
-        "get-observability",
         "scaffold-workflow",
         "bootstrap",
     }

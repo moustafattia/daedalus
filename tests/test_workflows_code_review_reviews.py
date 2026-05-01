@@ -666,30 +666,28 @@ def test_codex_review_mutation_helpers_cover_pr_ready_thread_resolution_and_supe
 
     calls = []
 
-    def fake_run(command, cwd=None):
-        calls.append(("run", command, cwd))
-        return {"ok": True}
+    class FakeCodeHost:
+        def mark_pull_request_ready(self, pr_number):
+            calls.append(("ready", pr_number))
+            return True
 
-    def fake_run_json(command, cwd=None):
-        calls.append(("run_json", command, cwd))
-        return {"data": {"resolveReviewThread": {"thread": {"isResolved": True}}}}
+        def resolve_review_thread(self, thread_id):
+            calls.append(("resolve", thread_id))
+            return True
+
+    code_host = FakeCodeHost()
 
     ready = reviews_module.mark_pr_ready_for_review(
         297,
-        run_fn=fake_run,
-        cwd="/tmp/repo",
-        repo_slug="owner/repo",
+        code_host_client=code_host,
     )
     unresolved_none = reviews_module.mark_pr_ready_for_review(
         None,
-        run_fn=fake_run,
-        cwd="/tmp/repo",
-        repo_slug="owner/repo",
+        code_host_client=code_host,
     )
     resolved = reviews_module.resolve_review_thread(
         "thread-123",
-        run_json_fn=fake_run_json,
-        cwd="/tmp/repo",
+        code_host_client=code_host,
     )
     superseded = reviews_module.resolve_codex_superseded_threads(
         {
@@ -709,52 +707,27 @@ def test_codex_review_mutation_helpers_cover_pr_ready_thread_resolution_and_supe
     assert unresolved_none is False
     assert resolved is True
     assert superseded == ["thread-123"]
-    assert calls[0] == (
-        "run",
-        ["gh", "pr", "ready", "297", "--repo", "owner/repo"],
-        "/tmp/repo",
-    )
-    assert calls[1] == (
-        "run_json",
-        [
-            "gh",
-            "api",
-            "graphql",
-            "-f",
-            "query=mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } } }",
-            "-f",
-            "threadId=thread-123",
-        ],
-        "/tmp/repo",
-    )
+    assert calls == [("ready", 297), ("resolve", "thread-123")]
 
 
 def test_fetch_codex_pr_body_signal_picks_latest_codex_reaction_and_maps_clean_vs_pending():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
-    def fake_run_json(command, cwd=None):
-        assert command == [
-            "gh",
-            "api",
-            "repos/owner/repo/issues/297/reactions",
-            "-H",
-            "Accept: application/vnd.github+json",
-        ]
-        assert cwd == "/tmp/repo"
-        return [
-            {"user": {"login": "random-user"}, "content": "+1", "created_at": "2026-04-23T00:00:00Z"},
-            {"user": {"login": "codex-bot"}, "content": "eyes", "created_at": "2026-04-23T00:01:00Z"},
-            {"user": {"login": "codex-bot"}, "content": "+1", "created_at": "2026-04-23T00:02:00Z"},
-        ]
+    class FakeCodeHost:
+        def fetch_issue_reactions(self, issue_number):
+            assert issue_number == 297
+            return [
+                {"user": {"login": "random-user"}, "content": "+1", "created_at": "2026-04-23T00:00:00Z"},
+                {"user": {"login": "codex-bot"}, "content": "eyes", "created_at": "2026-04-23T00:01:00Z"},
+                {"user": {"login": "codex-bot"}, "content": "+1", "created_at": "2026-04-23T00:02:00Z"},
+            ]
 
     result = reviews_module.fetch_external_review_pr_body_signal(
         297,
-        run_json_fn=fake_run_json,
-        cwd="/tmp/repo",
+        code_host_client=FakeCodeHost(),
         codex_bot_logins={"codex-bot"},
         clean_reactions={"+1"},
         pending_reactions={"eyes"},
-        repo_slug="owner/repo",
     )
 
     assert result == {
@@ -774,9 +747,7 @@ def test_fetch_codex_cloud_review_uses_cache_and_builds_from_graphql_threads():
         current_head_sha="head-1",
         cached_review={"reviewedHeadSha": "head-1", "updatedAt": "cached-ts", "summary": "cached summary"},
         fetch_pr_body_signal_fn=lambda _pr_number: (_ for _ in ()).throw(AssertionError("cache hit should skip signal fetch")),
-        run_json_fn=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cache hit should skip graphql fetch")),
-        cwd="/tmp/repo",
-        repo_slug="owner/repo",
+        code_host_client=object(),
         codex_bot_logins={"codex-bot"},
         cache_seconds=30,
         iso_to_epoch_fn=lambda value: 100 if value == "cached-ts" else None,
@@ -786,47 +757,39 @@ def test_fetch_codex_cloud_review_uses_cache_and_builds_from_graphql_threads():
         agent_name="External_Reviewer_Agent",
     )
 
-    def fake_run_json(command, cwd=None):
-        assert cwd == "/tmp/repo"
-        assert command[:4] == ["gh", "api", "graphql", "-f"]
-        return {
-            "data": {
-                "repository": {
-                    "pullRequest": {
-                        "headRefOid": "head-2",
-                        "reviewThreads": {
-                            "nodes": [
-                                {
-                                    "id": "thread-1",
-                                    "isResolved": False,
-                                    "isOutdated": False,
-                                    "path": "a.py",
-                                    "line": 10,
-                                    "comments": {"nodes": [{"author": {"login": "codex-bot"}, "body": "sev0 blocker", "url": "https://example.com/1", "createdAt": "t1"}]},
-                                },
-                                {
-                                    "id": "thread-2",
-                                    "isResolved": False,
-                                    "isOutdated": False,
-                                    "path": "b.py",
-                                    "line": 20,
-                                    "comments": {"nodes": [{"author": {"login": "codex-bot"}, "body": "minor note", "url": "https://example.com/2", "createdAt": "t2"}]},
-                                },
-                            ]
+    class FakeCodeHost:
+        def fetch_pull_request_review_threads(self, pr_number):
+            assert pr_number == 297
+            return {
+                "headRefOid": "head-2",
+                "reviewThreads": {
+                    "nodes": [
+                        {
+                            "id": "thread-1",
+                            "isResolved": False,
+                            "isOutdated": False,
+                            "path": "a.py",
+                            "line": 10,
+                            "comments": {"nodes": [{"author": {"login": "codex-bot"}, "body": "sev0 blocker", "url": "https://example.com/1", "createdAt": "t1"}]},
                         },
-                    }
-                }
+                        {
+                            "id": "thread-2",
+                            "isResolved": False,
+                            "isOutdated": False,
+                            "path": "b.py",
+                            "line": 20,
+                            "comments": {"nodes": [{"author": {"login": "codex-bot"}, "body": "minor note", "url": "https://example.com/2", "createdAt": "t2"}]},
+                        },
+                    ]
+                },
             }
-        }
 
     built = reviews_module.fetch_external_review(
         297,
         current_head_sha="head-other",
         cached_review=None,
         fetch_pr_body_signal_fn=lambda _pr_number: {"state": "clean", "createdAt": "signal", "content": "+1", "user": "codex-bot"},
-        run_json_fn=fake_run_json,
-        cwd="/tmp/repo",
-        repo_slug="owner/repo",
+        code_host_client=FakeCodeHost(),
         codex_bot_logins={"codex-bot"},
         cache_seconds=30,
         iso_to_epoch_fn=lambda value: {"signal": 50, "t1": 60, "t2": 40}.get(value),

@@ -19,6 +19,9 @@ from engine.storage import write_text_atomic as _write_text
 from workflows.change_delivery.migrations import get_ledger_field
 from workflows.change_delivery.runtimes import build_runtimes
 from workflows.shared.paths import runtime_paths
+from code_hosts import build_code_host_client
+from trackers import build_tracker_client
+from trackers.feedback import feedback_enabled, publish_tracker_feedback
 
 
 def _derive_lane_selection_cfg(yaml_cfg, *, active_lane_label):
@@ -39,6 +42,26 @@ def _derive_lane_selection_cfg(yaml_cfg, *, active_lane_label):
         _spec.loader.exec_module(_mod)
         parse_config = _mod.parse_config
     return parse_config(workflow_yaml=yaml_cfg or {}, active_lane_label=active_lane_label)
+
+
+def _workflow_section(yaml_cfg: dict | None, key: str) -> dict[str, Any]:
+    section = (yaml_cfg or {}).get(key) or {}
+    return dict(section) if isinstance(section, dict) else {}
+
+
+def _change_delivery_tracker_cfg(yaml_cfg: dict | None) -> dict[str, Any]:
+    return _workflow_section(yaml_cfg, "tracker")
+
+
+def _code_host_github_slug(yaml_cfg: dict | None) -> str:
+    code_host = _workflow_section(yaml_cfg, "code-host")
+    if code_host.get("kind") != "github":
+        return ""
+    return str(code_host.get("github_slug") or "").strip()
+
+
+def _change_delivery_code_host_cfg(yaml_cfg: dict | None) -> dict[str, Any]:
+    return _workflow_section(yaml_cfg, "code-host")
 
 
 def _yaml_to_legacy_view(yaml_cfg: dict, workspace_root: "Path | None" = None) -> dict:
@@ -304,8 +327,8 @@ def _make_audit_fn(
 
       1. Always appends a JSONL row to ``audit_log_path``.
       2. If ``publisher`` is provided, calls ``publisher(action=..., summary=..., extra=...)``
-         after the write. Publisher exceptions are swallowed — observability
-         must never break workflow execution.
+         after the write. Publisher exceptions are swallowed so tracker feedback
+         and webhook fanout never break workflow execution.
     """
     event_sink = None
     if engine_store is not None:
@@ -330,82 +353,51 @@ def _make_audit_fn(
     )
 
 
-def _make_comment_publisher(
+def _make_tracker_feedback_publisher(
     *,
     workflow_root,
-    repo_slug,
+    tracker_cfg,
+    repo_path,
     workflow_yaml,
     get_active_issue_number,
     get_workflow_state,
     get_is_operator_attention,
-    run_fn=None,
+    tracker_client=None,
 ):
-    """Build the ``publisher`` callable consumed by ``_make_audit_fn``.
-
-    Returns ``None`` when github-comments is disabled — the caller
-    (``build_workspace``) wires that None into ``_make_audit_fn`` so
-    nothing happens at the audit hook.
-    """
-    # Lazy import to avoid hard-coupling workspace.py to comments_publisher
-    # before the rest of the workspace bootstrap is happy.
-    try:
-        from . import observability as _obs
-        from . import comments_publisher as _pub
-    except ImportError:
-        _here = Path(__file__).resolve().parent
-        import importlib.util as _ilu
-
-        def _load(name):
-            spec = _ilu.spec_from_file_location(
-                f"daedalus_workflow_change_delivery_{name}", _here / f"{name}.py"
-            )
-            mod = _ilu.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return mod
-        _obs = _load("observability")
-        _pub = _load("comments_publisher")
-
+    """Build the tracker-feedback subscriber consumed by ``_make_audit_fn``."""
     workflow_root = Path(workflow_root)
-    override_dir = workflow_root / "runtime" / "state" / "daedalus"
-    state_dir = workflow_root / "runtime" / "state" / "lane-comments"
-
-    # Always return a publisher callable so a later
-    # ``/daedalus set-observability --github-comments on`` override can take
-    # effect at the next audit event without a service restart. The publisher
-    # below re-resolves the effective config on every call and short-circuits
-    # when the result is disabled — that is the gate, not this bootstrap-time
-    # lookup. (Earlier versions short-circuited here when initially-disabled,
-    # which permanently severed the audit hook from the publisher and made
-    # runtime overrides ineffective until a process restart.)
+    tracker_cfg = dict(tracker_cfg or {})
+    if tracker_client is None and tracker_cfg and feedback_enabled(workflow_yaml or {}):
+        tracker_client = build_tracker_client(
+            workflow_root=workflow_root,
+            tracker_cfg=tracker_cfg,
+            repo_path=Path(repo_path) if repo_path else None,
+        )
 
     def publisher(*, action, summary, extra):
-        # Re-resolve the config every call so a /daedalus set-observability
-        # toggle takes effect immediately, without restarting the service.
-        eff = _obs.resolve_effective_config(
-            workflow_yaml=workflow_yaml or {},
-            override_dir=override_dir,
-            workflow_name="change-delivery",
-        )
-        if not eff["github-comments"].get("enabled"):
+        if tracker_client is None:
             return
         issue_number = get_active_issue_number()
         if issue_number is None:
             return
-        audit_event = {
-            "at": _now_iso(),
-            "action": action,
-            "summary": summary,
-            **(extra or {}),
-        }
-        _pub.publish_event(
-            repo_slug=repo_slug,
-            issue_number=issue_number,
-            workflow_state=get_workflow_state(),
-            is_operator_attention=get_is_operator_attention(),
-            audit_event=audit_event,
-            effective_config=eff,
-            state_dir=state_dir,
-            **({"run_fn": run_fn} if run_fn is not None else {}),
+        workflow_state = get_workflow_state()
+        publish_tracker_feedback(
+            tracker_client=tracker_client,
+            workflow_config=workflow_yaml or {},
+            issue={
+                "id": str(issue_number),
+                "identifier": f"#{issue_number}",
+                "state": workflow_state,
+            },
+            event=str(action or ""),
+            summary=str(summary or "Daedalus recorded a change-delivery update."),
+            metadata={
+                "workflow": "change-delivery",
+                "workflow_state": workflow_state,
+                "operator_attention": bool(get_is_operator_attention()),
+                "action": action,
+                **(extra or {}),
+            },
         )
 
     return publisher
@@ -560,8 +552,8 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         )
         _write_json(scheduler_path, payload)
 
-    # Wire the comment publisher (returns None when observability is disabled —
-    # the audit hook then becomes a pure log-write with no GitHub I/O).
+    # Wire tracker feedback through the shared tracker client. The audit hook
+    # still writes locally first; tracker publishing is best-effort fanout.
     _ns_holder: dict[str, Any] = {}
 
     def _ns_load_ledger() -> dict[str, Any]:
@@ -573,10 +565,24 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         except Exception:
             return {}
 
-    _repo_slug = ((yaml_cfg or {}).get("repository") or {}).get("github-slug") or ""
-    _publisher = _make_comment_publisher(
+    _tracker_cfg = _change_delivery_tracker_cfg(yaml_cfg)
+    _code_host_cfg = _change_delivery_code_host_cfg(yaml_cfg)
+    _code_host_slug = _code_host_github_slug(yaml_cfg)
+    _code_host_client = (
+        build_code_host_client(
+            workflow_root=workspace_root,
+            code_host_cfg=_code_host_cfg,
+            repo_path=repo_path,
+            run=_run,
+            run_json=_run_json,
+        )
+        if _code_host_cfg
+        else None
+    )
+    _tracker_feedback_publisher = _make_tracker_feedback_publisher(
         workflow_root=workspace_root,
-        repo_slug=_repo_slug,
+        tracker_cfg=_tracker_cfg,
+        repo_path=repo_path,
         workflow_yaml=yaml_cfg or {},
         get_active_issue_number=lambda: (_ns_load_ledger().get("activeLane") or {}).get("number"),
         get_workflow_state=lambda: _ns_load_ledger().get("workflowState") or "unknown",
@@ -588,13 +594,13 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
 
     _webhooks = build_webhooks((yaml_cfg or {}).get("webhooks") or [], run_fn=_run)
 
-    def _adapt_legacy_publisher(legacy_pub):
-        """The legacy comments publisher takes (action=, summary=, extra=).
+    def _adapt_tracker_feedback_publisher(feedback_pub):
+        """Tracker feedback takes (action=, summary=, extra=).
         Compose-style subscribers receive a single audit_event dict. Adapt."""
-        if legacy_pub is None:
+        if feedback_pub is None:
             return None
         def _sub(audit_event):
-            legacy_pub(
+            feedback_pub(
                 action=audit_event.get("action") or "",
                 summary=audit_event.get("summary") or "",
                 extra={k: v for k, v in audit_event.items() if k not in ("action", "summary", "at")},
@@ -610,9 +616,9 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         return _sub
 
     _subscribers = []
-    _legacy = _adapt_legacy_publisher(_publisher)
-    if _legacy is not None:
-        _subscribers.append(_legacy)
+    _tracker_feedback = _adapt_tracker_feedback_publisher(_tracker_feedback_publisher)
+    if _tracker_feedback is not None:
+        _subscribers.append(_tracker_feedback)
     for _wh in _webhooks:
         _subscribers.append(_adapt_webhook(_wh))
 
@@ -636,7 +642,8 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         DEFAULT_CONFIG_PATH=workspace_root / DEFAULT_WORKFLOW_MARKDOWN_FILENAME,
         SESSIONS_STATE_PATH=sessions_state_path,
         REPO_PATH=repo_path,
-        REPO_SLUG=_repo_slug,
+        CODE_HOST_SLUG=_code_host_slug,
+        CODE_HOST=_code_host_client,
         CRON_JOBS_PATH=cron_jobs_path,
         HERMES_CRON_JOBS_PATH=hermes_cron_jobs_path,
         LEDGER_PATH=ledger_path,
@@ -741,12 +748,13 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     _yaml_agents = (yaml_cfg or {}).get("agents", {}) or {}
     ext_reviewer_cfg = dict(_yaml_agents.get("external-reviewer") or {})
 
-    ext_reviewer_cfg["repo-slug"] = ext_reviewer_cfg.get("repo-slug") or _repo_slug
+    ext_reviewer_cfg["repo-slug"] = ext_reviewer_cfg.get("repo-slug") or _code_host_slug
 
     reviewer_ctx = ReviewerContext(
         run_json=ns._run_json,
         repo_path=ns.REPO_PATH,
         repo_slug=ext_reviewer_cfg["repo-slug"],
+        code_host_client=ns.CODE_HOST,
         iso_to_epoch=ns._iso_to_epoch,
         now_epoch=time.time,
         extract_severity=ns._extract_severity,
@@ -1230,12 +1238,16 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _get_open_pr_for_issue(issue_number):
-        return ns._load_adapter_github_module().get_open_pr_for_issue(
-            issue_number,
-            repo_path=ns.REPO_PATH,
-            run_json=ns._run_json,
-            issue_number_from_branch_fn=ns._issue_number_from_branch,
+        if issue_number is None:
+            return None
+        prs = ns._require_code_host().list_open_pull_requests(
+            limit=50,
+            fields="number,title,url,headRefName,headRefOid,isDraft,updatedAt",
         )
+        for pr in prs:
+            if ns._issue_number_from_branch(pr.get("headRefName")) == issue_number:
+                return pr
+        return None
 
     # -----------------------------------------------------------------
     # ACPX / codex-session helpers.
@@ -2007,19 +2019,21 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             acp_strategy=acp_strategy,
         )
 
+    def _require_code_host():
+        if ns.CODE_HOST is None:
+            raise RuntimeError("change-delivery PR operations require a code-host block in WORKFLOW.md")
+        return ns.CODE_HOST
+
     def _mark_pr_ready_for_review(pr_number):
         return ns._load_adapter_reviews_module().mark_pr_ready_for_review(
             pr_number,
-            run_fn=ns._run,
-            cwd=ns.REPO_PATH,
-            repo_slug=ns.REPO_SLUG,
+            code_host_client=ns._require_code_host(),
         )
 
     def _resolve_review_thread(thread_id):
         return ns._load_adapter_reviews_module().resolve_review_thread(
             thread_id,
-            run_json_fn=ns._run_json,
-            cwd=ns.REPO_PATH,
+            code_host_client=ns._require_code_host(),
         )
 
     def _resolve_codex_superseded_threads(review, *, current_head_sha):
@@ -2187,9 +2201,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             reconcile_fn=ns.reconcile,
             run_fn=ns._run,
             audit_fn=ns.audit,
-            mark_pr_ready_for_review_fn=ns._mark_pr_ready_for_review,
-            repo_slug=ns.REPO_SLUG,
-            repo_path=ns.REPO_PATH,
+            code_host_client=ns._require_code_host(),
         )
 
     def push_pr_update_raw():
@@ -2202,7 +2214,6 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
     def merge_and_promote_raw():
         return ns._load_adapter_actions_module().run_merge_and_promote(
             reconcile_fn=ns.reconcile,
-            run_fn=ns._run,
             audit_fn=ns.audit,
             issue_remove_label_fn=ns._issue_remove_label,
             issue_close_fn=ns._issue_close,
@@ -2211,8 +2222,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             pick_next_lane_issue_fn=ns._pick_next_lane_issue,
             now_iso_fn=ns._now_iso,
             active_lane_label=ns.ACTIVE_LANE_LABEL,
-            repo_slug=ns.REPO_SLUG,
-            repo_path=ns.REPO_PATH,
+            code_host_client=ns._require_code_host(),
         )
 
     def dispatch_inter_review_agent_review_raw():

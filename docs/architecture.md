@@ -58,7 +58,7 @@
 │  SUPERVISION               │              │  EXTERNAL                  │
 │  systemd service           │              │  GitHub API                │
 │  /daedalus watch (TUI)     │              │  Webhooks (Slack / HTTP)   │
-│  HTTP status :8765         │              │  Comments (PR audit trail) │
+│  HTTP status :8765         │              │  Tracker feedback          │
 └────────────────────────────┘              └────────────────────────────┘
 ```
 
@@ -87,7 +87,9 @@ merge_and_promote
 ```
 
 Examples:
-- `change-delivery` knows about GitHub issues, PRs, reviewer gates, and merge policy.
+- `change-delivery` knows about issue lanes, PRs, reviewer gates, and merge
+  policy. Its default production configuration uses GitHub for both `tracker`
+  and `code-host`, but those are distinct config boundaries.
 - `issue-runner` knows about tracker selection, isolated issue workspaces, lifecycle hooks, and one-agent execution.
 
 ### Brain 2: Daedalus Runtime (Execution)
@@ -202,7 +204,7 @@ bundled workflow packages.
 
 | Workflow | Shape | Best for | Docs |
 |---|---|---|---|
-| `change-delivery` | GitHub issue -> code -> internal review -> PR -> external review -> merge | opinionated SDLC automation | [`workflows/change-delivery.md`](workflows/change-delivery.md) |
+| `change-delivery` | issue -> code -> internal review -> PR -> external review -> merge | opinionated SDLC automation | [`workflows/change-delivery.md`](workflows/change-delivery.md) |
 | `issue-runner` | tracker issue -> workspace -> hooks -> prompt -> one agent run | generic tracker-driven automation | [`workflows/issue-runner.md`](workflows/issue-runner.md) |
 
 The workflow package owns the lifecycle. Daedalus owns the durable execution
@@ -306,9 +308,9 @@ daedalus/
 ├── watch_sources.py         # Lane + alert + event aggregation
 ├── formatters.py            # Human-readable inspection output
 ├── migration.py             # historical filesystem migration helpers
-├── observability_overrides.py  # Operator config overrides
 ├── runtimes/                # Shared execution backends (Codex, Claude, Hermes)
 ├── trackers/                # Shared tracker clients (GitHub, local-json, Linear experimental, ...)
+├── code_hosts/              # Shared PR/review/merge clients (GitHub)
 └── workflows/
     ├── __init__.py          # Workflow loader + CLI dispatcher
     ├── shared/              # Shared paths, config snapshots, stalls
@@ -322,8 +324,7 @@ daedalus/
         ├── reviewers/       # Reviewer implementations
         ├── webhooks/        # Outbound webhook subscribers
         ├── server/          # HTTP status surface
-        ├── comments.py      # GitHub comment formatting
-        └── observability.py # Config resolution
+        └── workspace.py     # Audit fanout + tracker feedback wiring
     └── issue_runner/
         ├── tracker.py       # Issue selection + workflow-specific tracker policy
         ├── workspace.py     # Issue workspace lifecycle + hooks
@@ -340,7 +341,7 @@ The supported community shape keeps code, policy, and state separated:
 
 | Layer | Owner | Role |
 |---|---|---|
-| **Plugin** | `~/.hermes/plugins/daedalus` | engine, workflow packages, shared runtimes/trackers |
+| **Plugin** | `~/.hermes/plugins/daedalus` | engine, workflow packages, shared runtimes/trackers/code hosts |
 | **Repo contract** | `WORKFLOW.md` / `WORKFLOW-<workflow>.md` | workflow policy and operator config |
 | **Workflow root** | `~/.hermes/workflows/<owner>-<repo>-<workflow-type>` | durable runtime data and workspace-local state |
 | **Daedalus service** | systemd user unit | recurring dispatcher/supervisor |
@@ -371,14 +372,14 @@ That means:
 | Doc | What It Covers |
 |---|---|
 | [`workflows/README.md`](workflows/README.md) | Which bundled workflow to use and where its template lives |
-| [`workflows/change-delivery.md`](workflows/change-delivery.md) | The opinionated GitHub SDLC workflow |
+| [`workflows/change-delivery.md`](workflows/change-delivery.md) | The opinionated issue-to-PR SDLC workflow |
 | [`workflows/issue-runner.md`](workflows/issue-runner.md) | The generic tracker-driven bundled workflow |
 | [`concepts/lanes.md`](concepts/lanes.md) | Lane state machine, selection, workspace binding |
 | [`concepts/actions.md`](concepts/actions.md) | Action types, idempotency, shadow vs active |
 | [`concepts/failures.md`](concepts/failures.md) | Failure lifecycle, retry policy, lane-220 fixes |
 | [`concepts/leases.md`](concepts/leases.md) | Lease acquisition, heartbeat, recovery, split-brain |
 | [`concepts/reviewers.md`](concepts/reviewers.md) | Internal/external/advisory review pipeline |
-| [`concepts/observability.md`](concepts/observability.md) | Watch TUI, HTTP server, GitHub comments |
+| [`concepts/observability.md`](concepts/observability.md) | Watch TUI, HTTP server, tracker feedback |
 | [`concepts/operator-attention.md`](concepts/operator-attention.md) | When attention triggers, thresholds, recovery |
 | [`operator/cheat-sheet.md`](operator/cheat-sheet.md) | Day-to-day commands, debugging, SQL cheats |
 

@@ -220,19 +220,3 @@ def test_shadow_report_no_info_loss():
     out = fmt.format_shadow_report(result, use_color=False, now_iso="2026-04-26T22:43:18Z")
     missing = _values_in_text(result, out)
     assert not missing, f"Missing in shadow-report output: {missing}"
-
-
-def test_get_observability_no_info_loss():
-    fmt = _fmt()
-    result = {
-        "workflow": "change-delivery",
-        "github_comments": {
-            "enabled": True,
-            "mode": "edit-in-place",
-            "include_events": ["dispatch-implementation-turn", "merge-and-promote"],
-        },
-        "source": "yaml",
-    }
-    out = fmt.format_get_observability(result, use_color=False)
-    missing = _values_in_text(result, out)
-    assert not missing, f"Missing in get-observability output: {missing}"

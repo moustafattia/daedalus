@@ -22,15 +22,22 @@ def test_build_reviewer_unknown_kind_raises():
 
 
 def _ws_context():
+    from code_hosts.github import GithubCodeHostClient
     from workflows.change_delivery.reviewers import ReviewerContext
 
+    run_json = MagicMock(return_value={"data": {"repository": {"pullRequest": {
+        "state": "OPEN", "headRefOid": "abc123",
+        "reviewThreads": {"nodes": []},
+    }}}})
     return ReviewerContext(
-        run_json=MagicMock(return_value={"data": {"repository": {"pullRequest": {
-            "state": "OPEN", "headRefOid": "abc123",
-            "reviewThreads": {"nodes": []},
-        }}}}),
+        run_json=run_json,
         repo_path=Path("/tmp"),
         repo_slug="acme/widget",
+        code_host_client=GithubCodeHostClient(
+            code_host_cfg={"kind": "github", "github_slug": "acme/widget"},
+            repo_path=Path("/tmp"),
+            run_json=run_json,
+        ),
         iso_to_epoch=lambda x: None,
         now_epoch=lambda: 1000.0,
         extract_severity=lambda body: "minor",

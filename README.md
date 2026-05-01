@@ -102,11 +102,11 @@ Edit the generated contract in your target repo:
 
 Common knobs live in the YAML front matter:
 
-- `tracker` / `repository`: issue source, repo checkout, labels, states
+- `repository` / `tracker` / `code-host`: checkout path, issue source, PR host
 - `runtimes`: runtime profiles such as Codex app-server, CLI agents, or custom commands
 - `agents`: model/runtime bindings for workflow roles
 - `hooks` / `gates`: workflow-specific lifecycle policy
-- `observability` / `server`: comments, webhooks, HTTP status
+- `tracker-feedback` / `webhooks` / `server`: tracker updates, outbound notifications, HTTP status
 
 The Markdown body is the workflow policy prompt. The workflow package decides
 how to use it. See the full [WORKFLOW.md guide](docs/workflows/workflow-contract.md).
@@ -120,6 +120,7 @@ how to use it. See the full [WORKFLOW.md guide](docs/workflows/workflow-contract
 | Workflow root | Durable instance data under `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`. |
 | Workflow package | The installed Python implementation that decides the lifecycle for a selected issue. |
 | Tracker | The system Daedalus reads issues from and writes status back to. |
+| Code host | The system Daedalus uses for branches, pull requests, review threads, checks, and merge operations. |
 | Issue | The unit of work selected from a tracker. Workflows should model issues, not one tracker vendor. |
 | Runtime | The adapter that runs an agent or command against a workspace. |
 | Workspace | The isolated checkout/path where the agent does work for an issue. |

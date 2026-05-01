@@ -67,6 +67,10 @@ def test_bootstrap_workflow_infers_repo_root_slug_and_default_root(tmp_path, mon
     assert result["git_branch"] == "daedalus/bootstrap-change-delivery"
     assert result["git_committed"] is True
     assert cfg["repository"]["local-path"] == str(repo_root.resolve())
+    assert cfg["repository"]["slug"] == "attmous/daedalus"
+    assert "github-slug" not in cfg["repository"]
+    assert cfg["tracker"]["github_slug"] == "attmous/daedalus"
+    assert cfg["code-host"]["github_slug"] == "attmous/daedalus"
     assert pointer_path.read_text(encoding="utf-8").strip() == str(expected_root)
     assert state_pointer_path.read_text(encoding="utf-8").strip() == str(contract_path.resolve())
 
@@ -90,7 +94,9 @@ def test_bootstrap_workflow_accepts_explicit_slug_for_non_github_remote(tmp_path
     cfg = load_workflow_contract_file(repo_root / "WORKFLOW.md").config
     assert result["repo_slug"] == "acme/widget"
     assert cfg["repository"]["slug"] == "acme/widget"
-    assert cfg["repository"]["github-slug"] == "acme/widget"
+    assert "github-slug" not in cfg["repository"]
+    assert cfg["tracker"]["github_slug"] == "acme/widget"
+    assert cfg["code-host"]["github_slug"] == "acme/widget"
     assert cfg["repository"]["local-path"] == str(repo_root.resolve())
     assert (repo_root / ".hermes" / "daedalus" / "workflow-root").read_text(encoding="utf-8").strip() == str(workflow_root.resolve())
 

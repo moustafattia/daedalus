@@ -21,9 +21,16 @@ def _minimal_valid_config():
         "instance": {"name": "owner-repo-change-delivery", "engine-owner": "hermes"},
         "repository": {
             "local-path": "/tmp/repo",
-            "github-slug": "owner/repo",
+            "slug": "owner/repo",
             "active-lane-label": "active-lane",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "owner/repo",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {
             "acpx-codex": {
                 "kind": "acpx-codex",

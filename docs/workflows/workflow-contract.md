@@ -60,10 +60,11 @@ The YAML front matter is structured operator configuration:
 
 - `workflow` selects the workflow package.
 - `instance` names the workflow instance.
-- `tracker` and `repository` configure where issues and code live.
+- `repository` identifies the target checkout, `tracker` selects the issue source,
+  and workflows that publish PRs use `code-host` for branch/PR/merge operations.
 - `tracker-feedback` controls tracker-facing comments and optional state updates.
 - `runtimes` and `agents` bind workflow roles to execution backends.
-- `hooks`, `gates`, `observability`, and `server` configure workflow-specific behavior.
+- `hooks`, `gates`, `webhooks`, and `server` configure workflow-specific behavior.
 
 Each workflow validates this section against its own schema before dispatch.
 
@@ -105,5 +106,5 @@ hot reload to keep the last known good config if a bad edit lands.
 | [`docs/examples/change-delivery.workflow.md`](../examples/change-delivery.workflow.md) | You want the opinionated issue-to-PR-to-merge contract. |
 
 For production, start from the same examples and fill in tracker credentials,
-real runtime profiles, retention limits, hooks, gates, and observability
+real runtime profiles, retention limits, hooks, gates, and tracker feedback
 settings before running `hermes daedalus service-up`.

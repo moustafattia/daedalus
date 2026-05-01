@@ -211,7 +211,9 @@ def test_schema_accepts_stall_section():
     base = {
         "workflow": "change-delivery", "schema-version": 1,
         "instance": {"name": "i", "engine-owner": "hermes"},
-        "repository": {"local-path": "/tmp", "github-slug": "o/r", "active-lane-label": "x"},
+        "repository": {"local-path": "/tmp", "slug": "o/r", "active-lane-label": "x"},
+        "tracker": {"kind": "github", "github_slug": "o/r", "active_states": ["open"], "terminal_states": ["closed"]},
+        "code-host": {"kind": "github", "github_slug": "o/r"},
         "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}},
         "agents": {
             "coder": {"t1": {"name": "c", "model": "m", "runtime": "r1"}},
@@ -237,7 +239,9 @@ def test_schema_rejects_negative_stall_timeout():
     base = {
         "workflow": "change-delivery", "schema-version": 1,
         "instance": {"name": "i", "engine-owner": "hermes"},
-        "repository": {"local-path": "/tmp", "github-slug": "o/r", "active-lane-label": "x"},
+        "repository": {"local-path": "/tmp", "slug": "o/r", "active-lane-label": "x"},
+        "tracker": {"kind": "github", "github_slug": "o/r", "active_states": ["open"], "terminal_states": ["closed"]},
+        "code-host": {"kind": "github", "github_slug": "o/r"},
         "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 1, "timeout-seconds": 60}},
         "agents": {
             "coder": {"t1": {"name": "c", "model": "m", "runtime": "r1"}},

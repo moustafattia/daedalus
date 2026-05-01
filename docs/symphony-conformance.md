@@ -5,19 +5,19 @@ This note tracks Daedalus against the public `openai/symphony` draft spec as rev
 The short version: Daedalus is already **Symphony-aligned** in architecture, but
 only **partially Symphony-compatible** at the contract and integration
 boundaries. The target is to make `issue-runner` the strict reference surface
-and keep `change-delivery` as the opinionated GitHub SDLC workflow.
+and keep `change-delivery` as the opinionated GitHub-first SDLC workflow.
 
 ## Positioning
 
 - Daedalus is a long-running workflow orchestrator with durable state, hot reload, isolated lane worktrees, recovery, and operator observability.
 - Daedalus is intentionally **tracker-neutral in contract shape** and **GitHub-first in production coverage** for the public release. The current Symphony draft is **Linear-first**, so Daedalus tracks that shape without making Linear the launch path.
-- Daedalus now uses a Symphony-style `WORKFLOW.md` as the native public contract for bundled workflows. `issue-runner` is the closer generic reference surface; `change-delivery` remains the richer GitHub SDLC workflow.
+- Daedalus now uses a Symphony-style `WORKFLOW.md` as the native public contract for bundled workflows. `issue-runner` is the closer generic reference surface; `change-delivery` remains the richer GitHub-first SDLC workflow with separate `tracker` and `code-host` boundaries.
 
 ## Status Matrix
 
 | Symphony concept | Daedalus status | Notes |
 |---|---|---|
-| `WORKFLOW.md` loader | Partial | Supported as a repo-owned public contract. Front matter maps to the selected workflow schema; `issue-runner` is the closer generic reference surface, while `change-delivery` still carries richer GitHub-specific semantics. |
+| `WORKFLOW.md` loader | Partial | Supported as a repo-owned public contract. Front matter maps to the selected workflow schema; `issue-runner` is the closer generic reference surface, while `change-delivery` still carries richer PR/review/merge semantics. |
 | Typed config + hot reload | Implemented | Bundled workflows load repo-owned `WORKFLOW.md`; `issue-runner` now keeps last-known-good config on invalid reloads. |
 | Issue tracker client boundary | Partial | `issue-runner` has shared `github`, `local-json`, and Linear clients. GitHub is the first-class public tracker path and now has a skipped-by-default live smoke; `local-json` is for fixtures/dev; Linear is experimental and deferred. |
 | Workspace manager | Partial | Generic workspace root, lifecycle hooks, terminal cleanup, sanitized workspace keys, root-containment checks, managed long-running `issue-runner`, supervised `change-delivery` active iterations, worker reconciliation, and persisted scheduler state now exist. |
@@ -43,7 +43,7 @@ and workflow-specific prompts.
 
 Daedalus currently differs from the Symphony draft in four material ways:
 
-1. The default managed workflow is `issue-runner`, while `change-delivery` remains the opinionated GitHub-backed SDLC workflow.
+1. The default managed workflow is `issue-runner`, while `change-delivery` remains the opinionated GitHub-first SDLC workflow.
 2. Runtime adapters are still mixed: both bundled workflows can use Codex app-server, but non-Codex command runtimes remain CLI/session-oriented.
 3. `WORKFLOW.md` still maps into the current Daedalus schema rather than a tracker-agnostic Symphony config model.
 4. Long-running service paths have async supervision for `issue-runner` workers and `change-delivery` active iterations, but manual `tick` remains synchronous and command-style runtimes still have limited cancellation semantics.

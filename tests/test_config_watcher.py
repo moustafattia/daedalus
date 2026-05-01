@@ -15,8 +15,16 @@ _VALID_YAML = textwrap.dedent("""\
       engine-owner: hermes
     repository:
       local-path: /tmp/test
-      github-slug: org/repo
+      slug: org/repo
       active-lane-label: active-lane
+    tracker:
+      kind: github
+      github_slug: org/repo
+      active_states: [open]
+      terminal_states: [closed]
+    code-host:
+      kind: github
+      github_slug: org/repo
     runtimes:
       r1:
         kind: claude-cli

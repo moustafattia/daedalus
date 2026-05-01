@@ -1,7 +1,7 @@
 """Symphony §10.4-aligned event taxonomy.
 
 Single source of truth for canonical event names. Writers (in runtime.py)
-emit only constants from this module; readers (status.py, observability.py,
+emit only constants from this module; readers (status.py, tracker feedback,
 watch.py, server views) wrap event-type reads in `canonicalize()` so old
 log files keep working during the one-release alias window.
 
@@ -65,7 +65,7 @@ DAEDALUS_REFRESH_REQUESTED            = "daedalus.refresh_requested"
 
 # ---- One-release alias window: legacy bare names -> canonical prefixed. ----
 # Pre-rename log files contain the bare Daedalus names; readers normalize
-# via canonicalize() so dashboards, observability filters, and tests
+# via canonicalize() so dashboards, tracker-feedback filters, and tests
 # that consume daedalus-events.jsonl keep working across the rollout.
 EVENT_ALIASES: dict[str, str] = {
     "daedalus_runtime_started":            DAEDALUS_RUNTIME_STARTED,

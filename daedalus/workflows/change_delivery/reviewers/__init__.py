@@ -20,6 +20,7 @@ class ReviewerContext:
     run_json: Callable[..., Any]
     repo_path: Path
     repo_slug: str
+    code_host_client: Any
     iso_to_epoch: Callable[[Any], int | None]
     now_epoch: Callable[[], float]
     extract_severity: Callable[[str], str]

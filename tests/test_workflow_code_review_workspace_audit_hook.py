@@ -1,4 +1,4 @@
-"""The audit() closure should invoke the comment publisher when one is wired in."""
+"""The audit() closure should invoke the publisher when one is wired in."""
 import importlib.util
 import json
 from pathlib import Path

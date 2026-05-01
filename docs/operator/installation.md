@@ -2,7 +2,7 @@
 
 This is the supported community install path for the first public release.
 The default managed path is for the bundled `issue-runner` workflow. Use
-`change-delivery` when you want the opinionated GitHub-backed SDLC workflow.
+`change-delivery` when you want the opinionated GitHub-first SDLC workflow.
 
 ## Requirements
 
@@ -31,7 +31,8 @@ but it is deferred until the GitHub adapter is hardened further.
 Daedalus currently ships two workflow packages:
 
 - `change-delivery`
-  This is the opinionated GitHub-backed SDLC workflow. Use
+  This is the opinionated issue-to-PR SDLC workflow. Its default production
+  config uses GitHub as both `tracker` and `code-host`. Use
   `bootstrap --workflow change-delivery`, then bring it up with `service-up`.
 - `issue-runner`
   This is the bundled generic tracker-driven workflow behind the default
@@ -148,7 +149,7 @@ At minimum, set:
 
 - `repository.local-path`
 - runtime kinds/models that exist on your host
-- any gates, webhooks, or observability settings your repo needs
+- any gates, webhooks, or tracker-feedback settings your repo needs
 
 The YAML front matter is the structured config. The Markdown body below it is
 the workflow policy contract. `change-delivery` composes it into its role

@@ -171,7 +171,7 @@ agents:
     enabled: true
     name: ChatGPT_Codex_Cloud
     kind: github-comments         # default; reads PR review threads
-    repo-slug: owner/repo         # optional; falls back to repository.github-slug
+    repo-slug: owner/repo         # optional; falls back to code-host.github_slug
     cache-seconds: 300
     logins:
       - chatgpt-codex-connector[bot]

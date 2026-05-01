@@ -15,9 +15,9 @@ PAYLOAD_ROOT = "daedalus"
 PAYLOAD_ITEMS = [
     "__init__.py",
     "alerts.py",
+    "code_hosts",
     "formatters.py",
     "migration.py",
-    "observability_overrides.py",
     "plugin.yaml",
     "runtime.py",
     "engine",

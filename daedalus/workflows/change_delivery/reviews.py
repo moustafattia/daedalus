@@ -663,41 +663,19 @@ def synthesize_repair_brief(
 def mark_pr_ready_for_review(
     pr_number: int | None,
     *,
-    run_fn: Callable[..., Any],
-    cwd: Any,
-    repo_slug: str,
+    code_host_client: Any,
 ) -> bool:
     if pr_number is None:
         return False
-    try:
-        run_fn(["gh", "pr", "ready", str(pr_number), "--repo", repo_slug], cwd=cwd)
-        return True
-    except Exception:
-        return False
+    return bool(code_host_client.mark_pull_request_ready(pr_number))
 
 
 def resolve_review_thread(
     thread_id: str,
     *,
-    run_json_fn: Callable[..., Any],
-    cwd: Any,
+    code_host_client: Any,
 ) -> bool:
-    try:
-        result = run_json_fn(
-            [
-                "gh",
-                "api",
-                "graphql",
-                "-f",
-                "query=mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } } }",
-                "-f",
-                f"threadId={thread_id}",
-            ],
-            cwd=cwd,
-        )
-    except Exception:
-        return False
-    return bool((((result or {}).get("data") or {}).get("resolveReviewThread") or {}).get("thread", {}).get("isResolved"))
+    return bool(code_host_client.resolve_review_thread(thread_id))
 
 
 def resolve_codex_superseded_threads(
@@ -731,26 +709,15 @@ def resolve_codex_superseded_threads(
 def fetch_external_review_pr_body_signal(
     pr_number: int | None,
     *,
-    run_json_fn: Callable[..., Any],
-    cwd: Any,
+    code_host_client: Any,
     codex_bot_logins: set[str],
     clean_reactions: set[str],
     pending_reactions: set[str],
-    repo_slug: str,
 ) -> dict[str, Any] | None:
     if pr_number is None:
         return None
     try:
-        reactions = run_json_fn(
-            [
-                "gh",
-                "api",
-                f"repos/{repo_slug}/issues/{pr_number}/reactions",
-                "-H",
-                "Accept: application/vnd.github+json",
-            ],
-            cwd=cwd,
-        )
+        reactions = code_host_client.fetch_issue_reactions(pr_number)
     except Exception:
         return None
     if not isinstance(reactions, list):
@@ -782,9 +749,7 @@ def fetch_external_review(
     current_head_sha: str | None,
     cached_review: dict[str, Any] | None,
     fetch_pr_body_signal_fn: Callable[[int | None], dict[str, Any] | None],
-    run_json_fn: Callable[..., Any],
-    cwd: Any,
-    repo_slug: str,
+    code_host_client: Any,
     codex_bot_logins: set[str],
     cache_seconds: int,
     iso_to_epoch_fn: Callable[[str | None], int | None] = _iso_to_epoch,
@@ -821,19 +786,7 @@ def fetch_external_review(
         return {**base, **cached_review, "required": True}
     pr_signal = fetch_pr_body_signal_fn(pr_number)
     signal_epoch = iso_to_epoch_fn((pr_signal or {}).get("createdAt"))
-    owner, name = repo_slug.split("/", 1)
-    data = run_json_fn(
-        [
-            "gh",
-            "api",
-            "graphql",
-            "-f",
-            "query=query { repository(owner:\"%s\", name:\"%s\") { pullRequest(number: %d) { state headRefOid reviewThreads(first: 100) { nodes { id isResolved isOutdated path line comments(first: 20) { nodes { author { login } body url createdAt } } } } } } }"
-            % (owner, name, pr_number),
-        ],
-        cwd=cwd,
-    )
-    pr = data["data"]["repository"]["pullRequest"]
+    pr = code_host_client.fetch_pull_request_review_threads(pr_number)
     head_sha = pr.get("headRefOid")
     threads = []
     latest_ts = None

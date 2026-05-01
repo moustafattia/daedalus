@@ -16,7 +16,7 @@ Entry point for everything that won't fit on the [project landing page](../READM
 ## How to read these docs
 
 - Generic docs describe the plugin engine: contracts, state stores, runtimes, trackers, service supervision, and observability.
-- Workflow docs describe lifecycle policy. `issue-runner` is the generic tracker-driven path; `change-delivery` is the opinionated GitHub-backed issue-to-merge path.
+- Workflow docs describe lifecycle policy. `issue-runner` is the generic tracker-driven path; `change-delivery` is the opinionated issue-to-merge path with GitHub as the first-class tracker/code-host pair.
 - Operator docs describe installed deployments. SQL examples often focus on `change-delivery`, but shared engine execution state is SQLite-backed for both workflows.
 
 ## Concepts
@@ -49,10 +49,10 @@ Day-2 commands and observability.
 
 - [Bundled workflows](workflows/README.md) — overview of `change-delivery` and `issue-runner`
 - [WORKFLOW.md guide](workflows/workflow-contract.md) — repo-owned contract location, front matter, and Markdown body
-- [change-delivery](workflows/change-delivery.md) — opinionated GitHub SDLC workflow
+- [change-delivery](workflows/change-delivery.md) — opinionated issue-to-PR SDLC workflow
 - [issue-runner](workflows/issue-runner.md) — generic tracker-driven reference workflow
 - [examples/issue-runner.workflow.md](examples/issue-runner.workflow.md) — copyable default generic tracker-driven contract
-- [examples/change-delivery.workflow.md](examples/change-delivery.workflow.md) — copyable GitHub-backed SDLC contract
+- [examples/change-delivery.workflow.md](examples/change-delivery.workflow.md) — copyable GitHub-first SDLC contract
 
 ## History & decisions
 

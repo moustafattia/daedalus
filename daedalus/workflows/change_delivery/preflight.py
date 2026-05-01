@@ -13,6 +13,7 @@ Error codes (fixed enum, mirrors Symphony's recommended categories):
 - ``unsupported_reviewer_kind``    — reviewer kind not in registered kinds
 - ``missing_tracker_credentials``  — required env var unset / empty
 - ``unsupported_tracker_kind``     — tracker.kind not supported
+- ``unsupported_code_host_kind``   — code-host.kind not supported
 - ``workspace_root_unwritable``    — workspace.root missing or not writable
 """
 from __future__ import annotations
@@ -33,6 +34,7 @@ class PreflightResult:
 _RECOGNIZED_RUNTIME_KINDS = frozenset({"acpx-codex", "claude-cli", "codex-app-server", "hermes-agent"})
 _RECOGNIZED_REVIEWER_KINDS = frozenset({"github-comments", "disabled"})
 _RECOGNIZED_TRACKER_KINDS = frozenset({"github"})
+_RECOGNIZED_CODE_HOST_KINDS = frozenset({"github"})
 
 
 def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
@@ -90,6 +92,16 @@ def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
                 False,
                 "unsupported_tracker_kind",
                 f"tracker.kind={tk!r} not in {sorted(_RECOGNIZED_TRACKER_KINDS)}",
+            )
+
+    code_host = config.get("code-host") or {}
+    if isinstance(code_host, dict):
+        chk = code_host.get("kind")
+        if chk and chk not in _RECOGNIZED_CODE_HOST_KINDS:
+            return PreflightResult(
+                False,
+                "unsupported_code_host_kind",
+                f"code-host.kind={chk!r} not in {sorted(_RECOGNIZED_CODE_HOST_KINDS)}",
             )
 
     # Tracker credential resolution — if config references a $VAR_NAME and

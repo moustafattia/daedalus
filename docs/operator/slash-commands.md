@@ -188,8 +188,6 @@ Daedalus service
 |---|---|
 | `/daedalus watch` | Live operator TUI (lanes + alerts + recent events) |
 | `/daedalus watch --once` | Render one frame and exit (works in pipes) |
-| `/daedalus set-observability --workflow <name> --github-comments on\|off\|unset` | Set/clear runtime override for a workflow's GitHub-comment publishing |
-| `/daedalus get-observability --workflow <name>` | Show effective observability config + which layer (default/yaml/override) won |
 
 ## `/workflow` — per-workflow operations
 
@@ -237,13 +235,6 @@ This is the bundled generic tracker-driven workflow.
 |---|---|---|
 || `/workflow change-delivery webhooks status` | Show configured webhook subscribers |
 || `/workflow change-delivery webhooks test` | Fire a test event to all webhooks |
-
-### Comments commands
-
-|| Command | What it does |
-|---|---|---|
-|| `/workflow change-delivery comments status` | Show comment publisher state |
-|| `/workflow change-delivery comments sync` | Force a comment sync for current lane |
 
 ## Most useful day-to-day, in order
 

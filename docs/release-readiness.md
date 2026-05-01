@@ -11,6 +11,7 @@ should be backed by documentation, tests, or an operator smoke path.
 - Reference workflow: `issue-runner`.
 - Flagship workflow: `change-delivery`.
 - First-class tracker: GitHub.
+- First-class code host: GitHub.
 - Experimental tracker: Linear.
 - Preferred contract: repo-owned `WORKFLOW.md` or `WORKFLOW-<workflow>.md`.
 
@@ -19,7 +20,8 @@ should be backed by documentation, tests, or an operator smoke path.
 | Area | Status | Evidence |
 |---|---|---|
 | Repo-owned workflow contract | Strong | `WORKFLOW*.md` loader, bootstrap, examples, template drift tests |
-| Tracker abstraction | Good | Shared GitHub, local JSON, and experimental Linear clients |
+| Tracker abstraction | Good | Shared GitHub, local JSON, and experimental Linear clients; `change-delivery` separates `tracker` from `code-host` |
+| Code-host abstraction | Good | Shared GitHub client owns PR create/list/ready/merge, reactions, and review-thread GraphQL |
 | Long-running scheduler | Good | `issue-runner run`, worker supervision, retries, persisted scheduler state |
 | Workspace lifecycle | Good | Sanitized issue workspaces, hooks, terminal cleanup, root containment |
 | Codex app-server | Good | Managed stdio, external WebSocket, thread resume, token/rate-limit metrics |

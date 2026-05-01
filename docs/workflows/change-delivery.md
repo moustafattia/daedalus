@@ -1,7 +1,8 @@
 # `change-delivery`
 
-`change-delivery` is the opinionated bundled SDLC workflow for GitHub-backed
-issue-to-PR delivery.
+`change-delivery` is the opinionated bundled SDLC workflow for issue-to-PR
+delivery. Its production path is GitHub-first today: GitHub is the supported
+issue tracker and code host for PR/review/merge operations.
 
 ## What it does
 
@@ -19,7 +20,7 @@ of the default generic `issue-runner` workflow.
 
 ## Use it when
 
-- GitHub is your tracker and PR system
+- GitHub is your tracker or you want the first-class GitHub PR system
 - you want built-in review and merge gates
 - you want the most complete Daedalus operator surface today
 
@@ -30,17 +31,19 @@ of the default generic `issue-runner` workflow.
 
 ## Key config blocks
 
-- `repository`: repo checkout, repo slug, GitHub slug, active-lane label
-- `tracker`: GitHub-backed issue source and issue state mapping
+- `repository`: generic repo identity, checkout path, active-lane label
+- `tracker`: issue source, issue state mapping, tracker feedback target
+- `code-host`: PR, review, CI, and merge host
 - `runtimes`: shared runtime backend profiles used by the workflow roles
 - `agents`: the workflow roles and their runtime/model bindings
 - `gates`: publish/merge policy
 - `triggers`: lane selector
 - `lane-selection`: issue filtering/ranking
-- `observability`: comments/webhooks integration
+- `tracker-feedback`: tracker-facing lifecycle comments
+- `webhooks` / `server`: outbound notifications and HTTP status
 
-`change-delivery` composes the shared `runtimes/` backends with workflow-specific
-prompts, reviewers, GitHub behavior, and merge policy.
+`change-delivery` composes shared `runtimes/`, `trackers/`, and `code_hosts/`
+backends with workflow-specific prompts, reviewers, and merge policy.
 
 ## Codex Runtime Options
 

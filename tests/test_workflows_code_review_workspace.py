@@ -42,9 +42,16 @@ def _workflow_yaml_config(tmp_path: Path) -> dict:
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {
             "local-path": str(tmp_path / "repo"),
-            "github-slug": "owner/repo",
+            "slug": "owner/repo",
             "active-lane-label": "active-lane",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "owner/repo",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {
             "acpx-codex": {"kind": "acpx-codex"},
             "claude-cli": {"kind": "claude-cli"},
@@ -429,9 +436,16 @@ def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {
             "local-path": str(tmp_path / "repo"),
-            "github-slug": "owner/repo",
+            "slug": "owner/repo",
             "active-lane-label": "active-lane",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "owner/repo",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {
             "acpx-codex": {
                 "kind": "acpx-codex",
@@ -675,7 +689,9 @@ def test_workspace_raises_on_agent_referencing_unknown_runtime(tmp_path):
         "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "test", "engine-owner": "hermes"},
-        "repository": {"local-path": str(tmp_path), "github-slug": "o/r", "active-lane-label": "active-lane"},
+        "repository": {"local-path": str(tmp_path), "slug": "o/r", "active-lane-label": "active-lane"},
+        "tracker": {"kind": "github", "github_slug": "o/r", "active_states": ["open"], "terminal_states": ["closed"]},
+        "code-host": {"kind": "github", "github_slug": "o/r"},
         "runtimes": {"acpx-codex": {"kind": "acpx-codex", "session-idle-freshness-seconds": 900, "session-idle-grace-seconds": 1800, "session-nudge-cooldown-seconds": 600}},
         "agents": {
             "coder": {"default": {"name": "C", "model": "m", "runtime": "nonexistent-runtime"}},

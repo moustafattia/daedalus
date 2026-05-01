@@ -23,9 +23,16 @@ def _base_config():
         "instance": {"name": "test", "engine-owner": "hermes"},
         "repository": {
             "local-path": "/tmp/x",
-            "github-slug": "x/y",
+            "slug": "x/y",
             "active-lane-label": "active",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "x/y",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "x/y"},
         "runtimes": {
             "codex-acpx": {
                 "kind": "acpx-codex",

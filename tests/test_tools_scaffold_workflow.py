@@ -53,8 +53,10 @@ def test_scaffold_workflow_writes_config_and_layout(tmp_path):
     assert cfg["instance"]["name"] == "attmous-daedalus-change-delivery"
     assert cfg["instance"]["engine-owner"] == "hermes"
     assert cfg["repository"]["slug"] == "attmous/daedalus"
-    assert cfg["repository"]["github-slug"] == "attmous/daedalus"
+    assert "github-slug" not in cfg["repository"]
     assert cfg["tracker"]["kind"] == "github"
+    assert cfg["tracker"]["github_slug"] == "attmous/daedalus"
+    assert cfg["code-host"] == {"kind": "github", "github_slug": "attmous/daedalus"}
     assert cfg["repository"]["active-lane-label"] == "ready-for-daedalus"
     assert cfg["triggers"]["lane-selector"]["label"] == "ready-for-daedalus"
     assert cfg["repository"]["local-path"] == str(repo.resolve())

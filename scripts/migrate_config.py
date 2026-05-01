@@ -120,8 +120,20 @@ def convert(
 
         "repository": {
             "local-path": repo_path,
-            "github-slug": github_slug,
+            "slug": github_slug,
             "active-lane-label": old.get("activeLaneLabel", "active-lane"),
+        },
+
+        "tracker": {
+            "kind": "github",
+            "github_slug": github_slug,
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+
+        "code-host": {
+            "kind": "github",
+            "github_slug": github_slug,
         },
 
         "runtimes": {

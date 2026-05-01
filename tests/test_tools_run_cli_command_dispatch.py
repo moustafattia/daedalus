@@ -1,17 +1,4 @@
-"""Regression: the new /daedalus subcommands must also dispatch correctly via
-the argparse ``func=run_cli_command`` path.
-
-Codex Cloud follow-up to a3ea328: the previous fix only routed
-``watch`` / ``set-observability`` / ``get-observability`` through
-``execute_raw_args`` (the slash-command path). The argparse CLI path
-(``python3 daedalus_cli.py <cmd> ...`` and any ``setup_cli``-registered command)
-still calls ``run_cli_command`` which previously hard-coded
-``execute_namespace`` -- raising ``unknown daedalus command`` for the new
-string-returning subcommands.
-
-These tests pin ``run_cli_command`` so it dispatches the string-returning
-handlers directly.
-"""
+"""Regression: string-returning /daedalus subcommands dispatch via run_cli_command."""
 import json
 import importlib.util
 import subprocess
@@ -38,44 +25,6 @@ def _parse(tools, argv):
     """Use the real parser so ``args`` carries the right ``handler`` default."""
     parser = tools.build_parser()
     return parser.parse_args(argv)
-
-
-def test_run_cli_command_dispatches_set_observability(tmp_path, capsys):
-    tools = _tools()
-    args = _parse(
-        tools,
-        [
-            "set-observability",
-            "--workflow-root",
-            str(tmp_path),
-            "--workflow",
-            "change-delivery",
-            "--github-comments",
-            "unset",
-        ],
-    )
-    tools.run_cli_command(args)
-    out = capsys.readouterr().out
-    assert "unknown daedalus command" not in out, out
-    assert "change-delivery" in out
-
-
-def test_run_cli_command_dispatches_get_observability(tmp_path, capsys):
-    tools = _tools()
-    args = _parse(
-        tools,
-        [
-            "get-observability",
-            "--workflow-root",
-            str(tmp_path),
-            "--workflow",
-            "change-delivery",
-        ],
-    )
-    tools.run_cli_command(args)
-    out = capsys.readouterr().out
-    assert "unknown daedalus command" not in out, out
-    assert "change-delivery" in out or "github-comments" in out.lower()
 
 
 def test_run_cli_command_dispatches_watch(tmp_path, capsys):
@@ -111,7 +60,7 @@ def test_execute_raw_args_runs_command_lists_engine_runs(tmp_path):
                 "workflow": "issue-runner",
                 "schema-version": 1,
                 "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
-                "repository": {"local-path": str(tmp_path / "repo"), "github-slug": "attmous/daedalus"},
+                "repository": {"local-path": str(tmp_path / "repo"), "slug": "attmous/daedalus"},
                 "tracker": {"kind": "local-json", "path": "config/issues.json"},
                 "workspace": {"root": "workspace/issues"},
                 "agent": {"name": "runner", "model": "gpt-5.4", "runtime": "default"},
@@ -159,7 +108,7 @@ def test_execute_raw_args_events_lists_and_prunes_engine_events(tmp_path):
                 "workflow": "issue-runner",
                 "schema-version": 1,
                 "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
-                "repository": {"local-path": str(tmp_path / "repo"), "github-slug": "attmous/daedalus"},
+                "repository": {"local-path": str(tmp_path / "repo"), "slug": "attmous/daedalus"},
                 "tracker": {"kind": "local-json", "path": "config/issues.json"},
                 "workspace": {"root": "workspace/issues"},
                 "agent": {"name": "runner", "model": "gpt-5.4", "runtime": "default"},

@@ -10,7 +10,8 @@ coverage:
 
 - `issue-runner` is the default managed workflow and uses the shared tracker
   boundary.
-- `change-delivery` is the opinionated GitHub-backed SDLC workflow.
+- `change-delivery` is the opinionated GitHub-first SDLC workflow, with
+  `tracker` and `code-host` kept as separate config boundaries.
 - GitHub is the first-class production tracker adapter.
 - `local-json` exists for local development and deterministic tests.
 - Linear remains an experimental adapter until the GitHub path has real

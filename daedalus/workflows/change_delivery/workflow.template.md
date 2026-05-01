@@ -9,15 +9,19 @@ instance:
 repository:
   local-path: /home/you/src/acme-repo
   slug: your-org/your-repo
-  github-slug: your-org/your-repo
   active-lane-label: active-lane
 
 tracker:
   kind: github
+  github_slug: your-org/your-repo
   active_states:
     - open
   terminal_states:
     - closed
+
+code-host:
+  kind: github
+  github_slug: your-org/your-repo
 
 runtimes:
   coder-runtime:
@@ -84,8 +88,18 @@ lane-selection:
     - blocked
   tiebreak: oldest
 
-observability:
-  github-comments:
+tracker-feedback:
+  enabled: true
+  comment-mode: append
+  include:
+    - dispatch-implementation-turn
+    - internal-review-completed
+    - publish-ready-pr
+    - push-pr-update
+    - merge-and-promote
+    - operator-attention-transition
+    - operator-attention-recovered
+  state-updates:
     enabled: false
 ---
 

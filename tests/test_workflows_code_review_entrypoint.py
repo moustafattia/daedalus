@@ -78,9 +78,16 @@ def _write_workflow_yaml(config_dir: Path, config: dict) -> None:
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {
             "local-path": str(config.get("repoPath", "/tmp/repo")),
-            "github-slug": "owner/repo",
+            "slug": "owner/repo",
             "active-lane-label": config.get("activeLaneLabel", "active-lane"),
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "owner/repo",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {
             "acpx-codex": {
                 "kind": "acpx-codex",

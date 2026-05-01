@@ -26,9 +26,8 @@ def emit_operator_attention_transition(
     """Emit a semantic audit event when a lane crosses the operator-attention
     boundary. No-op when the state did not change.
 
-    The comment publisher (Task 1.7) listens for ``operator-attention-transition``
-    and ``operator-attention-recovered`` to render the sticky ⚠️ header (and to
-    clear it on recovery).
+    Tracker feedback can include ``operator-attention-transition`` and
+    ``operator-attention-recovered`` so the issue timeline records both edges.
     """
     OAS = "operator_attention_required"
     if previous_state == new_state:

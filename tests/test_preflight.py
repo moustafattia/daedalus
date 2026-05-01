@@ -26,6 +26,7 @@ def _minimal_ok_config() -> dict:
         "runtimes": {"r1": {"kind": "claude-cli"}},
         "agents": {"external-reviewer": {"kind": "github-comments"}},
         "tracker": {"kind": "github"},
+        "code-host": {"kind": "github"},
         "repository": {"github-token": "literal-token"},
     }
 
@@ -79,6 +80,14 @@ def test_unknown_tracker_kind():
     result = run_preflight(cfg)
     assert result.ok is False
     assert result.error_code == "unsupported_tracker_kind"
+
+
+def test_unknown_code_host_kind():
+    cfg = _minimal_ok_config()
+    cfg["code-host"]["kind"] = "gitlab"
+    result = run_preflight(cfg)
+    assert result.ok is False
+    assert result.error_code == "unsupported_code_host_kind"
 
 
 def test_var_token_unset_env_yields_missing_credentials():

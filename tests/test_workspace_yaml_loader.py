@@ -33,9 +33,16 @@ def _yaml_config(repo_path: Path) -> dict:
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {
             "local-path": str(repo_path),
-            "github-slug": "owner/repo",
+            "slug": "owner/repo",
             "active-lane-label": "active-lane",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "owner/repo",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {
             "acpx-codex": {
                 "kind": "acpx-codex",

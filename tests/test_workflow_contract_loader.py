@@ -20,9 +20,16 @@ def _native_config() -> dict:
         "instance": {"name": "attmous-daedalus-change-delivery", "engine-owner": "hermes"},
         "repository": {
             "local-path": "/tmp/repo",
-            "github-slug": "attmous/daedalus",
+            "slug": "attmous/daedalus",
             "active-lane-label": "active-lane",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "attmous/daedalus",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "attmous/daedalus"},
         "runtimes": {"r1": {"kind": "claude-cli", "max-turns-per-invocation": 8, "timeout-seconds": 60}},
         "agents": {
             "coder": {"default": {"name": "coder", "model": "gpt-5", "runtime": "r1"}},

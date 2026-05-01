@@ -99,7 +99,10 @@ def test_migrate_emits_valid_workflow_yaml(tmp_path):
     assert cfg["agents"]["coder"]["default"]["model"] == "gpt-5.3-codex-spark/high"
     assert cfg["agents"]["internal-reviewer"]["model"] == "claude-sonnet-4-6"
     assert cfg["agents"]["external-reviewer"]["provider"] == "codex-cloud"
-    assert cfg["repository"]["github-slug"] == "attmous/daedalus"
+    assert cfg["repository"]["slug"] == "attmous/daedalus"
+    assert "github-slug" not in cfg["repository"]
+    assert cfg["tracker"]["github_slug"] == "attmous/daedalus"
+    assert cfg["code-host"]["github_slug"] == "attmous/daedalus"
     assert cfg["schedules"]["milestone-notifier"]["delivery"]["chat-id"] == "123456"
 
 

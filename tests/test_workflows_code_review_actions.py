@@ -29,6 +29,23 @@ def load_module(module_name: str, relative_path: str):
 # ``run_*`` functions that back the workspace shims.
 
 
+class FakeCodeHost:
+    def __init__(self):
+        self.calls = []
+
+    def mark_pull_request_ready(self, pr_number):
+        self.calls.append(("ready", pr_number))
+        return True
+
+    def create_pull_request(self, **kwargs):
+        self.calls.append(("create", kwargs))
+        return "https://github.example/pull/301"
+
+    def merge_pull_request(self, pr_number, **kwargs):
+        self.calls.append(("merge", pr_number, kwargs))
+        return {"ok": True}
+
+
 def test_run_publish_ready_pr_reports_no_active_lane_when_reconcile_has_none():
     actions_module = load_module("daedalus_workflows_change_delivery_actions_ppr", "workflows/change_delivery/actions.py")
 
@@ -41,9 +58,6 @@ def test_run_publish_ready_pr_reports_no_active_lane_when_reconcile_has_none():
     def fake_run(*args, **kwargs):
         raise AssertionError("run_fn should not execute when there is no active lane")
 
-    def fake_mark_ready(*args, **kwargs):
-        raise AssertionError("mark_ready should not execute when there is no active lane")
-
     def fake_audit(*args, **kwargs):
         raise AssertionError("audit should not fire when nothing is published")
 
@@ -51,9 +65,7 @@ def test_run_publish_ready_pr_reports_no_active_lane_when_reconcile_has_none():
         reconcile_fn=fake_reconcile,
         run_fn=fake_run,
         audit_fn=fake_audit,
-        mark_pr_ready_for_review_fn=fake_mark_ready,
-        repo_slug="owner/repo",
-        repo_path=Path("/tmp/repo"),
+        code_host_client=FakeCodeHost(),
     )
 
     assert result == {"published": False, "reason": "no-active-lane"}
@@ -82,9 +94,7 @@ def test_run_publish_ready_pr_marks_existing_draft_ready_without_pushing(tmp_pat
     def fake_run(*args, **kwargs):
         raise AssertionError("should not invoke git when a PR already exists")
 
-    def fake_mark_ready(pr_number):
-        call_order.append(f"mark_ready:{pr_number}")
-        return True
+    code_host = FakeCodeHost()
 
     def fake_audit(*args, **kwargs):
         call_order.append("audit")
@@ -93,14 +103,12 @@ def test_run_publish_ready_pr_marks_existing_draft_ready_without_pushing(tmp_pat
         reconcile_fn=fake_reconcile,
         run_fn=fake_run,
         audit_fn=fake_audit,
-        mark_pr_ready_for_review_fn=fake_mark_ready,
-        repo_slug="owner/repo",
-        repo_path=Path("/tmp/repo"),
+        code_host_client=code_host,
     )
 
     assert result["published"] is True
     assert result["prNumber"] == 301
-    assert "mark_ready:301" in call_order
+    assert ("ready", 301) in code_host.calls
     assert call_order.count("reconcile") == 2
 
 
@@ -179,7 +187,6 @@ def test_run_merge_and_promote_skips_when_missing_active_lane_or_pr():
 
     result = actions_module.run_merge_and_promote(
         reconcile_fn=fake_reconcile,
-        run_fn=lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not run")),
         audit_fn=lambda *a, **k: None,
         issue_remove_label_fn=lambda *a, **k: None,
         issue_close_fn=lambda *a, **k: None,
@@ -188,8 +195,7 @@ def test_run_merge_and_promote_skips_when_missing_active_lane_or_pr():
         pick_next_lane_issue_fn=lambda: None,
         now_iso_fn=lambda: "2026-04-23T00:00:00Z",
         active_lane_label="P0",
-        repo_slug="owner/repo",
-        repo_path=Path("/tmp/repo"),
+        code_host_client=FakeCodeHost(),
     )
     assert result == {"merged": False, "reason": "missing-active-lane-or-pr"}
 
@@ -202,13 +208,8 @@ def test_run_merge_and_promote_promotes_next_lane_after_merge():
         reconcile_calls.append(fix_watchers)
         return {"activeLane": {"number": 224, "title": "T"}, "openPr": {"number": 301}}
 
-    calls: dict = {"runs": [], "audits": [], "issue": []}
-
-    def fake_run(command, cwd=None):
-        calls["runs"].append(command)
-        class _C:
-            stdout = ""
-        return _C()
+    calls: dict = {"audits": [], "issue": []}
+    code_host = FakeCodeHost()
 
     def fake_audit(action, summary, **extra):
         calls["audits"].append({"action": action, "summary": summary, **extra})
@@ -230,7 +231,6 @@ def test_run_merge_and_promote_promotes_next_lane_after_merge():
 
     result = actions_module.run_merge_and_promote(
         reconcile_fn=fake_reconcile,
-        run_fn=fake_run,
         audit_fn=fake_audit,
         issue_remove_label_fn=fake_remove,
         issue_close_fn=fake_close,
@@ -239,13 +239,12 @@ def test_run_merge_and_promote_promotes_next_lane_after_merge():
         pick_next_lane_issue_fn=fake_next,
         now_iso_fn=lambda: "2026-04-23T00:00:00Z",
         active_lane_label="P0",
-        repo_slug="owner/repo",
-        repo_path=Path("/tmp/repo"),
+        code_host_client=code_host,
     )
     assert result["merged"] is True
     assert result["mergedPrNumber"] == 301
     assert result["nextIssueNumber"] == 225
-    assert calls["runs"][0][:3] == ["gh", "pr", "merge"]
+    assert code_host.calls[0] == ("merge", 301, {"squash": True, "delete_branch": True})
     assert ("remove", 224, "P0") in calls["issue"]
     assert ("add", 225, "P0") in calls["issue"]
 

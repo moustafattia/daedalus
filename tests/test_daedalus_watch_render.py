@@ -237,8 +237,8 @@ def test_build_snapshot_includes_issue_runner_workflow_status(tmp_path):
                 "workflow": "issue-runner",
                 "schema-version": 1,
                 "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
-                "repository": {"local-path": "/tmp/repo", "github-slug": "attmous/daedalus"},
-                "tracker": {"kind": "github"},
+                "repository": {"local-path": "/tmp/repo", "slug": "attmous/daedalus"},
+                "tracker": {"kind": "github", "github_slug": "attmous/daedalus"},
                 "workspace": {"root": "workspace/issues"},
                 "agent": {"name": "runner", "model": "gpt-5.4", "runtime": "default"},
                 "storage": {
