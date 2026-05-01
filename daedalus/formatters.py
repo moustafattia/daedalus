@@ -457,18 +457,30 @@ def format_doctor(
                     status=row_status,
                 )
             )
+        sections = [
+            Section(
+                name=None,
+                rows=[
+                    Row(label="workflow", value=str(result.get("workflow") or EMPTY_VALUE)),
+                    Row(label="overall", value="PASS" if ok else "FAIL", status="pass" if ok else "fail"),
+                ],
+            ),
+            Section(name="checks", rows=rows),
+        ]
+        recommendations = result.get("recommendations") or []
+        if recommendations:
+            sections.append(
+                Section(
+                    name="next steps",
+                    rows=[
+                        Row(label=str(index), value=str(item))
+                        for index, item in enumerate(recommendations, start=1)
+                    ],
+                )
+            )
         return format_panel(
             title="Issue runner doctor",
-            sections=[
-                Section(
-                    name=None,
-                    rows=[
-                        Row(label="workflow", value=str(result.get("workflow") or EMPTY_VALUE)),
-                        Row(label="overall", value="PASS" if ok else "FAIL", status="pass" if ok else "fail"),
-                    ],
-                ),
-                Section(name="checks", rows=rows),
-            ],
+            sections=sections,
             use_color=use_color,
         )
 
@@ -516,10 +528,22 @@ def format_doctor(
         )],
     )
     checks_section = Section(name="checks", rows=rows)
+    sections = [summary_section, checks_section]
+    recommendations = result.get("recommendations") or []
+    if recommendations:
+        sections.append(
+            Section(
+                name="next steps",
+                rows=[
+                    Row(label=str(index), value=str(item))
+                    for index, item in enumerate(recommendations, start=1)
+                ],
+            )
+        )
 
     return format_panel(
         title="Daedalus doctor",
-        sections=[summary_section, checks_section],
+        sections=sections,
         use_color=use_color,
     )
 
