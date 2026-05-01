@@ -51,7 +51,12 @@ from workflows.issue_runner.tracker import (
     select_issue,
 )
 from workflows.readiness import build_readiness_recommendations
-from workflows.runtime_presets import runtime_availability_checks, runtime_binding_checks
+from workflows.runtime_presets import (
+    runtime_availability_checks,
+    runtime_binding_checks,
+    runtime_capability_checks,
+    runtime_stage_checks,
+)
 from trackers.feedback import publish_tracker_feedback
 from trackers.github import (
     github_auth_host_from_slug,
@@ -330,10 +335,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
         runtime_name = str(agent_cfg.get("runtime") or "").strip()
         if runtime_name:
             return runtime_name
-        codex_cfg = self.config.get("codex") or {}
-        if codex_cfg.get("command"):
-            return "codex"
-        raise RuntimeError("issue-runner requires agent.runtime, agent.command, or codex.command")
+        raise RuntimeError("issue-runner requires agent.runtime")
 
     def _agent_runtime(self) -> tuple[str, Runtime, dict[str, Any]]:
         runtime_name = self._agent_runtime_name()
@@ -424,7 +426,9 @@ class IssueRunnerWorkspace(WorkflowDriver):
             checks.append({"name": "agent-runtime", "status": "pass", "detail": runtime_name})
         except Exception as exc:
             checks.append({"name": "agent-runtime", "status": "fail", "detail": str(exc)})
+        checks.extend(runtime_stage_checks(self.config))
         checks.extend(runtime_binding_checks(self.config))
+        checks.extend(runtime_capability_checks(self.config))
         checks.extend(runtime_availability_checks(self.config))
 
         checks.extend(self.engine_store.doctor(event_retention=self.config.get("retention") or {}))

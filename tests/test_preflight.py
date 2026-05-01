@@ -47,6 +47,33 @@ def test_codex_app_server_runtime_kind_returns_ok():
     assert result.ok is True
 
 
+def test_missing_stage_actor_yields_runtime_binding_error():
+    cfg = _minimal_ok_config()
+    cfg["stages"] = {
+        "implement": {
+            "actor": "implementer",
+            "escalation": {"after-attempts": 2, "actor": "missing-high-effort"},
+        }
+    }
+
+    result = run_preflight(cfg)
+
+    assert result.ok is False
+    assert result.error_code == "invalid_runtime_binding"
+    assert "missing actor" in (result.error_detail or "")
+
+
+def test_required_capability_mismatch_yields_runtime_capability_error():
+    cfg = _minimal_ok_config()
+    cfg["actors"]["reviewer"]["required-capabilities"] = ["token-metrics"]
+
+    result = run_preflight(cfg)
+
+    assert result.ok is False
+    assert result.error_code == "runtime_capability_mismatch"
+    assert "token-metrics" in (result.error_detail or "")
+
+
 def test_non_dict_config_yields_front_matter_error():
     result = run_preflight("not-a-dict")  # type: ignore[arg-type]
     assert result.ok is False

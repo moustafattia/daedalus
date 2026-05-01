@@ -299,6 +299,8 @@ definitions:
       name: {type: string}
       model: {type: string}
       runtime: {type: string}
+      required-capabilities:
+        $ref: "#/definitions/runtime-capability-list"
       command:
         type: array
         items: {type: string}
@@ -417,6 +419,23 @@ definitions:
     properties:
       type: {const: code-host-checks}
       required-for-merge: {type: boolean}
+
+  runtime-capability-list:
+    type: array
+    items:
+      type: string
+      enum:
+        - prompt-turn
+        - command-stage
+        - one-shot
+        - persistent-session
+        - resume
+        - cancel
+        - structured-events
+        - token-metrics
+        - thread-visible
+        - activity-heartbeat
+        - service-required
 
   acpx-codex-runtime:
     type: object

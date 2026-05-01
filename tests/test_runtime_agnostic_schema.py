@@ -87,6 +87,12 @@ def test_schema_accepts_prompt_override_on_actor():
     Draft7Validator(_schema()).validate(cfg)
 
 
+def test_schema_accepts_actor_required_capabilities():
+    cfg = _base_config()
+    cfg["actors"]["implementer"]["required-capabilities"] = ["persistent-session", "resume"]
+    Draft7Validator(_schema()).validate(cfg)
+
+
 def test_schema_rejects_empty_command_array():
     from jsonschema import ValidationError
 

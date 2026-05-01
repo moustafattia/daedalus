@@ -109,11 +109,13 @@ properties:
 
   agent:
     type: object
-    required: [name, model]
+    required: [name, model, runtime]
     properties:
       name: {type: string}
       model: {type: string}
       runtime: {type: string}
+      required-capabilities:
+        $ref: "#/definitions/runtime-capability-list"
       command:
         type: array
         minItems: 1
@@ -247,6 +249,23 @@ definitions:
         patternProperties:
           "^on[-_.A-Za-z0-9]+$":
             type: string
+
+  runtime-capability-list:
+    type: array
+    items:
+      type: string
+      enum:
+        - prompt-turn
+        - command-stage
+        - one-shot
+        - persistent-session
+        - resume
+        - cancel
+        - structured-events
+        - token-metrics
+        - thread-visible
+        - activity-heartbeat
+        - service-required
 
   acpx-codex-runtime:
     type: object

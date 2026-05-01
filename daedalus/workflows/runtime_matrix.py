@@ -13,7 +13,9 @@ from workflows.change_delivery.contract_model import actor_config as change_deli
 from workflows.runtime_presets import (
     runtime_availability_checks,
     runtime_binding_checks,
+    runtime_capability_checks,
     runtime_role_bindings,
+    runtime_stage_checks,
 )
 
 
@@ -44,6 +46,8 @@ def build_runtime_matrix_report(
     runtime_filter = _normalized_filter(runtimes)
 
     binding_checks = runtime_binding_checks(config)
+    stage_checks = runtime_stage_checks(config)
+    capability_checks = runtime_capability_checks(config)
     availability_checks = runtime_availability_checks(config)
     bindings = runtime_role_bindings(config)
     selected_bindings = [
@@ -57,6 +61,7 @@ def build_runtime_matrix_report(
         _matrix_item(
             binding=binding,
             binding_checks=binding_checks,
+            capability_checks=capability_checks,
             availability_checks=availability_checks,
         )
         for binding in selected_bindings
@@ -75,17 +80,25 @@ def build_runtime_matrix_report(
             run_json=run_json,
         )
 
-    selected_binding_check_names = {
-        f"runtime-binding:{item.get('role')}"
+    selected_check_names = {
+        f"{prefix}:{item.get('role')}"
         for item in matrix
         if item.get("role")
+        for prefix in ("runtime-binding", "runtime-capability")
     }
     failures = [
         check
-        for check in binding_checks
-        if check.get("name") in selected_binding_check_names
-        and str(check.get("status") or "") == "fail"
+        for check in stage_checks
+        if str(check.get("status") or "") == "fail"
     ]
+    failures.extend(
+        [
+            check
+            for check in [*binding_checks, *capability_checks]
+            if check.get("name") in selected_check_names
+            and str(check.get("status") or "") == "fail"
+        ]
+    )
     if execute:
         failures.extend(
             {
@@ -116,7 +129,9 @@ def build_runtime_matrix_report(
             if isinstance(cfg, dict)
         },
         "bindings": bindings,
+        "stage_checks": stage_checks,
         "binding_checks": binding_checks,
+        "capability_checks": capability_checks,
         "availability_checks": availability_checks,
         "matrix": matrix,
         "failures": failures,
@@ -207,18 +222,22 @@ def _matrix_item(
     *,
     binding: dict[str, Any],
     binding_checks: list[dict[str, Any]],
+    capability_checks: list[dict[str, Any]],
     availability_checks: list[dict[str, Any]],
 ) -> dict[str, Any]:
     role = str(binding.get("role") or "")
     runtime_name = str(binding.get("runtime") or "")
     binding_check = _find_check(binding_checks, f"runtime-binding:{role}")
+    capability_check = _find_check(capability_checks, f"runtime-capability:{role}")
     availability_check = _find_check(availability_checks, f"runtime-availability:{runtime_name}")
     return {
         "role": role,
         "runtime": runtime_name or None,
         "kind": binding.get("kind"),
         "profile_exists": bool(binding.get("profile_exists")),
+        "capabilities": binding.get("capabilities") or [],
         "binding": binding_check,
+        "capability": capability_check,
         "availability": availability_check,
     }
 

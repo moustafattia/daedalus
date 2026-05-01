@@ -173,3 +173,12 @@ def test_issue_runner_schema_accepts_tracker_feedback_config():
         },
     }
     jsonschema.validate(cfg, schema)
+
+
+def test_issue_runner_schema_accepts_agent_required_capabilities():
+    schema = yaml.safe_load(
+        (REPO_ROOT / "daedalus" / "workflows" / "issue_runner" / "schema.yaml").read_text(encoding="utf-8")
+    )
+    cfg = _config()
+    cfg["agent"]["required-capabilities"] = ["prompt-turn", "activity-heartbeat"]
+    jsonschema.validate(cfg, schema)
