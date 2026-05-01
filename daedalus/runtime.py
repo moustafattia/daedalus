@@ -610,10 +610,53 @@ def init_daedalus_db(*, workflow_root: Path, project_key: str) -> dict[str, Any]
     finally:
         conn.close()
 
+
+def _workflow_root_from_event_log_path(event_log_path: Path) -> Path:
+    resolved = Path(event_log_path).resolve()
+    if resolved.parent.name != "memory":
+        raise ValueError(f"cannot infer workflow root from event log path: {event_log_path}")
+    base_dir = resolved.parent.parent
+    return base_dir.parent if base_dir.name == "runtime" else base_dir
+
+
+def _event_payload_value(event: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = event.get(key)
+        if value not in (None, ""):
+            return value
+    nested = event.get("payload")
+    if isinstance(nested, dict):
+        for key in keys:
+            value = nested.get(key)
+            if value not in (None, ""):
+                return value
+    return None
+
+
 def append_daedalus_event(*, event_log_path: Path, event: dict[str, Any]) -> dict[str, Any]:
     _ensure_parent(event_log_path)
     with event_log_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, sort_keys=True) + "\n")
+    try:
+        workflow_root = _workflow_root_from_event_log_path(event_log_path)
+        workflow = str(_event_payload_value(event, "workflow") or "change-delivery")
+        EngineStore(
+            db_path=runtime_paths(workflow_root)["db_path"],
+            workflow=workflow,
+            now_iso=_now_iso,
+            now_epoch=time.time,
+        ).append_event(
+            event_type=_event_payload_value(event, "event_type", "event", "action", "type"),
+            payload=event,
+            event_id=_event_payload_value(event, "event_id", "eventId"),
+            run_id=_event_payload_value(event, "run_id", "runId"),
+            work_id=_event_payload_value(event, "work_id", "workId", "issue_id", "issueId", "lane_id", "laneId"),
+            severity=_event_payload_value(event, "severity") or "info",
+            created_at=_event_payload_value(event, "created_at", "at", "time"),
+        )
+    except Exception:
+        # JSONL remains the write-ahead audit record; SQL indexing is best effort.
+        pass
     return {"ok": True, "event_log_path": str(event_log_path), "event_id": event.get("event_id")}
 
 

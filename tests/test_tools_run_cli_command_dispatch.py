@@ -128,12 +128,21 @@ def test_execute_raw_args_runs_command_lists_engine_runs(tmp_path):
     )
     run = store.start_run(mode="tick")
     store.complete_run(run["run_id"], selected_count=1, completed_count=1)
+    store.append_event(
+        event_type="issue_runner.tick.completed",
+        payload={"event": "issue_runner.tick.completed", "run_id": run["run_id"], "issue_id": "ISSUE-1"},
+        run_id=run["run_id"],
+        work_id="ISSUE-1",
+    )
 
     output = tools.execute_raw_args(f"runs --workflow-root {root} --json")
     payload = json.loads(output)
+    show_output = tools.execute_raw_args(f"runs --workflow-root {root} show {run['run_id']} --json")
+    show_payload = json.loads(show_output)
 
     assert payload["workflow"] == "issue-runner"
     assert payload["runs"][0]["run_id"] == run["run_id"]
+    assert show_payload["timeline"][0]["event_type"] == "issue_runner.tick.completed"
 
 
 def test_run_cli_command_dispatches_scaffold_workflow(tmp_path, capsys):

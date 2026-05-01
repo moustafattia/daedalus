@@ -25,7 +25,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from engine.state import read_engine_run, read_engine_runs, read_engine_scheduler_state
+from engine.state import (
+    read_engine_events_for_run,
+    read_engine_run,
+    read_engine_runs,
+    read_engine_scheduler_state,
+)
 from workflows.contract import WorkflowContractError, load_workflow_contract
 from workflows.shared.paths import runtime_paths
 
@@ -234,6 +239,15 @@ def _workflow_audit_log_path(workflow_root: Path, events_log_path: Path) -> Path
 
 
 def _run_timeline(workflow_root: Path, events_log_path: Path, run_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    workflow = _workflow_name(workflow_root) or "change-delivery"
+    engine_events = read_engine_events_for_run(
+        runtime_paths(workflow_root)["db_path"],
+        workflow=workflow,
+        run_id=run_id,
+        limit=max(limit, 1),
+    )
+    if engine_events:
+        return [{**event, "source": "engine-events"} for event in engine_events]
     paths: list[Path] = [events_log_path]
     audit_path = _workflow_audit_log_path(workflow_root, events_log_path)
     if audit_path is not None and audit_path not in paths:

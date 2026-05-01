@@ -251,6 +251,11 @@ def test_issue_runner_tick_runs_selected_issue_and_writes_artifacts(tmp_path):
         "issue_runner.retry.scheduled",
         "issue_runner.tick.completed",
     }
+    engine_events = workspace.engine_store.events_for_run(result["engineRun"]["run_id"])
+    assert {event["event_type"] for event in engine_events} >= {
+        "issue_runner.retry.scheduled",
+        "issue_runner.tick.completed",
+    }
     assert result["selectedIssue"]["id"] == "ISSUE-1"
     assert result["results"][0]["retry"]["delay_type"] == "continuation"
     assert result["results"][0]["retry"]["run_id"] == result["engineRun"]["run_id"]

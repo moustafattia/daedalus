@@ -1620,10 +1620,19 @@ class IssueRunnerWorkspace(WorkflowDriver):
         )
 
     def _emit_event(self, event: str, payload: dict[str, Any]) -> None:
-        _append_jsonl(
-            self.audit_log_path,
-            {"event": event, "at": _now_iso(), **payload},
-        )
+        event_payload = {"event": event, "at": _now_iso(), **payload}
+        _append_jsonl(self.audit_log_path, event_payload)
+        try:
+            self.engine_store.append_event(
+                event_type=event,
+                payload=event_payload,
+                run_id=event_payload.get("run_id") or event_payload.get("runId"),
+                work_id=event_payload.get("issue_id") or event_payload.get("work_id"),
+                created_at=event_payload.get("at"),
+            )
+        except Exception:
+            # The JSONL audit row is already durable; event indexing is best effort.
+            pass
 
     def _hook_env(
         self,

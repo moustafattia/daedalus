@@ -17,7 +17,12 @@ from urllib.parse import urlparse
 
 import yaml
 
-from engine.state import read_engine_run, read_engine_runs, read_engine_scheduler_state
+from engine.state import (
+    read_engine_events_for_run,
+    read_engine_run,
+    read_engine_runs,
+    read_engine_scheduler_state,
+)
 from engine.store import EngineStore
 from workflows.contract import (
     WorkflowContractError,
@@ -578,6 +583,14 @@ def _read_jsonl_events(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
 
 def _run_timeline_for_cli(workflow_root: Path, workflow_name: str, run_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
     paths = runtime_paths(workflow_root)
+    engine_events = read_engine_events_for_run(
+        paths["db_path"],
+        workflow=workflow_name,
+        run_id=run_id,
+        limit=max(limit, 1),
+    )
+    if engine_events:
+        return [{**event, "source": "engine-events"} for event in engine_events]
     source_paths = [paths["event_log_path"], _workflow_audit_path(workflow_root, workflow_name)]
     timeline: list[dict[str, Any]] = []
     for path in dict.fromkeys(source_paths):
@@ -3586,9 +3599,25 @@ def render_result(
             timeline = result.get("timeline") or []
             lines.append(f"timeline_events={len(timeline)}")
             for event in timeline[:10]:
-                kind = event.get("event") or event.get("action") or event.get("event_type") or "event"
-                at = event.get("at") or event.get("created_at") or event.get("time") or ""
-                detail = event.get("summary") or event.get("error") or event.get("reason") or ""
+                payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+                kind = (
+                    event.get("event")
+                    or payload.get("event")
+                    or event.get("action")
+                    or payload.get("action")
+                    or event.get("event_type")
+                    or "event"
+                )
+                at = event.get("at") or payload.get("at") or event.get("created_at") or event.get("time") or ""
+                detail = (
+                    event.get("summary")
+                    or payload.get("summary")
+                    or event.get("error")
+                    or payload.get("error")
+                    or event.get("reason")
+                    or payload.get("reason")
+                    or ""
+                )
                 lines.append(f"- {at} {kind} {detail}".strip())
             return "\n".join(lines)
         runs = result.get("runs") or []

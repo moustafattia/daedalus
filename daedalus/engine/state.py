@@ -21,6 +21,7 @@ ENGINE_SCHEDULER_TABLES = (
 ENGINE_STATE_TABLES = (
     *ENGINE_SCHEDULER_TABLES,
     "engine_runs",
+    "engine_events",
 )
 
 
@@ -172,6 +173,18 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
           metadata_json TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS engine_events (
+          workflow TEXT NOT NULL,
+          event_id TEXT PRIMARY KEY,
+          run_id TEXT,
+          work_id TEXT,
+          event_type TEXT NOT NULL,
+          severity TEXT NOT NULL DEFAULT 'info',
+          created_at TEXT NOT NULL,
+          created_at_epoch REAL NOT NULL,
+          payload_json TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_engine_running_workflow_status
           ON engine_running_work(workflow, worker_status);
         CREATE INDEX IF NOT EXISTS idx_engine_retry_workflow_due
@@ -182,6 +195,14 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
           ON engine_runs(workflow, started_at_epoch);
         CREATE INDEX IF NOT EXISTS idx_engine_runs_workflow_status
           ON engine_runs(workflow, status);
+        CREATE INDEX IF NOT EXISTS idx_engine_events_workflow_run
+          ON engine_events(workflow, run_id, created_at_epoch);
+        CREATE INDEX IF NOT EXISTS idx_engine_events_workflow_work
+          ON engine_events(workflow, work_id, created_at_epoch);
+        CREATE INDEX IF NOT EXISTS idx_engine_events_workflow_type
+          ON engine_events(workflow, event_type, created_at_epoch);
+        CREATE INDEX IF NOT EXISTS idx_engine_events_workflow_created
+          ON engine_events(workflow, created_at_epoch);
         """
     )
     _ensure_column(conn, "engine_running_work", "run_id TEXT")
@@ -900,6 +921,140 @@ def read_engine_runs(
             (workflow, max(int(limit or 10), 1)),
         ).fetchall()
         return [_run_row_to_dict(row) for row in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+
+
+def _event_row_to_dict(row: tuple[Any, ...]) -> dict[str, Any]:
+    (
+        workflow,
+        event_id,
+        run_id,
+        work_id,
+        event_type,
+        severity,
+        created_at,
+        created_at_epoch,
+        payload_json,
+    ) = row
+    payload = _json_loads(payload_json) or {}
+    return {
+        "workflow": workflow,
+        "event_id": event_id,
+        "run_id": run_id,
+        "work_id": work_id,
+        "event_type": event_type,
+        "severity": severity,
+        "created_at": created_at,
+        "created_at_epoch": float(created_at_epoch or 0),
+        "payload": payload,
+    }
+
+
+def append_engine_event_to_connection(
+    conn: sqlite3.Connection,
+    *,
+    workflow: str,
+    event_type: str,
+    payload: dict[str, Any],
+    created_at: str,
+    created_at_epoch: float,
+    event_id: str | None = None,
+    run_id: str | None = None,
+    work_id: str | None = None,
+    severity: str = "info",
+) -> dict[str, Any]:
+    init_engine_state(conn)
+    safe_event_type = str(event_type or "event").strip() or "event"
+    safe_severity = str(severity or "info").strip() or "info"
+    safe_event_id = str(event_id or "").strip() or (
+        f"{workflow}:{safe_event_type}:{int(float(created_at_epoch) * 1000)}:{uuid.uuid4().hex[:8]}"
+    )
+    event_payload = dict(payload or {})
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO engine_events (
+          workflow, event_id, run_id, work_id, event_type, severity,
+          created_at, created_at_epoch, payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            workflow,
+            safe_event_id,
+            run_id,
+            work_id,
+            safe_event_type,
+            safe_severity,
+            created_at,
+            float(created_at_epoch),
+            _json_dumps(event_payload),
+        ),
+    )
+    return {
+        "workflow": workflow,
+        "event_id": safe_event_id,
+        "run_id": run_id,
+        "work_id": work_id,
+        "event_type": safe_event_type,
+        "severity": safe_severity,
+        "created_at": created_at,
+        "created_at_epoch": float(created_at_epoch),
+        "payload": event_payload,
+    }
+
+
+def engine_events_for_run_from_connection(
+    conn: sqlite3.Connection,
+    *,
+    workflow: str,
+    run_id: str,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    init_engine_state(conn)
+    rows = conn.execute(
+        """
+        SELECT workflow, event_id, run_id, work_id, event_type, severity,
+               created_at, created_at_epoch, payload_json
+        FROM engine_events
+        WHERE workflow=? AND run_id=?
+        ORDER BY created_at_epoch ASC, event_id ASC
+        LIMIT ?
+        """,
+        (workflow, run_id, max(int(limit or 100), 1)),
+    ).fetchall()
+    return [_event_row_to_dict(row) for row in rows]
+
+
+def read_engine_events_for_run(
+    db_path: Path,
+    *,
+    workflow: str,
+    run_id: str,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    if not db_path.exists():
+        return []
+    try:
+        conn = sqlite3.connect(db_path)
+    except sqlite3.OperationalError:
+        return []
+    try:
+        if not _table_exists(conn, "engine_events"):
+            return []
+        rows = conn.execute(
+            """
+            SELECT workflow, event_id, run_id, work_id, event_type, severity,
+                   created_at, created_at_epoch, payload_json
+            FROM engine_events
+            WHERE workflow=? AND run_id=?
+            ORDER BY created_at_epoch ASC, event_id ASC
+            LIMIT ?
+            """,
+            (workflow, run_id, max(int(limit or 100), 1)),
+        ).fetchall()
+        return [_event_row_to_dict(row) for row in rows]
     except sqlite3.OperationalError:
         return []
     finally:

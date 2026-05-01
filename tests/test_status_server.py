@@ -564,17 +564,16 @@ def test_server_runs_endpoints_return_run_history_and_timeline(tmp_path: Path) -
     )
     engine_run = store.start_run(mode="active-iteration")
     completed = store.complete_run(engine_run["run_id"], selected_count=1, completed_count=1)
-    _make_events_log(
-        tmp_path / "events.jsonl",
-        [{"at": "2026-04-30T12:00:22Z", "event_type": "test_event", "run_id": completed["run_id"]}],
+    store.append_event(
+        event_type="test_event",
+        payload={"at": "2026-04-30T12:00:22Z", "event_type": "test_event", "run_id": completed["run_id"]},
+        run_id=completed["run_id"],
+        created_at="2026-04-30T12:00:22Z",
+        created_at_epoch=1714478422.0,
     )
 
     handle = _start_test_server(tmp_path)
     try:
-        _make_events_log(
-            tmp_path / "events.jsonl",
-            [{"at": "2026-04-30T12:00:22Z", "event_type": "test_event", "run_id": completed["run_id"]}],
-        )
         with urllib.request.urlopen(f"http://127.0.0.1:{handle.port}/api/v1/runs", timeout=5) as resp:
             runs_payload = json.loads(resp.read().decode("utf-8"))
         with urllib.request.urlopen(

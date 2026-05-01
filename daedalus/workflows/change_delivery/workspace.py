@@ -298,6 +298,7 @@ def _make_audit_fn(
     *,
     audit_log_path,
     publisher=None,
+    engine_store=None,
 ):
     """Build an ``audit(action, summary, **extra)`` closure that:
 
@@ -306,10 +307,26 @@ def _make_audit_fn(
          after the write. Publisher exceptions are swallowed — observability
          must never break workflow execution.
     """
+    event_sink = None
+    if engine_store is not None:
+        def event_sink(event):
+            issue_number = event.get("issueNumber") or event.get("issue_number")
+            lane_id = event.get("lane_id") or event.get("laneId")
+            work_id = lane_id or (f"lane-{issue_number}" if issue_number is not None else None)
+            engine_store.append_event(
+                event_type=str(event.get("action") or "audit"),
+                payload=event,
+                run_id=event.get("run_id") or event.get("runId"),
+                work_id=work_id,
+                severity=event.get("severity") or "info",
+                created_at=event.get("at"),
+            )
+
     return _engine_make_audit_fn(
         audit_log_path=Path(audit_log_path),
         now_iso=_now_iso,
         publisher=publisher,
+        event_sink=event_sink,
     )
 
 
@@ -600,7 +617,11 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         _subscribers.append(_adapt_webhook(_wh))
 
     _fanout_publisher = compose_audit_subscribers(_subscribers) if _subscribers else None
-    audit = _make_audit_fn(audit_log_path=audit_log_path, publisher=_fanout_publisher)
+    audit = _make_audit_fn(
+        audit_log_path=audit_log_path,
+        publisher=_fanout_publisher,
+        engine_store=engine_store,
+    )
 
     # Pre-declared so closures below can resolve them once ``ns`` is built.
     # Bindings happen after ``ns`` is created, below.

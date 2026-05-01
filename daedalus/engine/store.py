@@ -15,8 +15,10 @@ from .leases import (
 from .sqlite import connect_daedalus_db
 from .state import (
     ENGINE_STATE_TABLES,
-    engine_state_tables_exist,
+    append_engine_event_to_connection,
+    engine_events_for_run_from_connection,
     engine_run_from_connection,
+    engine_state_tables_exist,
     finish_engine_run_to_connection,
     init_engine_state,
     latest_engine_runs_from_connection,
@@ -29,6 +31,14 @@ from .state import (
 
 def _default_now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _payload_value(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, ""):
+            return value
+    return None
 
 
 class EngineStore:
@@ -283,6 +293,54 @@ class EngineStore:
         finally:
             conn.close()
 
+    def append_event(
+        self,
+        *,
+        event_type: str | None = None,
+        payload: dict[str, Any] | None = None,
+        event_id: str | None = None,
+        run_id: str | None = None,
+        work_id: str | None = None,
+        severity: str | None = None,
+        created_at: str | None = None,
+        created_at_epoch: float | None = None,
+    ) -> dict[str, Any]:
+        event_payload = dict(payload or {})
+        nested_payload = event_payload.get("payload") if isinstance(event_payload.get("payload"), dict) else {}
+        resolved_run_id = run_id or _payload_value(event_payload, "run_id", "runId") or _payload_value(
+            nested_payload, "run_id", "runId"
+        )
+        resolved_work_id = (
+            work_id
+            or _payload_value(event_payload, "work_id", "workId", "issue_id", "issueId", "lane_id", "laneId")
+            or _payload_value(nested_payload, "work_id", "workId", "issue_id", "issueId", "lane_id", "laneId")
+        )
+        resolved_event_id = event_id or _payload_value(event_payload, "event_id", "eventId")
+        resolved_event_type = event_type or _payload_value(
+            event_payload, "event_type", "event", "action", "type"
+        ) or _payload_value(nested_payload, "event_type", "event", "action", "type") or "event"
+        resolved_created_at = created_at or _payload_value(event_payload, "created_at", "at") or self._now_iso()
+        with self.transaction() as conn:
+            return append_engine_event_to_connection(
+                conn,
+                workflow=self.workflow,
+                event_type=str(resolved_event_type),
+                payload=event_payload,
+                created_at=str(resolved_created_at),
+                created_at_epoch=self._now_epoch() if created_at_epoch is None else created_at_epoch,
+                event_id=str(resolved_event_id) if resolved_event_id else None,
+                run_id=str(resolved_run_id) if resolved_run_id else None,
+                work_id=str(resolved_work_id) if resolved_work_id else None,
+                severity=str(severity or event_payload.get("severity") or "info"),
+            )
+
+    def events_for_run(self, run_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+        conn = self.connect()
+        try:
+            return engine_events_for_run_from_connection(conn, workflow=self.workflow, run_id=run_id, limit=limit)
+        finally:
+            conn.close()
+
     def doctor(self, *, stale_running_seconds: int = 600) -> list[dict[str, Any]]:
         checks: list[dict[str, Any]] = []
         try:
@@ -374,6 +432,34 @@ class EngineStore:
                     ),
                     "items": [row[0] for row in stale_runs],
                     "details": stale_run_details,
+                }
+            )
+
+            event_count = conn.execute(
+                "SELECT COUNT(*) FROM engine_events WHERE workflow=?",
+                (self.workflow,),
+            ).fetchone()[0]
+            orphaned_events = conn.execute(
+                """
+                SELECT e.event_id
+                FROM engine_events e
+                LEFT JOIN engine_runs r ON r.workflow = e.workflow AND r.run_id = e.run_id
+                WHERE e.workflow=? AND e.run_id IS NOT NULL AND e.run_id != '' AND r.run_id IS NULL
+                ORDER BY e.created_at_epoch DESC
+                LIMIT 10
+                """,
+                (self.workflow,),
+            ).fetchall()
+            checks.append(
+                {
+                    "name": "engine-events",
+                    "status": "warn" if orphaned_events else "pass",
+                    "detail": (
+                        f"{len(orphaned_events)} event(s) reference missing runs; total_events={int(event_count or 0)}"
+                        if orphaned_events
+                        else f"{int(event_count or 0)} event(s); no orphaned run references"
+                    ),
+                    "items": [row[0] for row in orphaned_events],
                 }
             )
 

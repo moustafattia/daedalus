@@ -132,15 +132,21 @@ def test_engine_audit_writer_fans_out_best_effort(tmp_path):
     from engine.audit import make_audit_fn
 
     calls = []
+    events = []
 
     def publisher(**kwargs):
         calls.append(kwargs)
         raise RuntimeError("subscriber failed")
 
+    def event_sink(event):
+        events.append(event)
+        raise RuntimeError("index failed")
+
     audit = make_audit_fn(
         audit_log_path=tmp_path / "audit.jsonl",
         now_iso=lambda: "2026-04-30T00:00:00Z",
         publisher=publisher,
+        event_sink=event_sink,
     )
 
     audit("tick", "ran one tick", issue_id="42")
@@ -153,6 +159,7 @@ def test_engine_audit_writer_fans_out_best_effort(tmp_path):
         "summary": "ran one tick",
     }
     assert calls == [{"action": "tick", "summary": "ran one tick", "extra": {"issue_id": "42"}}]
+    assert events == [row]
 
 
 def test_engine_sqlite_connection_sets_runtime_pragmas(tmp_path):
@@ -288,6 +295,7 @@ def test_engine_store_wraps_scheduler_state_and_doctor(tmp_path):
     assert checks["engine-running-work"]["status"] == "pass"
     assert checks["engine-retry-queue"]["detail"] == "0 queued retry item(s)"
     assert checks["engine-runs"]["status"] == "pass"
+    assert checks["engine-events"]["status"] == "pass"
     assert checks["engine-runtime-sessions"]["status"] == "pass"
 
 
@@ -323,6 +331,42 @@ def test_engine_store_tracks_run_ledger_and_stale_runs(tmp_path):
     assert latest[1]["completed_count"] == 2
     assert checks["engine-runs"]["status"] == "warn"
     assert stale["run_id"] in checks["engine-runs"]["items"]
+
+
+def test_engine_store_tracks_event_ledger_and_doctor_orphans(tmp_path):
+    from engine.store import EngineStore
+
+    clock = {"iso": "2026-04-30T00:00:00Z", "epoch": 100.0}
+    store = EngineStore(
+        db_path=tmp_path / "runtime" / "state" / "daedalus.db",
+        workflow="issue-runner",
+        now_iso=lambda: clock["iso"],
+        now_epoch=lambda: clock["epoch"],
+    )
+
+    run = store.start_run(mode="tick")
+    event = store.append_event(
+        payload={
+            "event": "issue_runner.tick.completed",
+            "run_id": run["run_id"],
+            "issue_id": "ISSUE-1",
+        },
+    )
+    events = store.events_for_run(run["run_id"])
+    checks = {check["name"]: check for check in store.doctor()}
+
+    assert event["event_type"] == "issue_runner.tick.completed"
+    assert event["work_id"] == "ISSUE-1"
+    assert events[0]["event_id"] == event["event_id"]
+    assert events[0]["payload"]["issue_id"] == "ISSUE-1"
+    assert checks["engine-events"]["status"] == "pass"
+
+    clock.update({"iso": "2026-04-30T00:00:01Z", "epoch": 101.0})
+    orphaned = store.append_event(event_type="runtime.error", payload={"run_id": "missing-run"})
+    checks = {check["name"]: check for check in store.doctor()}
+
+    assert checks["engine-events"]["status"] == "warn"
+    assert orphaned["event_id"] in checks["engine-events"]["items"]
 
 
 def test_engine_store_lease_lifecycle_and_stale_status(tmp_path):
