@@ -16,6 +16,7 @@ from .sqlite import connect_daedalus_db
 from .state import (
     ENGINE_STATE_TABLES,
     append_engine_event_to_connection,
+    engine_events_from_connection,
     engine_events_for_run_from_connection,
     engine_run_from_connection,
     engine_state_tables_exist,
@@ -23,6 +24,7 @@ from .state import (
     init_engine_state,
     latest_engine_runs_from_connection,
     load_engine_scheduler_state_from_connection,
+    prune_engine_events_to_connection,
     read_engine_scheduler_state,
     save_engine_scheduler_state_to_connection,
     start_engine_run_to_connection,
@@ -340,6 +342,47 @@ class EngineStore:
             return engine_events_for_run_from_connection(conn, workflow=self.workflow, run_id=run_id, limit=limit)
         finally:
             conn.close()
+
+    def events(
+        self,
+        *,
+        run_id: str | None = None,
+        work_id: str | None = None,
+        event_type: str | None = None,
+        severity: str | None = None,
+        limit: int = 100,
+        order: str = "desc",
+    ) -> list[dict[str, Any]]:
+        conn = self.connect()
+        try:
+            return engine_events_from_connection(
+                conn,
+                workflow=self.workflow,
+                run_id=run_id,
+                work_id=work_id,
+                event_type=event_type,
+                severity=severity,
+                limit=limit,
+                order=order,
+            )
+        finally:
+            conn.close()
+
+    def prune_events(
+        self,
+        *,
+        max_age_seconds: float | None = None,
+        max_rows: int | None = None,
+        now_epoch: float | None = None,
+    ) -> dict[str, Any]:
+        with self.transaction() as conn:
+            return prune_engine_events_to_connection(
+                conn,
+                workflow=self.workflow,
+                now_epoch=self._now_epoch() if now_epoch is None else now_epoch,
+                max_age_seconds=max_age_seconds,
+                max_rows=max_rows,
+            )
 
     def doctor(self, *, stale_running_seconds: int = 600) -> list[dict[str, Any]]:
         checks: list[dict[str, Any]] = []

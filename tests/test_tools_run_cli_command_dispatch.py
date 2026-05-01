@@ -145,6 +145,54 @@ def test_execute_raw_args_runs_command_lists_engine_runs(tmp_path):
     assert show_payload["timeline"][0]["event_type"] == "issue_runner.tick.completed"
 
 
+def test_execute_raw_args_events_lists_and_prunes_engine_events(tmp_path):
+    from engine.store import EngineStore
+    from workflows.contract import render_workflow_markdown
+    from workflows.shared.paths import runtime_paths
+
+    tools = _tools()
+    root = tmp_path / "attmous-daedalus-issue-runner"
+    root.mkdir()
+    (root / "WORKFLOW.md").write_text(
+        render_workflow_markdown(
+            config={
+                "workflow": "issue-runner",
+                "schema-version": 1,
+                "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
+                "repository": {"local-path": str(tmp_path / "repo"), "github-slug": "attmous/daedalus"},
+                "tracker": {"kind": "local-json", "path": "config/issues.json"},
+                "workspace": {"root": "workspace/issues"},
+                "agent": {"name": "runner", "model": "gpt-5.4", "runtime": "default"},
+                "retention": {"events": {"max-rows": 1}},
+            },
+            prompt_template="Issue: {{ issue.identifier }}",
+        ),
+        encoding="utf-8",
+    )
+    clock = {"iso": "2026-04-30T12:00:21Z", "epoch": 1714478421.0}
+    store = EngineStore(
+        db_path=runtime_paths(root)["db_path"],
+        workflow="issue-runner",
+        now_iso=lambda: clock["iso"],
+        now_epoch=lambda: clock["epoch"],
+    )
+    run = store.start_run(mode="tick")
+    store.append_event(event_type="a", payload={"run_id": run["run_id"], "issue_id": "ISSUE-1"})
+    clock.update({"iso": "2026-04-30T12:00:22Z", "epoch": 1714478422.0})
+    store.append_event(event_type="b", payload={"run_id": run["run_id"], "issue_id": "ISSUE-2"})
+
+    output = tools.execute_raw_args(f"events --workflow-root {root} --work-id ISSUE-2 --json")
+    payload = json.loads(output)
+    prune_output = tools.execute_raw_args(f"events --workflow-root {root} prune --json")
+    prune_payload = json.loads(prune_output)
+
+    assert payload["workflow"] == "issue-runner"
+    assert payload["events"][0]["event_type"] == "b"
+    assert payload["events"][0]["work_id"] == "ISSUE-2"
+    assert prune_payload["deleted"] == 1
+    assert prune_payload["remaining"] == 1
+
+
 def test_run_cli_command_dispatches_scaffold_workflow(tmp_path, capsys):
     tools = _tools()
     root = tmp_path / "attmous-daedalus-issue-runner"

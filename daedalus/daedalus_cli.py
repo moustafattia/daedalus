@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 import yaml
 
 from engine.state import (
+    read_engine_events,
     read_engine_events_for_run,
     read_engine_run,
     read_engine_runs,
@@ -657,6 +658,88 @@ def build_runs_report(
             "stale": len([run for run in enriched if run.get("stale")]),
         },
         "runs": enriched,
+    }
+
+
+def _workflow_event_retention(workflow_root: Path) -> dict[str, Any]:
+    try:
+        contract = load_workflow_contract(workflow_root)
+    except (FileNotFoundError, WorkflowContractError, OSError):
+        return {}
+    retention = contract.config.get("retention") or {}
+    if not isinstance(retention, dict):
+        return {}
+    events = retention.get("events") or {}
+    return events if isinstance(events, dict) else {}
+
+
+def build_events_report(
+    *,
+    workflow_root: Path,
+    action: str = "list",
+    run_id: str | None = None,
+    work_id: str | None = None,
+    event_type: str | None = None,
+    severity: str | None = None,
+    limit: int = 50,
+    order: str = "desc",
+    max_age_days: float | None = None,
+    max_rows: int | None = None,
+) -> dict[str, Any]:
+    workflow_root = Path(workflow_root).resolve()
+    workflow_name = _workflow_name_for_root(workflow_root)
+    store = EngineStore(db_path=runtime_paths(workflow_root)["db_path"], workflow=workflow_name)
+    filters = {
+        "run_id": run_id,
+        "work_id": work_id,
+        "event_type": event_type,
+        "severity": severity,
+    }
+    if action == "prune":
+        retention_cfg = _workflow_event_retention(workflow_root)
+        resolved_max_age_days = max_age_days
+        if resolved_max_age_days is None and retention_cfg.get("max-age-days") is not None:
+            resolved_max_age_days = float(retention_cfg["max-age-days"])
+        if resolved_max_age_days is None and retention_cfg.get("max_age_days") is not None:
+            resolved_max_age_days = float(retention_cfg["max_age_days"])
+        resolved_max_rows = max_rows
+        if resolved_max_rows is None and retention_cfg.get("max-rows") is not None:
+            resolved_max_rows = int(retention_cfg["max-rows"])
+        if resolved_max_rows is None and retention_cfg.get("max_rows") is not None:
+            resolved_max_rows = int(retention_cfg["max_rows"])
+        if resolved_max_age_days is None and resolved_max_rows is None:
+            raise DaedalusCommandError(
+                "events prune requires --max-age-days, --max-rows, or retention.events in WORKFLOW.md"
+            )
+        result = store.prune_events(
+            max_age_seconds=(resolved_max_age_days * 86400) if resolved_max_age_days is not None else None,
+            max_rows=resolved_max_rows,
+        )
+        return {
+            "mode": "prune",
+            "workflow": workflow_name,
+            "retention": {
+                "max_age_days": resolved_max_age_days,
+                "max_rows": resolved_max_rows,
+            },
+            **result,
+        }
+    events = read_engine_events(
+        runtime_paths(workflow_root)["db_path"],
+        workflow=workflow_name,
+        run_id=run_id,
+        work_id=work_id,
+        event_type=event_type,
+        severity=severity,
+        limit=max(limit, 1),
+        order=order,
+    )
+    return {
+        "mode": "list",
+        "workflow": workflow_name,
+        "filters": {key: value for key, value in filters.items() if value not in (None, "")},
+        "counts": {"shown": len(events)},
+        "events": events,
     }
 
 
@@ -2832,6 +2915,26 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     runs_cmd.set_defaults(func=run_cli_command)
 
+    events_cmd = sub.add_parser("events", help="Inspect and prune the durable engine event ledger.")
+    events_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
+    events_cmd.add_argument("events_action", nargs="?", default="list", choices=["list", "prune"])
+    events_cmd.add_argument("--run-id")
+    events_cmd.add_argument("--work-id")
+    events_cmd.add_argument("--type", dest="event_type")
+    events_cmd.add_argument("--severity")
+    events_cmd.add_argument("--limit", type=int, default=50)
+    events_cmd.add_argument("--order", choices=["asc", "desc"], default="desc")
+    events_cmd.add_argument("--max-age-days", type=float)
+    events_cmd.add_argument("--max-rows", type=int)
+    events_cmd.add_argument("--json", action="store_true")
+    events_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
+    events_cmd.set_defaults(func=run_cli_command)
+
     service_install_cmd = sub.add_parser("service-install", help="Install the supervised Daedalus systemd user service.")
     service_install_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     service_install_cmd.add_argument("--project-key")
@@ -3259,7 +3362,7 @@ def _resolve_format(format_arg: str | None, json_flag: bool | None) -> str:
 def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     workflow_root = Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
     daedalus = _load_daedalus_module(workflow_root) if workflow_root is not None else None
-    eventless_commands = {"codex-app-server", "runs"}
+    eventless_commands = {"codex-app-server", "runs", "events"}
     if (
         workflow_root is not None
         and daedalus is not None
@@ -3314,6 +3417,19 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
             run_id=args.run_id,
             limit=args.limit,
             stale_seconds=args.stale_seconds,
+        )
+    if args.daedalus_command == "events":
+        return build_events_report(
+            workflow_root=workflow_root,
+            action=args.events_action,
+            run_id=args.run_id,
+            work_id=args.work_id,
+            event_type=args.event_type,
+            severity=args.severity,
+            limit=args.limit,
+            order=args.order,
+            max_age_days=args.max_age_days,
+            max_rows=args.max_rows,
         )
     if args.daedalus_command == "service-install":
         return install_supervised_service(
@@ -3630,6 +3746,36 @@ def render_result(
                 f"- {run.get('run_id')} {run.get('mode')} {run.get('status')} "
                 f"selected={run.get('selected_count')} completed={run.get('completed_count')} "
                 f"started={run.get('started_at')}{stale}"
+            )
+        return "\n".join(lines)
+    if command == "events":
+        if result.get("mode") == "prune":
+            retention = result.get("retention") or {}
+            return (
+                f"workflow={result.get('workflow')} pruned_events={result.get('deleted')} "
+                f"remaining={result.get('remaining')} "
+                f"max_age_days={retention.get('max_age_days')} max_rows={retention.get('max_rows')}"
+            )
+        events = result.get("events") or []
+        filters = result.get("filters") or {}
+        lines = [
+            f"workflow={result.get('workflow')} events={len(events)}"
+            + (f" filters={filters}" if filters else "")
+        ]
+        for event in events[:50]:
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            detail = (
+                payload.get("summary")
+                or payload.get("error")
+                or payload.get("reason")
+                or event.get("work_id")
+                or event.get("run_id")
+                or ""
+            )
+            lines.append(
+                f"- {event.get('created_at')} {event.get('severity')} "
+                f"{event.get('event_type')} work={event.get('work_id') or '-'} "
+                f"run={event.get('run_id') or '-'} {detail}".strip()
             )
         return "\n".join(lines)
     if command == "service-install":

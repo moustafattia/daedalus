@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from engine.state import read_engine_runs, read_engine_scheduler_state
+from engine.state import read_engine_events, read_engine_runs, read_engine_scheduler_state
 from engine.work_items import work_item_from_change_delivery_lane, work_item_from_issue
 from workflows.contract import WorkflowContractError, load_workflow_contract
 
@@ -126,6 +126,22 @@ def recent_workflow_audit(workflow_root: Path, limit: int = 50) -> list[dict[str
     runtime_event_log = runtime_paths(base)["event_log_path"]
     audit_path = runtime_event_log.parent / "workflow-audit.jsonl"
     return _read_jsonl_tail(audit_path, limit)
+
+
+def recent_engine_events(workflow_root: Path, limit: int = 50) -> list[dict[str, Any]]:
+    workflow_root = Path(workflow_root)
+    workflow = _workflow_name(workflow_root)
+    if workflow not in {"issue-runner", "change-delivery"}:
+        return []
+    return [
+        {**event, "source": "engine-events"}
+        for event in read_engine_events(
+            runtime_paths(workflow_root)["db_path"],
+            workflow=workflow,
+            limit=limit,
+            order="desc",
+        )
+    ]
 
 
 def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:

@@ -8,8 +8,9 @@ Path layout (Symphony §13.7 / spec §6.3):
 
     GET  /                  → HTML dashboard
     GET  /api/v1/state      → state_view() JSON
-    GET  /api/v1/runs      → runs_view() JSON
-    GET  /api/v1/runs/<id> → run_view(id) JSON or 404
+    GET  /api/v1/runs       → runs_view() JSON
+    GET  /api/v1/runs/<id>  → run_view(id) JSON or 404
+    GET  /api/v1/events     → events_view() JSON with optional filters
     GET  /api/v1/<id>      → issue_view(id) JSON or 404
     POST /api/v1/refresh    → spawn a tick subprocess (debounced)
     *    other              → 404 JSON
@@ -31,7 +32,7 @@ from typing import Any
 from workflows.change_delivery.paths import runtime_paths
 from workflows.change_delivery.server.html import render_dashboard
 from workflows.change_delivery.server.refresh import RefreshController
-from workflows.change_delivery.server.views import issue_view, run_view, runs_view, state_view
+from workflows.change_delivery.server.views import events_view, issue_view, run_view, runs_view, state_view
 
 
 @dataclass
@@ -79,7 +80,9 @@ def _make_handler_class(
 
         # --- routes ---
         def do_GET(self) -> None:  # noqa: N802 (stdlib name)
-            path = urllib.parse.urlsplit(self.path).path
+            parsed_url = urllib.parse.urlsplit(self.path)
+            path = parsed_url.path
+            query = urllib.parse.parse_qs(parsed_url.query)
             if path == "/" or path == "":
                 state = state_view(db_path, events_log_path, workflow_root=workflow_root)
                 html_body = render_dashboard(state).encode("utf-8")
@@ -90,6 +93,23 @@ def _make_handler_class(
                 return
             if path == "/api/v1/runs":
                 self._respond_json(200, runs_view(workflow_root))
+                return
+            if path == "/api/v1/events":
+                try:
+                    limit = int((query.get("limit") or ["20"])[0])
+                except ValueError:
+                    limit = 20
+                self._respond_json(
+                    200,
+                    events_view(
+                        workflow_root,
+                        limit=max(limit, 1),
+                        run_id=(query.get("run_id") or [None])[0],
+                        work_id=(query.get("work_id") or [None])[0],
+                        event_type=(query.get("type") or query.get("event_type") or [None])[0],
+                        severity=(query.get("severity") or [None])[0],
+                    ),
+                )
                 return
             if path.startswith("/api/v1/runs/"):
                 run_id = urllib.parse.unquote(path[len("/api/v1/runs/"):])

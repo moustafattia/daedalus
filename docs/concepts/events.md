@@ -1,10 +1,13 @@
 # Events
 
-Append-only history of what the runtime and workflows did. Daedalus writes runtime events to `runtime/memory/daedalus-events.jsonl`; workflows may also write their own audit files such as `memory/workflow-audit.jsonl`.
+Append-only history of what the runtime and workflows did. Daedalus stores
+operator-facing events in the shared SQLite `engine_events` ledger and still
+writes JSONL audit tails such as `runtime/memory/daedalus-events.jsonl` and
+`memory/workflow-audit.jsonl` for compatibility and file-oriented debugging.
 
 These event streams are consumed by:
 
-- the operator dashboard (recent-event tail)
+- the operator dashboard and HTTP status server
 - the alerting layer
 - post-hoc auditing
 - regression tests that snapshot lifecycles
@@ -14,7 +17,8 @@ State is workflow-specific. **History is in events.** Never reconstruct current 
 - Shared engine execution state is in SQLite: work items, running workers, retry queue, runtime sessions, and token totals.
 - `change-delivery` adds workflow-specific SQLite state: lanes, actions, reviews, failures, and leases.
 - JSON status/health/scheduler files are projections for operators and file-oriented tools.
-- Runtime events and workflow audit events are for debugging, alerting, tests, and post-hoc archaeology.
+- Engine events are queryable by run, work item, type, and severity.
+- JSONL audit files are retained as write-ahead/debug tails, not the primary operator query path.
 
 ## Anatomy of an event
 
@@ -79,15 +83,28 @@ Runtime events are appended by `daedalus/runtime.py::append_daedalus_event`. The
 
 1. Builds the event dict with `type`, `lane_id`, `at`, and `payload`
 2. Atomically appends one JSON line to `runtime/memory/daedalus-events.jsonl`
-3. Never blocks on a full disk — if the write fails, the event is dropped and a warning is emitted
+3. Best-effort indexes the same event into SQLite `engine_events`
+4. Never lets observability indexing break workflow execution
 
-### File rotation
+### Retention
 
-The JSONL file is **not rotated automatically**. For long-lived deployments:
+Set durable event retention in `WORKFLOW.md`:
 
-- Archive old logs: `mv runtime/memory/daedalus-events.jsonl runtime/memory/daedalus-events-$(date +%Y%m%d).jsonl`
-- The next event write creates a fresh `daedalus-events.jsonl`
-- No data is lost if you archive while the process is running (append is atomic)
+```yaml
+retention:
+  events:
+    max-age-days: 30
+    max-rows: 100000
+```
+
+Apply it manually or from automation:
+
+```bash
+hermes daedalus events prune --workflow-root ~/.hermes/workflows/<profile>
+```
+
+For JSONL tails, archive files normally if they grow too large. The next event
+write creates a fresh `daedalus-events.jsonl`.
 
 ### Event schema
 
@@ -115,12 +132,22 @@ All events share a common envelope:
 
 ## Reading events efficiently
 
-The dashboard tails the last 20 events on every HTTP hit. Naïve `readlines()` is O(file size); the implementation in `daedalus/workflows/change_delivery/server/views.py::_read_events_tail` uses an 8 KiB reverse-chunked seek so request cost is bounded regardless of how big the log gets. The shared watch surface also tails the workflow audit path resolved from the workflow contract.
+Use the engine ledger first:
+
+```bash
+hermes daedalus events --workflow-root ~/.hermes/workflows/<profile> --limit 50
+hermes daedalus events --workflow-root ~/.hermes/workflows/<profile> --run-id <run_id>
+hermes daedalus events --workflow-root ~/.hermes/workflows/<profile> --work-id ISSUE-123
+```
+
+The TUI watch frame and HTTP status server read recent events from SQLite and
+fall back to bounded JSONL tailing when the ledger is empty or unavailable.
 
 ## Where this lives in code
 
 - Taxonomy constants: `daedalus/workflows/change_delivery/event_taxonomy.py`
 - Writer: `daedalus/runtime.py::append_daedalus_event`
-- Reader (tail): `daedalus/workflows/change_delivery/server/views.py::_read_events_tail`
+- Ledger: `daedalus/engine/state.py::engine_events_from_connection`
+- CLI: `hermes daedalus events`
 - Watch source aggregation: `daedalus/watch_sources.py`
 - AST regression test: `tests/test_event_taxonomy.py` ensures `daedalus/runtime.py` only emits known event types

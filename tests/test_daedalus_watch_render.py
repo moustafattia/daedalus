@@ -179,6 +179,51 @@ def test_build_snapshot_combines_all_sources(tmp_path):
     assert snap["alert_state"]["active"] is True
 
 
+def test_build_snapshot_prefers_engine_event_ledger(tmp_path):
+    from engine.store import EngineStore
+    from workflows.contract import render_workflow_markdown
+    from workflows.shared.paths import runtime_paths
+
+    watch = _module()
+    root = _make_workflow_root(tmp_path)
+    (root / "WORKFLOW.md").write_text(
+        render_workflow_markdown(
+            config={
+                "workflow": "issue-runner",
+                "schema-version": 1,
+                "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
+                "repository": {"local-path": "/tmp/repo"},
+                "tracker": {"kind": "local-json", "path": "config/issues.json"},
+                "workspace": {"root": "workspace/issues"},
+                "agent": {"name": "runner", "model": "gpt-5.4"},
+                "storage": {
+                    "status": "memory/workflow-status.json",
+                    "health": "memory/workflow-health.json",
+                    "audit-log": "memory/workflow-audit.jsonl",
+                },
+            },
+            prompt_template="Issue: {{ issue.identifier }}",
+        ),
+        encoding="utf-8",
+    )
+    (root / "runtime" / "memory" / "daedalus-events.jsonl").write_text(
+        json.dumps({"at": "2026-04-26T22:00:01Z", "event": "jsonl_event"}) + "\n"
+    )
+    store = EngineStore(
+        db_path=runtime_paths(root)["db_path"],
+        workflow="issue-runner",
+        now_iso=lambda: "2026-04-30T12:00:21Z",
+        now_epoch=lambda: 1714478421.0,
+    )
+    store.append_event(event_type="sql_event", payload={"summary": "from sqlite"})
+
+    snap = watch.build_snapshot(root)
+
+    assert snap["recent_events"][0]["source"] == "engine-events"
+    assert snap["recent_events"][0]["event_type"] == "sql_event"
+    assert all(event.get("event") != "jsonl_event" for event in snap["recent_events"])
+
+
 def test_build_snapshot_includes_issue_runner_workflow_status(tmp_path):
     from engine.state import save_engine_scheduler_state
     from workflows.contract import render_workflow_markdown

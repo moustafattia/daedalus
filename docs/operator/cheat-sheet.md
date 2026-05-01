@@ -324,8 +324,15 @@ where lane_id='lane:220';
 
 ### Show recent events
 ```bash
-# Tail JSONL event log
-tail -n 50 ~/.hermes/workflows/<profile>/runtime/memory/daedalus-events.jsonl | jq .
+# Query the durable SQLite engine event ledger
+hermes daedalus events \
+  --workflow-root ~/.hermes/workflows/<profile> \
+  --limit 50 \
+  --json
+
+# Filter by run or work item
+hermes daedalus events --workflow-root ~/.hermes/workflows/<profile> --run-id <run_id>
+hermes daedalus events --workflow-root ~/.hermes/workflows/<profile> --work-id ISSUE-123
 ```
 
 ---

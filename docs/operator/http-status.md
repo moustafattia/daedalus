@@ -38,6 +38,9 @@ SQLite plus JSONL/status projections. It never writes workflow state itself —
 | Method | Path | Purpose |
 |---|---|---|
 | `GET`  | `/api/v1/state` | Snapshot — running + retrying work, totals, recent events. |
+| `GET`  | `/api/v1/events` | Filterable engine event ledger. Query params: `run_id`, `work_id`, `type`, `severity`, `limit`. |
+| `GET`  | `/api/v1/runs` | Durable engine run history. |
+| `GET`  | `/api/v1/runs/<run_id>` | One engine run plus correlated event timeline. |
 | `GET`  | `/api/v1/<identifier>` | Per-work-item debug view. `<identifier>` = `#42`, `42`, or `lane_id`. |
 | `POST` | `/api/v1/refresh` | Trigger an immediate tick subprocess. Returns `{queued: true, pid: …}`. |
 | `GET`  | `/` | Minimal HTML dashboard reading the same JSON. |
@@ -65,6 +68,19 @@ SQLite lane model; `issue-runner` derives running and retrying rows from the
 shared engine tables. `change-delivery` also includes `codex_turns` so
 operators can inspect active or canceling Codex `thread_id` / `turn_id` pairs.
 
+### `GET /api/v1/events`
+
+Reads SQLite `engine_events` and returns newest events first:
+
+```json
+{
+  "workflow": "issue-runner",
+  "filters": { "work_id": "ISSUE-123" },
+  "counts": { "shown": 1 },
+  "events": [ { "event_type": "issue_runner.tick.completed", "work_id": "ISSUE-123" } ]
+}
+```
+
 ### `GET /api/v1/<identifier>`
 
 Returns the same shape as a single `running` or `retrying` entry plus a
@@ -83,8 +99,8 @@ Shells out the workflow's CLI entry point (resolved via `workflow_cli_argv()` so
 
 ## Performance notes
 
-- Requests open fresh SQLite connections (cheap, avoids cross-thread state hazards) and read bounded JSON/JSONL projections.
-- The events tail uses an 8 KiB reverse-chunked seek so cost is bounded by `limit` regardless of total log size — the previous `readlines()` implementation was O(file size) and got expensive on long-lived logs.
+- Requests open fresh SQLite connections (cheap, avoids cross-thread state hazards) and read bounded projections.
+- Recent events come from `engine_events`; JSONL tailing remains as a bounded fallback when the ledger is empty or unavailable.
 
 ## Where this lives in code
 

@@ -78,6 +78,7 @@ Inside Hermes Agent:
 /daedalus status                            # show runtime state, workflow root, and important paths
 /daedalus doctor                            # run health checks across config, service, state, and integrations
 /daedalus watch                             # render a live operator view
+/daedalus events --limit 20                 # inspect the durable engine event ledger
 /daedalus service-status                    # show the systemd user service state
 
 # Workflow package commands

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from engine.state import (
+    read_engine_events,
     read_engine_events_for_run,
     read_engine_run,
     read_engine_runs,
@@ -227,9 +228,48 @@ def _engine_runs(workflow_root: Path | None, workflow: str, *, limit: int = 5) -
     )
 
 
+def _engine_events(
+    workflow_root: Path | None,
+    workflow: str,
+    *,
+    limit: int = _RECENT_EVENTS_LIMIT,
+    run_id: str | None = None,
+    work_id: str | None = None,
+    event_type: str | None = None,
+    severity: str | None = None,
+) -> list[dict[str, Any]]:
+    if workflow_root is None:
+        return []
+    return [
+        {**event, "source": "engine-events"}
+        for event in read_engine_events(
+            runtime_paths(Path(workflow_root))["db_path"],
+            workflow=workflow,
+            run_id=run_id,
+            work_id=work_id,
+            event_type=event_type,
+            severity=severity,
+            limit=limit,
+            order="desc",
+        )
+    ]
+
+
 def _event_run_id(event: dict[str, Any]) -> str | None:
     value = event.get("run_id") or event.get("runId")
     return str(value) if value not in (None, "") else None
+
+
+def _event_value(event: dict[str, Any], *keys: str) -> Any:
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    for key in keys:
+        value = event.get(key)
+        if value not in (None, ""):
+            return value
+        value = payload.get(key)
+        if value not in (None, ""):
+            return value
+    return None
 
 
 def _workflow_audit_log_path(workflow_root: Path, events_log_path: Path) -> Path | None:
@@ -360,8 +400,8 @@ def _lane_to_running_entry(lane: dict[str, Any], events: list[dict[str, Any]]) -
         (
             evt
             for evt in events
-            if evt.get("lane_id") == lane.get("lane_id")
-            or evt.get("issue_number") == lane.get("issue_number")
+            if _event_value(evt, "work_id", "lane_id", "laneId") == lane.get("lane_id")
+            or _event_value(evt, "issue_number", "issueNumber") == lane.get("issue_number")
         ),
         None,
     )
@@ -371,9 +411,10 @@ def _lane_to_running_entry(lane: dict[str, Any], events: list[dict[str, Any]]) -
         "state": lane.get("workflow_state"),
         "session_id": lane.get("active_actor_id"),
         "turn_count": 0,
-        "last_event": (last_event or {}).get("kind") or lane.get("last_meaningful_progress_kind"),
+        "last_event": _event_value(last_event or {}, "kind", "event_type", "event", "action")
+        or lane.get("last_meaningful_progress_kind"),
         "started_at": lane.get("created_at"),
-        "last_event_at": (last_event or {}).get("at")
+        "last_event_at": _event_value(last_event or {}, "at", "created_at")
         or lane.get("last_meaningful_progress_at")
         or lane.get("updated_at"),
         "tokens": _zero_tokens(),
@@ -386,6 +427,9 @@ def _issue_runner_recent_events(
     events_log_path: Path,
     audit_log_path: Path | None,
 ) -> list[dict[str, Any]]:
+    engine_events = _engine_events(workflow_root, "issue-runner", limit=_RECENT_EVENTS_LIMIT)
+    if engine_events:
+        return engine_events
     merged = [{**event, "source": "daedalus"} for event in _read_events_tail(events_log_path, _RECENT_EVENTS_LIMIT)]
     if audit_log_path is not None:
         merged.extend({**event, "source": "workflow"} for event in _read_events_tail(audit_log_path, _RECENT_EVENTS_LIMIT))
@@ -486,9 +530,9 @@ def _issue_runner_issue_view(
     issue_events = [
         event
         for event in (state.get("recent_events") or [])
-        if event.get("issue_id") == entry.get("issue_id")
-        or event.get("identifier") == entry.get("issue_identifier")
-        or str(event.get("issue_id") or "").lstrip("#") == str(entry.get("issue_id") or "").lstrip("#")
+        if _event_value(event, "work_id", "issue_id") == entry.get("issue_id")
+        or _event_value(event, "identifier") == entry.get("issue_identifier")
+        or str(_event_value(event, "issue_id") or "").lstrip("#") == str(entry.get("issue_id") or "").lstrip("#")
     ]
     return {**entry, "recent_events": issue_events}
 
@@ -523,7 +567,9 @@ def state_view(db_path: Path, events_log_path: Path, workflow_root: Path | None 
     if _workflow_name(workflow_root) == "issue-runner":
         return _issue_runner_state_view(Path(workflow_root), events_log_path)
     lanes = _query_active_lanes(db_path)
-    events = _read_events_tail(events_log_path, _RECENT_EVENTS_LIMIT)
+    events = _engine_events(workflow_root, "change-delivery", limit=_RECENT_EVENTS_LIMIT)
+    if not events:
+        events = _read_events_tail(events_log_path, _RECENT_EVENTS_LIMIT)
     running = [_lane_to_running_entry(lane, events) for lane in lanes]
     scheduler = _engine_scheduler(workflow_root, "change-delivery")
     codex_totals = dict(scheduler.get("codex_totals") or scheduler.get("codexTotals") or {})
@@ -582,13 +628,53 @@ def issue_view(
     lane = _find_lane_by_identifier(lanes, identifier)
     if lane is None:
         return None
-    events = _read_events_tail(events_log_path, _RECENT_EVENTS_LIMIT)
+    events = _engine_events(workflow_root, "change-delivery", limit=_RECENT_EVENTS_LIMIT)
+    if not events:
+        events = _read_events_tail(events_log_path, _RECENT_EVENTS_LIMIT)
     lane_events = [
         evt
         for evt in events
-        if evt.get("lane_id") == lane.get("lane_id")
-        or evt.get("issue_number") == lane.get("issue_number")
+        if _event_value(evt, "work_id", "lane_id", "laneId") == lane.get("lane_id")
+        or _event_value(evt, "issue_number", "issueNumber") == lane.get("issue_number")
     ]
     entry = _lane_to_running_entry(lane, events)
     entry["recent_events"] = lane_events
     return entry
+
+
+def events_view(
+    workflow_root: Path,
+    *,
+    limit: int = _RECENT_EVENTS_LIMIT,
+    run_id: str | None = None,
+    work_id: str | None = None,
+    event_type: str | None = None,
+    severity: str | None = None,
+) -> dict[str, Any]:
+    workflow_root = Path(workflow_root)
+    workflow = _workflow_name(workflow_root) or "change-delivery"
+    events = _engine_events(
+        workflow_root,
+        workflow,
+        limit=max(limit, 1),
+        run_id=run_id,
+        work_id=work_id,
+        event_type=event_type,
+        severity=severity,
+    )
+    return {
+        "generated_at": _now_iso(),
+        "workflow": workflow,
+        "filters": {
+            key: value
+            for key, value in {
+                "run_id": run_id,
+                "work_id": work_id,
+                "event_type": event_type,
+                "severity": severity,
+            }.items()
+            if value not in (None, "")
+        },
+        "counts": {"shown": len(events)},
+        "events": events,
+    }

@@ -92,13 +92,19 @@ def _events_table(events: list[dict[str, Any]]) -> str:
     head = "<tr>" + "".join(f"<th>{escape(h)}</th>" for h in headers) + "</tr>"
     body = ""
     for evt in events:
-        detail_keys = {k: v for k, v in evt.items() if k not in {"at", "kind", "lane_id", "issue_number"}}
+        payload = evt.get("payload") if isinstance(evt.get("payload"), dict) else {}
+        detail_source = payload if payload else evt
+        detail_keys = {
+            k: v
+            for k, v in detail_source.items()
+            if k not in {"at", "created_at", "kind", "event_type", "event", "action", "lane_id", "issue_number"}
+        }
         detail_str = ", ".join(f"{k}={v}" for k, v in detail_keys.items())
         body += _row(
             [
-                evt.get("at"),
-                evt.get("kind"),
-                evt.get("lane_id") or evt.get("issue_number"),
+                evt.get("at") or evt.get("created_at"),
+                evt.get("kind") or evt.get("event_type") or evt.get("event") or evt.get("action"),
+                evt.get("work_id") or evt.get("lane_id") or payload.get("lane_id") or payload.get("issue_number"),
                 detail_str,
             ]
         )

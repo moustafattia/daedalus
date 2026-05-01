@@ -74,6 +74,11 @@ storage:
   audit-log: memory/workflow-audit.jsonl
   scheduler: memory/workflow-scheduler.json
 
+retention:
+  events:
+    max-age-days: 30
+    max-rows: 100000
+
 lane-selection:
   exclude-labels:
     - blocked

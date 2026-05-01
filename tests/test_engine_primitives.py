@@ -369,6 +369,36 @@ def test_engine_store_tracks_event_ledger_and_doctor_orphans(tmp_path):
     assert orphaned["event_id"] in checks["engine-events"]["items"]
 
 
+def test_engine_store_filters_and_prunes_events(tmp_path):
+    from engine.store import EngineStore
+
+    clock = {"iso": "2026-04-30T00:00:00Z", "epoch": 100.0}
+    store = EngineStore(
+        db_path=tmp_path / "runtime" / "state" / "daedalus.db",
+        workflow="issue-runner",
+        now_iso=lambda: clock["iso"],
+        now_epoch=lambda: clock["epoch"],
+    )
+    run = store.start_run(mode="tick")
+    store.append_event(event_type="a", payload={"run_id": run["run_id"], "issue_id": "ISSUE-1"})
+    clock.update({"iso": "2026-04-30T00:00:01Z", "epoch": 101.0})
+    store.append_event(event_type="b", payload={"run_id": run["run_id"], "issue_id": "ISSUE-2"}, severity="warn")
+    clock.update({"iso": "2026-04-30T00:00:02Z", "epoch": 102.0})
+    store.append_event(event_type="b", payload={"run_id": run["run_id"], "issue_id": "ISSUE-1"})
+
+    assert [event["event_type"] for event in store.events(event_type="b")] == ["b", "b"]
+    assert [event["work_id"] for event in store.events(work_id="ISSUE-1", order="asc")] == ["ISSUE-1", "ISSUE-1"]
+    assert store.events(severity="warn")[0]["work_id"] == "ISSUE-2"
+
+    pruned = store.prune_events(max_rows=1)
+    remaining = store.events()
+
+    assert pruned["deleted"] == 2
+    assert pruned["remaining"] == 1
+    assert remaining[0]["event_type"] == "b"
+    assert remaining[0]["work_id"] == "ISSUE-1"
+
+
 def test_engine_store_lease_lifecycle_and_stale_status(tmp_path):
     from engine.store import EngineStore
 

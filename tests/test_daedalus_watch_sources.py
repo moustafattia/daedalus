@@ -51,6 +51,46 @@ def test_read_recent_workflow_audit_handles_missing_file(tmp_path):
     assert out == []
 
 
+def test_recent_engine_events_reads_sqlite_ledger(tmp_path):
+    from engine.store import EngineStore
+    from workflows.contract import render_workflow_markdown
+
+    sources = _module()
+    root = _make_workflow_root(tmp_path)
+    (root / "WORKFLOW.md").write_text(
+        render_workflow_markdown(
+            config={
+                "workflow": "issue-runner",
+                "schema-version": 1,
+                "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
+                "repository": {"local-path": "/tmp/repo"},
+                "tracker": {"kind": "local-json", "path": "config/issues.json"},
+                "workspace": {"root": "workspace/issues"},
+                "agent": {"name": "runner", "model": "gpt-5.4"},
+                "storage": {
+                    "status": "memory/workflow-status.json",
+                    "health": "memory/workflow-health.json",
+                    "audit-log": "memory/workflow-audit.jsonl",
+                },
+            },
+            prompt_template="Issue: {{ issue.identifier }}",
+        ),
+        encoding="utf-8",
+    )
+    store = EngineStore(
+        db_path=root / "runtime" / "state" / "daedalus" / "daedalus.db",
+        workflow="issue-runner",
+        now_iso=lambda: "2026-04-30T12:00:21Z",
+        now_epoch=lambda: 1714478421.0,
+    )
+    store.append_event(event_type="issue_runner.tick.completed", payload={"issue_id": "123"})
+
+    events = sources.recent_engine_events(root, limit=5)
+
+    assert events[0]["source"] == "engine-events"
+    assert events[0]["event_type"] == "issue_runner.tick.completed"
+
+
 def test_read_active_lanes_from_db(tmp_path):
     """Schema must match the real ``lanes`` table in runtime.py:
        lane_id (PK), issue_number, workflow_state, lane_status.

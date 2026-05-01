@@ -208,6 +208,25 @@ properties:
       hermes-cron-jobs-path: {type: string}
       sessions-state: {type: string}
 
+  retention:
+    type: object
+    properties:
+      events:
+        type: object
+        properties:
+          max-age-days:
+            type: number
+            minimum: 0
+          max-rows:
+            type: integer
+            minimum: 0
+          max_age_days:
+            type: number
+            minimum: 0
+          max_rows:
+            type: integer
+            minimum: 0
+
   codex-bot:
     type: object
     properties:

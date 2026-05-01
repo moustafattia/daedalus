@@ -18,6 +18,8 @@ workflow exposes the richer `change-delivery` command surface.
 |---|---|
 | `/daedalus status` | Runtime row + lane count + paths (DB, event log) |
 | `/daedalus doctor` | Full health check across all subsystems |
+| `/daedalus events` | Query the durable engine event ledger |
+| `/daedalus runs` | Inspect durable engine run history |
 | `/daedalus shadow-report` | `change-delivery` shadow-mode action proposal vs active/runtime state |
 | `/daedalus active-gate-status` | Active-execution gate state and blockers |
 

@@ -588,6 +588,43 @@ def test_server_runs_endpoints_return_run_history_and_timeline(tmp_path: Path) -
         handle.shutdown()
 
 
+def test_server_events_endpoint_returns_filtered_engine_events(tmp_path: Path) -> None:
+    from engine.store import EngineStore
+    from workflows.shared.paths import runtime_paths
+
+    store = EngineStore(
+        db_path=runtime_paths(tmp_path)["db_path"],
+        workflow="change-delivery",
+        now_iso=lambda: "2026-04-30T12:00:21Z",
+        now_epoch=lambda: 1714478421.0,
+    )
+    run = store.start_run(mode="active-iteration")
+    store.append_event(
+        event_type="ignored_event",
+        payload={"run_id": run["run_id"], "lane_id": "lane-41"},
+        run_id=run["run_id"],
+        work_id="lane-41",
+    )
+    store.append_event(
+        event_type="wanted_event",
+        payload={"run_id": run["run_id"], "lane_id": "lane-42", "summary": "visible"},
+        run_id=run["run_id"],
+        work_id="lane-42",
+    )
+
+    handle = _start_test_server(tmp_path)
+    try:
+        url = f"http://127.0.0.1:{handle.port}/api/v1/events?work_id=lane-42"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        assert payload["workflow"] == "change-delivery"
+        assert payload["filters"] == {"work_id": "lane-42"}
+        assert payload["events"][0]["event_type"] == "wanted_event"
+        assert payload["events"][0]["payload"]["summary"] == "visible"
+    finally:
+        handle.shutdown()
+
+
 def test_server_refresh_endpoint_triggers_tick(tmp_path: Path) -> None:
     handle = _start_test_server(tmp_path)
     try:

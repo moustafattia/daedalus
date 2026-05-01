@@ -1027,6 +1027,47 @@ def engine_events_for_run_from_connection(
     return [_event_row_to_dict(row) for row in rows]
 
 
+def engine_events_from_connection(
+    conn: sqlite3.Connection,
+    *,
+    workflow: str,
+    run_id: str | None = None,
+    work_id: str | None = None,
+    event_type: str | None = None,
+    severity: str | None = None,
+    limit: int = 100,
+    order: str = "desc",
+) -> list[dict[str, Any]]:
+    conditions = ["workflow=?"]
+    params: list[Any] = [workflow]
+    if run_id:
+        conditions.append("run_id=?")
+        params.append(run_id)
+    if work_id:
+        conditions.append("work_id=?")
+        params.append(work_id)
+    if event_type:
+        conditions.append("event_type=?")
+        params.append(event_type)
+    if severity:
+        conditions.append("severity=?")
+        params.append(severity)
+    order_sql = "ASC" if str(order).lower() == "asc" else "DESC"
+    params.append(max(int(limit or 100), 1))
+    rows = conn.execute(
+        f"""
+        SELECT workflow, event_id, run_id, work_id, event_type, severity,
+               created_at, created_at_epoch, payload_json
+        FROM engine_events
+        WHERE {" AND ".join(conditions)}
+        ORDER BY created_at_epoch {order_sql}, event_id {order_sql}
+        LIMIT ?
+        """,
+        tuple(params),
+    ).fetchall()
+    return [_event_row_to_dict(row) for row in rows]
+
+
 def read_engine_events_for_run(
     db_path: Path,
     *,
@@ -1059,3 +1100,84 @@ def read_engine_events_for_run(
         return []
     finally:
         conn.close()
+
+
+def read_engine_events(
+    db_path: Path,
+    *,
+    workflow: str,
+    run_id: str | None = None,
+    work_id: str | None = None,
+    event_type: str | None = None,
+    severity: str | None = None,
+    limit: int = 100,
+    order: str = "desc",
+) -> list[dict[str, Any]]:
+    if not db_path.exists():
+        return []
+    try:
+        conn = sqlite3.connect(db_path)
+    except sqlite3.OperationalError:
+        return []
+    try:
+        if not _table_exists(conn, "engine_events"):
+            return []
+        return engine_events_from_connection(
+            conn,
+            workflow=workflow,
+            run_id=run_id,
+            work_id=work_id,
+            event_type=event_type,
+            severity=severity,
+            limit=limit,
+            order=order,
+        )
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+
+
+def prune_engine_events_to_connection(
+    conn: sqlite3.Connection,
+    *,
+    workflow: str,
+    now_epoch: float,
+    max_age_seconds: float | None = None,
+    max_rows: int | None = None,
+) -> dict[str, Any]:
+    init_engine_state(conn)
+    before_changes = conn.total_changes
+    if max_age_seconds is not None:
+        cutoff_epoch = float(now_epoch) - max(float(max_age_seconds), 0)
+        conn.execute(
+            "DELETE FROM engine_events WHERE workflow=? AND created_at_epoch < ?",
+            (workflow, cutoff_epoch),
+        )
+    if max_rows is not None:
+        keep_rows = max(int(max_rows), 0)
+        conn.execute(
+            """
+            DELETE FROM engine_events
+            WHERE workflow=? AND event_id IN (
+              SELECT event_id
+              FROM engine_events
+              WHERE workflow=?
+              ORDER BY created_at_epoch DESC, event_id DESC
+              LIMIT -1 OFFSET ?
+            )
+            """,
+            (workflow, workflow, keep_rows),
+        )
+    deleted = conn.total_changes - before_changes
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM engine_events WHERE workflow=?",
+        (workflow,),
+    ).fetchone()[0]
+    return {
+        "workflow": workflow,
+        "deleted": int(deleted or 0),
+        "remaining": int(remaining or 0),
+        "max_age_seconds": max_age_seconds,
+        "max_rows": max_rows,
+    }

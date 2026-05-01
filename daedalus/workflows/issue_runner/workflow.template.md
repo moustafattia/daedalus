@@ -62,6 +62,11 @@ storage:
   status: memory/workflow-status.json
   health: memory/workflow-health.json
   audit-log: memory/workflow-audit.jsonl
+
+retention:
+  events:
+    max-age-days: 30
+    max-rows: 100000
 ---
 
 # Workflow Policy

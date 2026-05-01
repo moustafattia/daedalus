@@ -45,7 +45,7 @@ The watch frame is assembled from three sources:
    `change-delivery`: `SELECT * FROM lanes WHERE lane_status NOT IN ('merged', 'closed', 'archived')`
    `issue-runner`: shared engine `running` + `retry_queue`
 2. **`alert_state`** — parsed from `daedalus/alerts.py` output
-3. **`recent_events`** — tail of the workflow audit/event log (last 20, reverse-chunked seek)
+3. **`recent_events`** — latest rows from SQLite `engine_events`, with JSONL tail fallback
 
 ### Modes
 
@@ -65,6 +65,9 @@ See [http-status.md](http-status.md) for full endpoint documentation. Summary:
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/v1/state` | Snapshot — running + retrying workflow work, totals, recent events |
+| `GET /api/v1/events` | Filterable engine event ledger (`run_id`, `work_id`, `type`, `severity`) |
+| `GET /api/v1/runs` | Durable engine run history |
+| `GET /api/v1/runs/<run_id>` | One run plus correlated event timeline |
 | `GET /api/v1/<identifier>` | Per-lane or per-issue debug view (`#42`, `42`, or `lane_id`) |
 | `POST /api/v1/refresh` | Trigger immediate tick subprocess |
 | `GET /` | Minimal HTML dashboard |

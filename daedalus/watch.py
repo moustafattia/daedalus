@@ -55,11 +55,12 @@ def _events_table(events: list[dict[str, Any]]) -> Table:
         t.add_row("(no events)", "", "", "")
         return t
     for ev in events[:50]:
+        payload = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
         t.add_row(
-            str(ev.get("at") or ev.get("time") or "")[:19],
-            str(ev.get("source") or "daedalus"),
-            str(ev.get("event") or ev.get("action") or ""),
-            str(ev.get("detail") or ev.get("summary") or ""),
+            str(ev.get("at") or ev.get("created_at") or ev.get("time") or "")[:19],
+            str(ev.get("source") or "engine-events"),
+            str(ev.get("event") or ev.get("action") or ev.get("event_type") or ""),
+            str(ev.get("detail") or ev.get("summary") or payload.get("summary") or payload.get("error") or ""),
         )
     return t
 
@@ -128,14 +129,16 @@ except ImportError:
 
 def build_snapshot(workflow_root) -> dict[str, Any]:
     """Aggregate all data sources into one TUI snapshot dict."""
-    daedalus_events = _watch_sources.recent_daedalus_events(workflow_root, limit=25)
-    workflow_audit = _watch_sources.recent_workflow_audit(workflow_root, limit=25)
-
-    # Tag source onto each row, then merge + sort newest-first by 'at'.
-    daedalus_tagged = [{**e, "source": "daedalus"} for e in daedalus_events]
-    workflow_tagged = [{**e, "source": "workflow"} for e in workflow_audit]
-    merged = daedalus_tagged + workflow_tagged
-    merged.sort(key=lambda e: e.get("at") or "", reverse=True)
+    engine_events = _watch_sources.recent_engine_events(workflow_root, limit=50)
+    if engine_events:
+        merged = engine_events
+    else:
+        daedalus_events = _watch_sources.recent_daedalus_events(workflow_root, limit=25)
+        workflow_audit = _watch_sources.recent_workflow_audit(workflow_root, limit=25)
+        daedalus_tagged = [{**e, "source": "daedalus"} for e in daedalus_events]
+        workflow_tagged = [{**e, "source": "workflow"} for e in workflow_audit]
+        merged = daedalus_tagged + workflow_tagged
+        merged.sort(key=lambda e: e.get("at") or "", reverse=True)
 
     return {
         "active_lanes": _watch_sources.active_lanes(workflow_root),
