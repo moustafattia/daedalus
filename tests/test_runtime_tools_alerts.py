@@ -193,6 +193,7 @@ def test_ingest_legacy_status_uses_canonical_internal_review_for_active_request(
             "worktree": "/tmp/issue-221",
             "branch": "codex/issue-221-test",
             "localHeadSha": "abc123",
+            "sessionRuntime": "codex-app-server",
             "laneState": {"implementation": {}, "pr": {"lastPublishedHeadSha": None}},
             "activeSessionHealth": {"healthy": False, "lastUsedAt": None},
             "sessionActionRecommendation": {"action": "restart-session"},
@@ -231,8 +232,12 @@ def test_ingest_legacy_status_uses_canonical_internal_review_for_active_request(
     conn = sqlite3.connect(paths["db_path"])
     try:
         lane_required = conn.execute(
-            "SELECT required_internal_review FROM lanes WHERE lane_id=?",
+            "SELECT required_internal_review, actor_backend FROM lanes WHERE lane_id=?",
             ("lane:221",),
+        ).fetchone()
+        actor_backend = conn.execute(
+            "SELECT backend_type FROM lane_actors WHERE actor_id=?",
+            ("actor:lane:221:coder",),
         ).fetchone()[0]
         review_row = conn.execute(
             "SELECT status, backend_type, requested_head_sha FROM lane_reviews WHERE review_id=?",
@@ -241,7 +246,8 @@ def test_ingest_legacy_status_uses_canonical_internal_review_for_active_request(
     finally:
         conn.close()
 
-    assert lane_required == 1
+    assert lane_required == (1, "codex-app-server")
+    assert actor_backend == "codex-app-server"
     assert review_row == ("pending", "internalReview", "abc123")
     assert actions[0]["action_type"] == "request_internal_review"
 
@@ -310,6 +316,34 @@ def test_derive_shadow_actions_requests_internal_review_without_review_row(runti
         },
         reviews=[],
         actor_row={},
+    )
+
+    assert actions == [
+        {
+            "action_type": "request_internal_review",
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "target_head_sha": "abc123",
+            "reason": "internal-review-pending",
+        }
+    ]
+
+
+def test_derive_shadow_actions_requests_internal_review_for_new_local_head(runtime_module):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "workflow_state": "implementing_local",
+            "required_internal_review": 1,
+            "active_pr_number": None,
+            "current_head_sha": "abc123",
+        },
+        reviews=[],
+        actor_row={
+            "runtime_status": "unhealthy",
+            "session_action_recommendation": "restart-session",
+        },
     )
 
     assert actions == [

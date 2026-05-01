@@ -517,6 +517,80 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
     assert impl["runtimeMetrics"]["rate_limits"] == {"requests_remaining": 99}
 
 
+def test_run_dispatch_lane_turn_reconciles_runtime_error_after_local_head(tmp_path):
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_reconciled_error", "workflows/change_delivery/actions.py")
+    state, worktree, deps = _dispatch_deps(tmp_path)
+    status = {
+        "activeLane": {"number": 224, "title": "T", "url": "https://example.test/issue/224"},
+        "implementation": {
+            "worktree": str(worktree),
+            "branch": "issue-224",
+            "sessionName": "lane-224",
+            "codexModel": "gpt-5.5",
+            "resumeSessionId": "thread-existing",
+            "sessionActionRecommendation": {"action": "continue-session"},
+            "laneState": {},
+        },
+        "ledger": {"workflowState": "implementing_local"},
+        "reviews": {},
+        "openPr": None,
+    }
+
+    class RuntimeCompletedThenTimedOut(RuntimeError):
+        def __init__(self):
+            super().__init__("codex-app-server failed: timed out")
+            self.result = SimpleNamespace(
+                output="implemented\n",
+                session_id="thread-1",
+                thread_id="thread-1",
+                turn_id="turn-1",
+                last_event="item/agentMessage/delta",
+                last_message=".",
+                turn_count=1,
+                tokens={"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+                rate_limits=None,
+            )
+
+    def run_prompt_fn(*, worktree, session_name, prompt, codex_model):
+        raise RuntimeCompletedThenTimedOut()
+
+    def reconcile_fn(*, fix_watchers=False):
+        return {
+            "health": "healthy",
+            "activeLane": {"number": 224},
+            "implementation": {"localHeadSha": "head-after-error"},
+            "nextAction": {"type": "run_internal_review", "reason": "prepublish-review-required"},
+        }
+
+    recorded = {}
+
+    def record_runtime_result_fn(**kwargs):
+        recorded.update(kwargs)
+        return kwargs["metrics"]
+
+    result = actions_module.run_dispatch_lane_turn(
+        status=status,
+        forced_action=None,
+        audit_action="dispatch-implementation-turn",
+        **{
+            **deps,
+            "run_prompt_fn": run_prompt_fn,
+            "reconcile_fn": reconcile_fn,
+            "runtime_name": "coder-runtime",
+            "runtime_kind": "codex-app-server",
+            "record_runtime_result_fn": record_runtime_result_fn,
+        },
+    )
+
+    assert result["dispatched"] is True
+    assert result["reconciledAfterRuntimeError"] is True
+    assert result["runtimeError"] == "codex-app-server failed: timed out"
+    assert result["promptResult"] == "implemented"
+    assert result["health"] == "healthy"
+    assert recorded["metrics"]["thread_id"] == "thread-1"
+    assert state["save_ledger"]
+
+
 def test_run_dispatch_lane_turn_closes_session_for_restart(tmp_path):
     actions_module = load_module("daedalus_workflows_change_delivery_actions_rdlt", "workflows/change_delivery/actions.py")
     state, worktree, deps = _dispatch_deps(tmp_path)

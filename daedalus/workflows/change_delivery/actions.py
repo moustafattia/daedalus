@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from workflows.change_delivery.migrations import get_review
@@ -55,6 +56,46 @@ def _runtime_metrics_payload(value: Any) -> dict[str, Any]:
         "tokens": tokens if isinstance(tokens, dict) else {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
         "rate_limits": _object_value(value, "rate_limits", "rateLimits"),
     }
+
+
+def _prompt_result_from_exception(exc: Exception) -> Any:
+    result = getattr(exc, "result", None)
+    if result is not None:
+        return result
+    return SimpleNamespace(
+        output="",
+        session_id=None,
+        thread_id=None,
+        turn_id=None,
+        last_event=None,
+        last_message=str(exc),
+        turn_count=0,
+        tokens={"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        rate_limits=None,
+    )
+
+
+def _reconciled_status_after_prompt_error(
+    *,
+    reconcile_fn: Callable[..., dict[str, Any]],
+    status_before: dict[str, Any],
+    issue_number: Any,
+) -> dict[str, Any] | None:
+    try:
+        status_after = reconcile_fn(fix_watchers=True)
+    except Exception:
+        return None
+    active_lane = status_after.get("activeLane") or {}
+    if issue_number and active_lane.get("number") != issue_number:
+        return None
+    before_head = (status_before.get("implementation") or {}).get("localHeadSha")
+    after_head = (status_after.get("implementation") or {}).get("localHeadSha")
+    if not after_head:
+        return None
+    next_action_type = (status_after.get("nextAction") or {}).get("type")
+    if next_action_type not in {"run_internal_review", "publish_ready_pr", "push_pr_update", "merge_and_promote"}:
+        return None
+    return status_after
 
 
 def run_publish_ready_pr(
@@ -388,6 +429,8 @@ def run_dispatch_lane_turn(
         workflow_state=(status.get('ledger') or {}).get('workflowState'),
     )
     session_record_id = session_meta.get('record_id') or _object_value(ensured, "record_id", "recordId", "acpxRecordId")
+    reconciled_after_prompt_error: dict[str, Any] | None = None
+    prompt_error: Exception | None = None
     try:
         prompt_result = run_prompt_fn(
             worktree=worktree,
@@ -419,6 +462,16 @@ def run_dispatch_lane_turn(
             prompt=prompt,
             codex_model=codex_model,
         )
+    except Exception as exc:
+        reconciled_after_prompt_error = _reconciled_status_after_prompt_error(
+            reconcile_fn=reconcile_fn,
+            status_before=status,
+            issue_number=issue.get('number'),
+        )
+        if reconciled_after_prompt_error is None:
+            raise
+        prompt_error = exc
+        prompt_result = _prompt_result_from_exception(exc)
     runtime_metrics = _runtime_metrics_payload(prompt_result)
     if record_runtime_result_fn is not None:
         runtime_metrics = record_runtime_result_fn(
@@ -482,7 +535,7 @@ def run_dispatch_lane_turn(
         'lastRestartAt': attempt_at if action == 'restart-session' else ledger.get('implementation', {}).get('lastRestartAt'),
     }
     save_ledger_fn(ledger)
-    reconciled = reconcile_fn(fix_watchers=True)
+    reconciled = reconciled_after_prompt_error or reconcile_fn(fix_watchers=True)
     result = {
         'dispatched': True,
         'action': action,
@@ -501,6 +554,9 @@ def run_dispatch_lane_turn(
         'promptResult': _prompt_output(prompt_result),
         'health': reconciled.get('health'),
     }
+    if prompt_error is not None:
+        result['reconciledAfterRuntimeError'] = True
+        result['runtimeError'] = str(prompt_error)
     audit_fn(
         audit_action,
         f"Dispatched persistent Codex lane turn via {runtime_kind or 'acpx-codex'} session {session_name}",
