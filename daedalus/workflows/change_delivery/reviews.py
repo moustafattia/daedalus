@@ -1316,8 +1316,7 @@ def maybe_dispatch_repair_handoff(
     status: dict[str, Any],
     ledger: dict[str, Any],
     now_iso: str,
-    codex_model: str | None,
-    run_prompt_fn: Callable[..., Any],
+    run_actor_turn_fn: Callable[..., Any],
     audit_fn: Callable[..., Any],
     lane_state_override: dict[str, Any] | None = None,
     lane_state_path_fn: Callable[[Any], Any] | None = None,
@@ -1328,7 +1327,7 @@ def maybe_dispatch_repair_handoff(
 ) -> tuple[dict[str, Any], bool]:
     """Adapter-owned implementation of the wrapper's ``_maybe_dispatch_repair_handoff``.
 
-    Callers inject the side-effectful primitives (``run_prompt_fn`` to poke
+    Callers inject the side-effectful primitives (``run_actor_turn_fn`` to poke
     the actor session; ``audit_fn`` for audit trail) and optionally custom
     lane-state path / JSON I/O helpers. The default helpers write a
     ``.lane-state.json`` file adjacent to the worktree using stdlib primitives,
@@ -1390,11 +1389,10 @@ def maybe_dispatch_repair_handoff(
             lane_state_path=lane_state_path_obj,
             internal_reviewer_agent_name=internal_reviewer_agent_name,
         )
-        run_prompt_fn(
+        run_actor_turn_fn(
             worktree=worktree,
             session_name=repair_payload.get("sessionName"),
             prompt=repair_prompt,
-            codex_model=codex_model,
         )
         record_internal_review_repair_handoff(
             worktree=worktree,
@@ -1451,11 +1449,10 @@ def maybe_dispatch_repair_handoff(
             pr_url=open_pr.get("url"),
             external_reviewer_agent_name=external_reviewer_agent_name,
         )
-        run_prompt_fn(
+        run_actor_turn_fn(
             worktree=worktree,
             session_name=repair_payload.get("sessionName"),
             prompt=repair_prompt,
-            codex_model=codex_model,
         )
         record_external_review_repair_handoff(
             worktree=worktree,

@@ -329,39 +329,34 @@ def test_run_ensure_active_lane_reports_selection_failure_without_raising():
 def _dispatch_deps(tmp_path: Path):
     worktree = tmp_path / "worktree"
     worktree.mkdir()
-    state: dict = {"close_calls": 0, "ensure_calls": 0, "run_prompt_calls": [], "save_ledger": []}
+    state: dict = {"close_calls": 0, "run_prompt_calls": [], "save_ledger": []}
 
     def now_iso_fn():
         return "2026-04-23T00:00:00Z"
 
-    def close_fn(*, worktree, session_name):
+    def close_fn(*, worktree, session_name, runtime_name=None, runtime_kind=None):
         state["close_calls"] += 1
 
-    def ensure_fn(*, worktree, session_name, codex_model, resume_session_id=None):
-        state["ensure_calls"] += 1
-        return {"acpxRecordId": "rec-123"}
-
-    def show_fn(*, worktree, session_name):
+    def show_fn(*, worktree, session_name, runtime_name=None, runtime_kind=None):
         return {"record_id": "rec-123", "session_id": "sess-abc"}
 
-    def run_prompt_fn(*, worktree, session_name, prompt, codex_model):
-        state["run_prompt_calls"].append({"session_name": session_name, "codex_model": codex_model})
+    def run_stage_fn(*, worktree, session_name, prompt, actor_name, actor_cfg, runtime_name, runtime_kind, resume_session_id=None):
+        state["run_prompt_calls"].append(
+            {
+                "session_name": session_name,
+                "actor_name": actor_name,
+                "actor_model": actor_cfg.get("model"),
+                "runtime_name": runtime_name,
+                "runtime_kind": runtime_kind,
+            }
+        )
         return "ok"
 
     def prepare_worktree_fn(*, worktree, branch, open_pr):
         return {"prepared": True}
 
-    def codex_model_for_issue_fn(issue, *, lane_state, workflow_state, reviews):
-        return "gpt-5.3-codex-spark/high"
-
     def get_issue_details_fn(number):
         return {"labels": []}
-
-    def fallback_codex_model_fn(*, acpx_record_id, codex_model, exc):
-        return None
-
-    def coder_agent_name_for_model_fn(model):
-        return "Internal_Coder_Agent"
 
     def actor_labels_payload_fn(model):
         return {}
@@ -386,15 +381,19 @@ def _dispatch_deps(tmp_path: Path):
 
     return state, worktree, {
         "now_iso_fn": now_iso_fn,
-        "close_acpx_session_fn": close_fn,
-        "ensure_acpx_session_fn": ensure_fn,
-        "show_acpx_session_fn": show_fn,
-        "run_prompt_fn": run_prompt_fn,
+        "close_session_fn": close_fn,
+        "show_session_fn": show_fn,
+        "run_stage_fn": run_stage_fn,
         "prepare_lane_worktree_fn": prepare_worktree_fn,
-        "codex_model_for_issue_fn": codex_model_for_issue_fn,
+        "implementation_actor_name": "implementer",
+        "implementation_actor_cfg": {
+            "name": "Change_Implementer",
+            "model": "gpt-5.3-codex-spark/high",
+            "runtime": "acpx-codex",
+        },
+        "runtime_name": "acpx-codex",
+        "runtime_kind": "acpx-codex",
         "get_issue_details_fn": get_issue_details_fn,
-        "fallback_codex_model_for_prompt_error_fn": fallback_codex_model_fn,
-        "coder_agent_name_for_model_fn": coder_agent_name_for_model_fn,
         "actor_labels_payload_fn": actor_labels_payload_fn,
         "load_ledger_fn": load_ledger_fn,
         "save_ledger_fn": save_ledger_fn,
@@ -447,8 +446,10 @@ def test_run_dispatch_lane_turn_executes_continue_session_when_healthy(tmp_path)
     assert result["action"] == "continue-session"
     assert result["issueNumber"] == 224
     assert result["sessionName"] == "lane-224"
+    assert result["actorKey"] == "implementer"
+    assert result["actorName"] == "Change_Implementer"
     assert state["close_calls"] == 0  # continue-session doesn't close
-    assert state["run_prompt_calls"]
+    assert state["run_prompt_calls"][0]["runtime_name"] == "acpx-codex"
     assert state["audits"][0]["action"] == "dispatch-implementation-turn"
 
 
@@ -471,17 +472,20 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
         "openPr": None,
     }
 
-    def run_prompt_fn(*, worktree, session_name, prompt, codex_model):
+    def run_stage_fn(*, worktree, session_name, prompt, actor_name, actor_cfg, runtime_name, runtime_kind, resume_session_id=None):
         return SimpleNamespace(
-            output="codex ok\n",
-            session_id="thread-1",
-            thread_id="thread-1",
-            turn_id="turn-1",
-            last_event="turn/completed",
-            last_message="done",
-            turn_count=1,
-            tokens={"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
-            rate_limits={"requests_remaining": 99},
+            runtime_result=SimpleNamespace(
+                output="codex ok\n",
+                session_id="thread-1",
+                thread_id="thread-1",
+                turn_id="turn-1",
+                last_event="turn/completed",
+                last_message="done",
+                turn_count=1,
+                tokens={"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+                rate_limits={"requests_remaining": 99},
+            ),
+            session_handle={"record_id": "thread-1", "session_id": "thread-1"},
         )
 
     recorded = {}
@@ -496,7 +500,12 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
         audit_action="dispatch-implementation-turn",
         **{
             **deps,
-            "run_prompt_fn": run_prompt_fn,
+            "run_stage_fn": run_stage_fn,
+            "implementation_actor_cfg": {
+                "name": "Change_Implementer",
+                "model": "gpt-5.5",
+                "runtime": "coder-runtime",
+            },
             "runtime_name": "coder-runtime",
             "runtime_kind": "codex-app-server",
             "record_runtime_result_fn": record_runtime_result_fn,
@@ -513,6 +522,8 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
     impl = state["save_ledger"][-1]["implementation"]
     assert impl["sessionRuntime"] == "codex-app-server"
     assert impl["session"] == "thread-1"
+    assert impl["actorName"] == "Change_Implementer"
+    assert impl["actorModel"] == "gpt-5.5"
     assert impl["resumeSessionId"] == "thread-1"
     assert impl["runtimeMetrics"]["rate_limits"] == {"requests_remaining": 99}
 

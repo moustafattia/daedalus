@@ -1242,43 +1242,6 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             "record_id": payload.get("acpxRecordId") or payload.get("acpx_record_id"),
         }
 
-    def _acpx_session_stream_path(acpx_record_id):
-        if not acpx_record_id:
-            return None
-        return Path.home() / ".acpx" / "sessions" / f"{acpx_record_id}.stream.ndjson"
-
-    def _latest_acpx_prompt_error(acpx_record_id):
-        path = ns._acpx_session_stream_path(acpx_record_id)
-        if path is None or not path.exists():
-            return None
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except Exception:
-            return None
-        for raw_line in reversed(lines):
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except Exception:
-                continue
-            error = payload.get("error")
-            if isinstance(error, dict):
-                return error
-        return None
-
-    def _fallback_codex_model_for_prompt_error(*, acpx_record_id, codex_model, exc):
-        error = ns._latest_acpx_prompt_error(acpx_record_id)
-        error_data = error.get("data") if isinstance(error, dict) else None
-        codex_error_info = (error_data or {}).get("codex_error_info") if isinstance(error_data, dict) else None
-        if codex_error_info == "usage_limit_exceeded" and codex_model != ns.CODEX_MODEL_ESCALATED:
-            return ns.CODEX_MODEL_ESCALATED
-        combined_output = "\n".join(part for part in [exc.stdout or "", exc.stderr or ""] if part).lower()
-        if "usage limit" in combined_output and codex_model != ns.CODEX_MODEL_ESCALATED:
-            return ns.CODEX_MODEL_ESCALATED
-        return None
-
     def _load_latest_session_meta(session_name):
         files = ns._session_record_files(session_name)
         if not files:
@@ -1495,6 +1458,61 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
     def _coder_runtime_kind_for_model(model):
         return ns._runtime_kind(ns._coder_runtime_name_for_model(model))
 
+    def _implementation_stage_cfg():
+        stages = (getattr(ns, "WORKFLOW_YAML", {}) or {}).get("stages") or {}
+        stage = stages.get("implement") if isinstance(stages, dict) else {}
+        return dict(stage) if isinstance(stage, dict) else {}
+
+    def _workflow_actor_cfg(actor_name):
+        actors = (getattr(ns, "WORKFLOW_YAML", {}) or {}).get("actors") or {}
+        actor = actors.get(actor_name) if isinstance(actors, dict) else None
+        if not isinstance(actor, dict):
+            raise KeyError(f"unknown change-delivery actor {actor_name!r}")
+        return dict(actor)
+
+    def _should_escalate_implementation_actor(*, issue=None, lane_state=None, workflow_state=None, reviews=None):
+        labels = ns._load_adapter_sessions_module().issue_label_names(issue)
+        if "effort:large" in labels or "effort:high" in labels:
+            return True
+        return ns._should_escalate_codex_model(
+            lane_state=lane_state,
+            workflow_state=workflow_state,
+            reviews=reviews,
+        )
+
+    def _implementation_actor_name_for_status(status):
+        impl = (status or {}).get("implementation") or {}
+        stage = ns._implementation_stage_cfg()
+        actor_name = str(stage.get("actor") or "").strip()
+        escalation = stage.get("escalation") if isinstance(stage.get("escalation"), dict) else {}
+        escalation_actor = str((escalation or {}).get("actor") or "").strip()
+        if (
+            escalation_actor
+            and ns._should_escalate_implementation_actor(
+                issue=(status or {}).get("activeLane"),
+                lane_state=impl.get("laneState"),
+                workflow_state=((status or {}).get("ledger") or {}).get("workflowState"),
+                reviews=(status or {}).get("reviews") or {},
+            )
+        ):
+            return escalation_actor
+        if actor_name:
+            return actor_name
+        raise KeyError("stages.implement.actor is required")
+
+    def _implementation_actor_for_status(status):
+        actor_name = ns._implementation_actor_name_for_status(status)
+        actor_cfg = ns._workflow_actor_cfg(actor_name)
+        runtime_name = str(actor_cfg.get("runtime") or "").strip()
+        if not runtime_name:
+            raise KeyError(f"actors.{actor_name}.runtime is required")
+        return {
+            "name": actor_name,
+            "config": actor_cfg,
+            "runtime_name": runtime_name,
+            "runtime_kind": ns._runtime_kind(runtime_name),
+        }
+
     def _should_escalate_codex_model(*, lane_state=None, workflow_state=None, reviews=None):
         return ns._load_adapter_sessions_module().should_escalate_codex_model(
             lane_state=lane_state,
@@ -1553,6 +1571,75 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             session_name=session_name,
             model=codex_model,
             resume_session_id=resume_session_id,
+        )
+
+    def _show_actor_session(*, worktree, session_name, runtime_name=None, runtime_kind=None):
+        runtime_kind = runtime_kind or ns._runtime_kind(runtime_name)
+        if runtime_kind == "codex-app-server":
+            issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
+            thread_id = ns._codex_thread_for_issue_number(issue_number)
+            if thread_id:
+                entry = ((ns.load_scheduler().get("codex_threads") or {}).get(ns._scheduler_issue_key(issue_number)) or {})
+                return {
+                    "name": session_name,
+                    "closed": False,
+                    "cwd": str(worktree) if worktree is not None else None,
+                    "last_used_at": entry.get("updated_at"),
+                    "session_id": thread_id,
+                    "record_id": thread_id,
+                }
+            return None
+        if runtime_kind == "acpx-codex":
+            return ns._show_acpx_session(worktree=worktree, session_name=session_name)
+        return None
+
+    def _close_actor_session(*, worktree, session_name, runtime_name=None, runtime_kind=None):
+        runtime_kind = runtime_kind or ns._runtime_kind(runtime_name)
+        issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
+        if runtime_kind == "codex-app-server":
+            ns._clear_codex_thread_for_issue_number(issue_number)
+        if runtime_name:
+            closer = getattr(ns.runtime(runtime_name), "close_session", None)
+            if callable(closer):
+                return closer(worktree=worktree, session_name=session_name)
+        if runtime_kind == "acpx-codex":
+            return ns._close_acpx_session(worktree=worktree, session_name=session_name)
+        return None
+
+    def _run_implementation_stage(*, worktree, session_name, prompt, actor_name, actor_cfg, runtime_name, runtime_kind, resume_session_id=None):
+        from runtimes.stages import run_runtime_stage
+
+        issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
+        if runtime_kind == "codex-app-server":
+            resume_session_id = ns._codex_thread_for_issue_number(issue_number) or resume_session_id
+        return run_runtime_stage(
+            runtime=ns.runtime(runtime_name),
+            runtime_cfg=dict(((getattr(ns, "RUNTIME_PROFILES", {}) or {}).get(runtime_name) or {})),
+            agent_cfg=dict(actor_cfg or {}),
+            stage_name="implement",
+            worktree=Path(worktree),
+            session_name=session_name,
+            prompt=prompt,
+            resume_session_id=resume_session_id,
+            cancel_event=ns.ACTIVE_CANCEL_EVENT,
+            progress_callback=(
+                lambda result: ns._record_coder_runtime_progress(
+                    issue_number=issue_number,
+                    session_name=session_name,
+                    runtime_name=runtime_name,
+                    runtime_kind=runtime_kind,
+                    worktree=worktree,
+                    result=result,
+                )
+                if runtime_kind == "codex-app-server"
+                else None
+            ),
+            placeholders={
+                "actor": str(actor_name or ""),
+                "issue_number": str(issue_number or ""),
+                "runtime": str(runtime_name or ""),
+                "workflow_root": str(ns.WORKSPACE),
+            },
         )
 
     def _run_acpx_prompt(*, worktree, session_name, prompt, codex_model):
@@ -2223,13 +2310,27 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
         )
 
-    def _maybe_dispatch_repair_handoff(*, status, ledger, now_iso, codex_model, lane_state_override=None):
+    def _maybe_dispatch_repair_handoff(*, status, ledger, now_iso, lane_state_override=None):
+        actor = ns._implementation_actor_for_status(status)
+
+        def _run_repair_turn(*, worktree, session_name, prompt):
+            impl = (status or {}).get("implementation") or {}
+            return ns._run_implementation_stage(
+                worktree=worktree,
+                session_name=session_name,
+                prompt=prompt,
+                actor_name=actor["name"],
+                actor_cfg=actor["config"],
+                runtime_name=actor["runtime_name"],
+                runtime_kind=actor["runtime_kind"],
+                resume_session_id=impl.get("resumeSessionId"),
+            )
+
         return ns._load_adapter_reviews_module().maybe_dispatch_repair_handoff(
             status=status,
             ledger=ledger,
             now_iso=now_iso,
-            codex_model=codex_model,
-            run_prompt_fn=ns._run_acpx_prompt,
+            run_actor_turn_fn=_run_repair_turn,
             audit_fn=ns.audit,
             lane_state_override=lane_state_override,
             lane_state_path_fn=ns._lane_state_path,
@@ -2242,18 +2343,10 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
     def dispatch_repair_handoff_raw():
         status = ns.build_status()
         ledger = ns.load_ledger()
-        impl = status.get("implementation") or {}
-        codex_model = impl.get("codexModel") or ns._codex_model_for_issue(
-            status.get("activeLane"),
-            lane_state=impl.get("laneState"),
-            workflow_state=(status.get("ledger") or {}).get("workflowState"),
-            reviews=status.get("reviews") or {},
-        )
         result, changed = ns._maybe_dispatch_repair_handoff(
             status=status,
             ledger=ledger,
             now_iso=status.get("updatedAt") or ns._now_iso(),
-            codex_model=codex_model,
         )
         if changed:
             ns.save_ledger(ledger)
@@ -2278,38 +2371,28 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _dispatch_lane_turn(*, status, forced_action=None, audit_action="dispatch-implementation-turn"):
-        impl = status.get("implementation") or {}
-        codex_model = impl.get("codexModel") or ns._codex_model_for_issue(
-            status.get("activeLane"),
-            lane_state=impl.get("laneState"),
-            workflow_state=(status.get("ledger") or {}).get("workflowState"),
-            reviews=status.get("reviews") or {},
-        )
-        runtime_name = ns._coder_runtime_name_for_model(codex_model)
+        actor = ns._implementation_actor_for_status(status)
         return ns._load_adapter_actions_module().run_dispatch_lane_turn(
             status=status,
             forced_action=forced_action,
             audit_action=audit_action,
             now_iso_fn=ns._now_iso,
-            close_acpx_session_fn=ns._close_acpx_session,
-            ensure_acpx_session_fn=ns._ensure_acpx_session,
-            show_acpx_session_fn=ns._show_acpx_session,
-            run_prompt_fn=ns._run_acpx_prompt,
+            close_session_fn=ns._close_actor_session,
+            show_session_fn=ns._show_actor_session,
+            run_stage_fn=ns._run_implementation_stage,
             prepare_lane_worktree_fn=ns._prepare_lane_worktree,
-            codex_model_for_issue_fn=ns._codex_model_for_issue,
+            implementation_actor_name=actor["name"],
+            implementation_actor_cfg=actor["config"],
             get_issue_details_fn=ns._get_issue_details,
-            fallback_codex_model_for_prompt_error_fn=ns._fallback_codex_model_for_prompt_error,
-            coder_agent_name_for_model_fn=ns._coder_agent_name_for_model,
             actor_labels_payload_fn=ns._actor_labels_payload,
             load_ledger_fn=ns.load_ledger,
             save_ledger_fn=ns.save_ledger,
             reconcile_fn=ns.reconcile,
             audit_fn=ns.audit,
             render_implementation_dispatch_prompt_fn=ns._render_implementation_dispatch_prompt,
-            runtime_name=runtime_name,
-            runtime_kind=ns._runtime_kind(runtime_name),
+            runtime_name=actor["runtime_name"],
+            runtime_kind=actor["runtime_kind"],
             record_runtime_result_fn=ns._record_coder_runtime_result,
-            error_cls=subprocess.CalledProcessError,
         )
 
     def dispatch_implementation_turn_raw():

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -96,6 +95,15 @@ def _reconciled_status_after_prompt_error(
     if next_action_type not in {"run_internal_review", "publish_ready_pr", "push_pr_update", "merge_and_promote"}:
         return None
     return status_after
+
+
+def _stage_runtime_result(value: Any) -> Any:
+    runtime_result = _object_value(value, "runtime_result", "runtimeResult")
+    return runtime_result if runtime_result is not None else value
+
+
+def _stage_session_handle(value: Any) -> Any:
+    return _object_value(value, "session_handle", "sessionHandle")
 
 
 def run_publish_ready_pr(
@@ -355,25 +363,22 @@ def run_dispatch_lane_turn(
     forced_action: str | None,
     audit_action: str,
     now_iso_fn: Callable[[], str],
-    close_acpx_session_fn: Callable[..., Any],
-    ensure_acpx_session_fn: Callable[..., dict[str, Any]],
-    show_acpx_session_fn: Callable[..., dict[str, Any] | None],
-    run_prompt_fn: Callable[..., Any],
+    close_session_fn: Callable[..., Any],
+    show_session_fn: Callable[..., dict[str, Any] | None],
+    run_stage_fn: Callable[..., Any],
     prepare_lane_worktree_fn: Callable[..., dict[str, Any]],
-    codex_model_for_issue_fn: Callable[..., str],
+    implementation_actor_name: str,
+    implementation_actor_cfg: dict[str, Any],
     get_issue_details_fn: Callable[[Any], dict[str, Any] | None],
-    fallback_codex_model_for_prompt_error_fn: Callable[..., str | None],
-    coder_agent_name_for_model_fn: Callable[[str | None], str],
     actor_labels_payload_fn: Callable[[str | None], dict[str, Any]],
     load_ledger_fn: Callable[[], dict[str, Any]],
     save_ledger_fn: Callable[[dict[str, Any]], Any],
     reconcile_fn: Callable[..., dict[str, Any]],
     audit_fn: Callable[..., Any],
     render_implementation_dispatch_prompt_fn: Callable[..., str],
-    runtime_name: str | None = None,
+    runtime_name: str,
     runtime_kind: str = "acpx-codex",
     record_runtime_result_fn: Callable[..., dict[str, Any]] | None = None,
-    error_cls: type = subprocess.CalledProcessError,
 ) -> dict[str, Any]:
     """Adapter-owned implementation of ``_dispatch_lane_turn``.
 
@@ -398,24 +403,20 @@ def run_dispatch_lane_turn(
         return {'dispatched': False, 'reason': 'missing-branch'}
     worktree_info = prepare_lane_worktree_fn(worktree=worktree, branch=branch, open_pr=status.get('openPr'))
     action = forced_action or ((impl.get('sessionActionRecommendation') or {}).get('action')) or 'restart-session'
-    codex_model = impl.get('codexModel') or codex_model_for_issue_fn(
-        issue,
-        lane_state=impl.get('laneState'),
-        workflow_state=(status.get('ledger') or {}).get('workflowState'),
-        reviews=status.get('reviews') or {},
-    )
+    actor_cfg = dict(implementation_actor_cfg or {})
+    actor_key = str(implementation_actor_name or "").strip()
+    actor_display_name = str(actor_cfg.get("name") or actor_key or "implementation-actor")
+    actor_model = str(actor_cfg.get("model") or "")
     if action == 'no-action':
         return {'dispatched': False, 'reason': 'no-action'}
     if action == 'restart-session':
-        close_acpx_session_fn(worktree=worktree, session_name=session_name)
+        close_session_fn(
+            worktree=worktree,
+            session_name=session_name,
+            runtime_name=runtime_name,
+            runtime_kind=runtime_kind,
+        )
     issue_details = get_issue_details_fn(issue.get('number'))
-    ensured = ensure_acpx_session_fn(
-        worktree=worktree,
-        session_name=session_name,
-        codex_model=codex_model,
-        resume_session_id=impl.get('resumeSessionId'),
-    )
-    session_meta = show_acpx_session_fn(worktree=worktree, session_name=session_name) or {}
     attempt_at = now_iso_fn()
     attempt_id = f"{session_name}:{attempt_at}"
     prompt = render_implementation_dispatch_prompt_fn(
@@ -428,40 +429,21 @@ def run_dispatch_lane_turn(
         action=action,
         workflow_state=(status.get('ledger') or {}).get('workflowState'),
     )
-    session_record_id = session_meta.get('record_id') or _object_value(ensured, "record_id", "recordId", "acpxRecordId")
     reconciled_after_prompt_error: dict[str, Any] | None = None
     prompt_error: Exception | None = None
     try:
-        prompt_result = run_prompt_fn(
+        stage_result = run_stage_fn(
             worktree=worktree,
             session_name=session_name,
             prompt=prompt,
-            codex_model=codex_model,
+            actor_name=actor_key,
+            actor_cfg=actor_cfg,
+            runtime_name=runtime_name,
+            runtime_kind=runtime_kind,
+            resume_session_id=impl.get('resumeSessionId'),
         )
-    except error_cls as exc:
-        fallback_codex_model = fallback_codex_model_for_prompt_error_fn(
-            acpx_record_id=session_record_id,
-            codex_model=codex_model,
-            exc=exc,
-        )
-        if not fallback_codex_model:
-            raise
-        codex_model = fallback_codex_model
-        close_acpx_session_fn(worktree=worktree, session_name=session_name)
-        ensured = ensure_acpx_session_fn(
-            worktree=worktree,
-            session_name=session_name,
-            codex_model=codex_model,
-            resume_session_id=None,
-        )
-        session_meta = show_acpx_session_fn(worktree=worktree, session_name=session_name) or session_meta
-        session_record_id = session_meta.get('record_id') or _object_value(ensured, "record_id", "recordId", "acpxRecordId")
-        prompt_result = run_prompt_fn(
-            worktree=worktree,
-            session_name=session_name,
-            prompt=prompt,
-            codex_model=codex_model,
-        )
+        prompt_result = _stage_runtime_result(stage_result)
+        ensured = _stage_session_handle(stage_result)
     except Exception as exc:
         reconciled_after_prompt_error = _reconciled_status_after_prompt_error(
             reconcile_fn=reconcile_fn,
@@ -472,6 +454,13 @@ def run_dispatch_lane_turn(
             raise
         prompt_error = exc
         prompt_result = _prompt_result_from_exception(exc)
+        ensured = None
+    session_meta = show_session_fn(
+        worktree=worktree,
+        session_name=session_name,
+        runtime_name=runtime_name,
+        runtime_kind=runtime_kind,
+    ) or {}
     runtime_metrics = _runtime_metrics_payload(prompt_result)
     if record_runtime_result_fn is not None:
         runtime_metrics = record_runtime_result_fn(
@@ -507,8 +496,9 @@ def run_dispatch_lane_turn(
     )
     ledger = load_ledger_fn()
     ledger.setdefault('implementation', {})
-    ledger['codexModel'] = codex_model
-    ledger['workflowActors'] = actor_labels_payload_fn(codex_model)
+    ledger['actorModel'] = actor_model
+    ledger['codexModel'] = actor_model
+    ledger['workflowActors'] = actor_labels_payload_fn(actor_model)
     ledger['implementation'] = {
         **ledger.get('implementation', {}),
         'session': session_record_id,
@@ -516,8 +506,12 @@ def run_dispatch_lane_turn(
         'sessionRuntime': runtime_kind or 'acpx-codex',
         'runtimeName': runtime_name,
         'sessionName': session_name,
-        'codexModel': codex_model,
-        'agentName': coder_agent_name_for_model_fn(codex_model),
+        'actorKey': actor_key,
+        'actorName': actor_display_name,
+        'actorModel': actor_model,
+        'actorRole': 'implementation_actor',
+        'codexModel': actor_model,
+        'agentName': actor_display_name,
         'agentRole': 'coder_agent',
         'resumeSessionId': resume_session_id,
         'threadId': runtime_metrics.get("thread_id"),
@@ -543,7 +537,10 @@ def run_dispatch_lane_turn(
         'sessionRuntime': runtime_kind or 'acpx-codex',
         'runtimeName': runtime_name,
         'sessionName': session_name,
-        'codexModel': codex_model,
+        'actorKey': actor_key,
+        'actorName': actor_display_name,
+        'actorModel': actor_model,
+        'codexModel': actor_model,
         'sessionRecordId': session_record_id,
         'resumeSessionId': resume_session_id,
         'threadId': runtime_metrics.get("thread_id"),
@@ -559,7 +556,7 @@ def run_dispatch_lane_turn(
         result['runtimeError'] = str(prompt_error)
     audit_fn(
         audit_action,
-        f"Dispatched persistent Codex lane turn via {runtime_kind or 'acpx-codex'} session {session_name}",
+        f"Dispatched implementation actor turn via {runtime_kind or 'acpx-codex'} session {session_name}",
         issueNumber=issue.get('number'),
         sessionName=session_name,
         sessionRecordId=result.get('sessionRecordId'),

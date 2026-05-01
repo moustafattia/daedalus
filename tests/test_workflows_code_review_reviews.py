@@ -910,19 +910,18 @@ def test_codex_parsing_and_checks_helpers_cover_severity_summary_and_acceptabili
 
 
 def _repair_handoff_deps(captured: dict):
-    def fake_run_acpx_prompt(*, worktree, session_name, prompt, codex_model):
-        captured["run_acpx"] = {
+    def fake_run_actor_turn(*, worktree, session_name, prompt):
+        captured["run_actor"] = {
             "worktree": str(worktree),
             "session_name": session_name,
             "prompt_len": len(prompt),
-            "codex_model": codex_model,
         }
         return "ok"
 
     def fake_audit(action, summary, **extra):
         captured.setdefault("audit", []).append({"action": action, "summary": summary, **extra})
 
-    return fake_run_acpx_prompt, fake_audit
+    return fake_run_actor_turn, fake_audit
 
 
 def test_maybe_dispatch_repair_handoff_dispatches_claude_branch_when_routable(tmp_path):
@@ -930,7 +929,7 @@ def test_maybe_dispatch_repair_handoff_dispatches_claude_branch_when_routable(tm
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     captured: dict = {}
-    run_acpx, audit = _repair_handoff_deps(captured)
+    run_actor, audit = _repair_handoff_deps(captured)
 
     status = {
         "activeLane": {"number": 224, "title": "T"},
@@ -963,8 +962,7 @@ def test_maybe_dispatch_repair_handoff_dispatches_claude_branch_when_routable(tm
         status=status,
         ledger=ledger,
         now_iso="2026-04-22T00:05:00Z",
-        codex_model="gpt-5.3-codex",
-        run_prompt_fn=run_acpx,
+        run_actor_turn_fn=run_actor,
         audit_fn=audit,
     )
 
@@ -973,7 +971,7 @@ def test_maybe_dispatch_repair_handoff_dispatches_claude_branch_when_routable(tm
     assert result["mode"] == "internal_review_repair_handoff"
     assert result["issueNumber"] == 224
     assert ledger["internalReviewRepairHandoff"]["sessionName"] == "lane-224"
-    assert captured["run_acpx"]["session_name"] == "lane-224"
+    assert captured["run_actor"]["session_name"] == "lane-224"
     assert captured["audit"][0]["action"] == "internal-review-repair-handoff-dispatched"
     # Record helper actually wrote .lane-state.json
     assert (worktree / ".lane-state.json").exists()
@@ -984,7 +982,7 @@ def test_maybe_dispatch_repair_handoff_dispatches_external_review_branch_when_ro
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     captured: dict = {}
-    run_acpx, audit = _repair_handoff_deps(captured)
+    run_actor, audit = _repair_handoff_deps(captured)
 
     status = {
         "activeLane": {"number": 224, "title": "T"},
@@ -1017,8 +1015,7 @@ def test_maybe_dispatch_repair_handoff_dispatches_external_review_branch_when_ro
         status=status,
         ledger=ledger,
         now_iso="2026-04-22T00:05:00Z",
-        codex_model="gpt-5.3-codex",
-        run_prompt_fn=run_acpx,
+        run_actor_turn_fn=run_actor,
         audit_fn=audit,
     )
 
@@ -1035,7 +1032,7 @@ def test_maybe_dispatch_repair_handoff_returns_noop_when_no_dispatch_branch_is_r
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     captured: dict = {}
-    run_acpx, audit = _repair_handoff_deps(captured)
+    run_actor, audit = _repair_handoff_deps(captured)
 
     status = {
         "activeLane": {"number": 224, "title": "T"},
@@ -1057,27 +1054,25 @@ def test_maybe_dispatch_repair_handoff_returns_noop_when_no_dispatch_branch_is_r
         status=status,
         ledger=ledger,
         now_iso="2026-04-22T00:05:00Z",
-        codex_model="gpt-5.3-codex",
-        run_prompt_fn=run_acpx,
+        run_actor_turn_fn=run_actor,
         audit_fn=audit,
     )
 
     assert changed is False
     assert result["dispatched"] is False
     assert "repair-handoff-not-needed" in result["reason"]
-    assert "run_acpx" not in captured
+    assert "run_actor" not in captured
 
 
 def test_maybe_dispatch_repair_handoff_short_circuits_when_no_active_lane(tmp_path):
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_mdrh", "workflows/change_delivery/reviews.py")
     captured: dict = {}
-    run_acpx, audit = _repair_handoff_deps(captured)
+    run_actor, audit = _repair_handoff_deps(captured)
     result, changed = reviews_module.maybe_dispatch_repair_handoff(
         status={"activeLane": None, "implementation": {}, "reviews": {}, "openPr": None, "ledger": {}},
         ledger={},
         now_iso="2026-04-22T00:00:00Z",
-        codex_model=None,
-        run_prompt_fn=run_acpx,
+        run_actor_turn_fn=run_actor,
         audit_fn=audit,
     )
     assert changed is False

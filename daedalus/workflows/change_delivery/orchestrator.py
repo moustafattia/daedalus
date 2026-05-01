@@ -561,7 +561,6 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
         status=status,
         ledger=ledger,
         now_iso=now_iso,
-        codex_model=codex_model,
         lane_state_override=lane_state_payload or (status.get("implementation") or {}).get("laneState"),
     )
     if repair_handoff_changed:

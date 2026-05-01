@@ -290,6 +290,8 @@ def test_workspace_exposes_full_wrapper_facade(tmp_path):
     for name in (
         "_codex_model_for_issue", "_coder_agent_name_for_model",
         "_actor_labels_payload", "_ensure_acpx_session", "_run_acpx_prompt",
+        "_implementation_actor_for_status", "_run_implementation_stage",
+        "_show_actor_session", "_close_actor_session",
         "_prepare_lane_worktree", "decide_lane_session_action",
         "render_lane_memo", "build_acp_session_strategy",
         "build_session_nudge_payload", "should_nudge_session",
@@ -580,9 +582,47 @@ def test_workspace_yaml_can_select_codex_app_server_coder_runtime(tmp_path):
 
     ws = make_workspace(workspace_root=tmp_path, config=cfg)
 
-    assert ws._coder_runtime_name_for_model("gpt-5.3-codex-spark/high") == "coder-runtime"
-    assert ws._coder_runtime_kind_for_model("gpt-5.3-codex-spark/high") == "codex-app-server"
+    actor = ws._implementation_actor_for_status(
+        {
+            "activeLane": {"number": 224, "labels": []},
+            "implementation": {"laneState": {}},
+            "ledger": {"workflowState": "implementing_local"},
+            "reviews": {},
+        }
+    )
+    assert actor["name"] == "implementer"
+    assert actor["runtime_name"] == "coder-runtime"
+    assert actor["runtime_kind"] == "codex-app-server"
     assert hasattr(ws.runtime("coder-runtime"), "run_prompt_result")
+
+
+def test_workspace_escalated_implementation_actor_uses_its_runtime(tmp_path):
+    from workflows.change_delivery.workspace import make_workspace
+
+    cfg = _workflow_contract_config(tmp_path)
+    cfg["runtimes"] = {
+        "default-runtime": {"kind": "claude-cli"},
+        "high-runtime": {"kind": "hermes-agent", "command": ["hermes", "-z", "{prompt_path}"]},
+        "reviewer-runtime": {"kind": "claude-cli"},
+    }
+    cfg["actors"]["implementer"]["runtime"] = "default-runtime"
+    cfg["actors"]["implementer-high-effort"]["runtime"] = "high-runtime"
+    cfg["actors"]["reviewer"]["runtime"] = "reviewer-runtime"
+
+    ws = make_workspace(workspace_root=tmp_path, config=cfg)
+
+    actor = ws._implementation_actor_for_status(
+        {
+            "activeLane": {"number": 224, "labels": [{"name": "effort:large"}]},
+            "implementation": {"laneState": {}},
+            "ledger": {"workflowState": "implementing_local"},
+            "reviews": {},
+        }
+    )
+
+    assert actor["name"] == "implementer-high-effort"
+    assert actor["runtime_name"] == "high-runtime"
+    assert actor["runtime_kind"] == "hermes-agent"
 
 
 def test_workspace_internal_review_uses_configured_runtime(tmp_path):
