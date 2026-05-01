@@ -66,3 +66,53 @@ def test_run_prompt_invokes_claude_cli_with_model(tmp_path):
     # The prompt must be passed through somehow (either as a positional arg
     # at the end or via --print)
     assert "review this" in cmd
+
+
+def test_run_prompt_supports_workspace_runner_without_timeout_kwarg(tmp_path):
+    from workflows.change_delivery.runtimes.claude_cli import ClaudeCliRuntime
+
+    calls = []
+
+    def fake_run(cmd, cwd=None):
+        calls.append((cmd, cwd))
+
+        class R:
+            stdout = "ok"
+
+        return R()
+
+    runtime = ClaudeCliRuntime(
+        {"kind": "claude-cli", "max-turns-per-invocation": 24, "timeout-seconds": 1200},
+        run=fake_run,
+    )
+
+    assert runtime.run_prompt(
+        worktree=tmp_path,
+        session_name="inter-review-agent:abc",
+        prompt="review this",
+        model="claude-sonnet-4-6",
+    ) == "ok"
+    assert calls[0][1] == tmp_path
+
+
+def test_run_command_supports_workspace_runner_without_env_or_timeout_kwargs(tmp_path):
+    from workflows.change_delivery.runtimes.claude_cli import ClaudeCliRuntime
+
+    calls = []
+
+    def fake_run(cmd, cwd=None):
+        calls.append((cmd, cwd))
+
+        class R:
+            stdout = "ok"
+
+        return R()
+
+    runtime = ClaudeCliRuntime({"kind": "claude-cli"}, run=fake_run)
+
+    assert runtime.run_command(
+        worktree=tmp_path,
+        command_argv=["claude", "--print", "hi"],
+        env={"DAEDALUS_RUNTIME_KIND": "claude-cli"},
+    ) == "ok"
+    assert calls == [(["claude", "--print", "hi"], tmp_path)]

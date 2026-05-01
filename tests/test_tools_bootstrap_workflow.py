@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 
@@ -73,6 +74,16 @@ def test_bootstrap_workflow_infers_repo_root_slug_and_default_root(tmp_path, mon
     assert cfg["code-host"]["github_slug"] == "attmous/daedalus"
     assert pointer_path.read_text(encoding="utf-8").strip() == str(expected_root)
     assert state_pointer_path.read_text(encoding="utf-8").strip() == str(contract_path.resolve())
+    assert result["state_files"]["created"]["ledger"] is True
+    assert result["state_files"]["created"]["health"] is True
+    assert result["state_files"]["created"]["scheduler"] is True
+    assert result["state_files"]["created"]["audit_log"] is True
+    ledger = json.loads((expected_root / "memory" / "workflow-status.json").read_text(encoding="utf-8"))
+    assert ledger["workflowState"] == "idle"
+    assert ledger["workflowIdle"] is True
+    assert (expected_root / "memory" / "workflow-health.json").exists()
+    assert (expected_root / "memory" / "workflow-audit.jsonl").exists()
+    assert (expected_root / "memory" / "workflow-scheduler.json").exists()
 
 
 def test_bootstrap_workflow_accepts_explicit_slug_for_non_github_remote(tmp_path):

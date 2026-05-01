@@ -48,6 +48,7 @@ from workflows.runtime_presets import (
     runtime_binding_checks,
 )
 from workflows.runtime_matrix import build_runtime_matrix_report
+from workflows.change_delivery.storage import ensure_change_delivery_state_files
 from workflows.shared.paths import (
     derive_workflow_instance_name,
     plugin_runtime_path,
@@ -2717,6 +2718,9 @@ def scaffold_workflow_root(
         encoding="utf-8",
     )
     write_workflow_contract_pointer(root, contract_path)
+    state_files_result: dict[str, Any] | None = None
+    if workflow_name == "change-delivery":
+        state_files_result = ensure_change_delivery_state_files(root, config)
     if workflow_name == "issue-runner":
         issues_template = PLUGIN_DIR / "workflows" / "issue_runner" / "issues.template.json"
         issues_path = root / "config" / "issues.json"
@@ -2738,6 +2742,7 @@ def scaffold_workflow_root(
         "workflow_contract_pointer_path": str(workflow_contract_pointer_path(root)),
         "renamed_contract_paths": renamed_contract_paths,
         "renamed_contract_source_paths": renamed_contract_source_paths,
+        "state_files": state_files_result,
     }
 
 

@@ -1,6 +1,8 @@
 """Repo-root change-delivery workflow wrapper for official Hermes plugin installs."""
 
+import importlib
 import sys
+import types
 from pathlib import Path
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[2]
@@ -14,3 +16,12 @@ if _real_dir_str not in __path__:
     __path__.append(_real_dir_str)
 
 from daedalus.workflows.change_delivery import *  # noqa: F401,F403
+
+
+class _ServerProxy(types.ModuleType):
+    def __getattr__(self, name):
+        real_server = importlib.import_module("daedalus.workflows.change_delivery.server")
+        return getattr(real_server, name)
+
+
+server = sys.modules.setdefault(__name__ + ".server", _ServerProxy(__name__ + ".server"))

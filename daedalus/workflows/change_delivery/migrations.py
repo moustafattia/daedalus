@@ -9,8 +9,8 @@ Cloud). Phases A-C made runtimes/reviewers/webhooks pluggable; this
 migration removes the last operator-visible coupling to provider names.
 
 `migrate_persisted_ledger(path)` runs idempotently on workspace setup.
-`get_review(reviews_dict, new_key)` reads new key with legacy fallback
-so an unmigrated ledger still works for one release.
+`get_review(reviews_dict, new_key)` reads canonical keys only; old keys are
+removed by migration instead of remaining valid runtime input.
 """
 from __future__ import annotations
 

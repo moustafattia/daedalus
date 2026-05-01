@@ -40,6 +40,7 @@ from workflows.change_delivery.event_taxonomy import (
     canonicalize as canonicalize_event_type,
 )
 from workflows.change_delivery.status import build_status as build_workflow_status
+from workflows.change_delivery.storage import ensure_change_delivery_state_files
 import sys
 
 def _load_migration_module():
@@ -316,6 +317,12 @@ def init_daedalus_db(*, workflow_root: Path, project_key: str) -> dict[str, Any]
     # 1. Filesystem-level migration (renames relay-era files if present).
     #    Done before opening the DB so we don't open a stale empty file.
     _load_migration_module().migrate_filesystem_state(workflow_root)
+
+    try:
+        contract = load_workflow_contract(workflow_root)
+        state_files = ensure_change_delivery_state_files(workflow_root, contract.config)
+    except (FileNotFoundError, WorkflowContractError, OSError, UnicodeDecodeError):
+        state_files = ensure_change_delivery_state_files(workflow_root)
 
     # 2. Resolve canonical paths and open the DB.
     paths = runtime_paths(workflow_root)
@@ -607,7 +614,7 @@ def init_daedalus_db(*, workflow_root: Path, project_key: str) -> dict[str, Any]
             ),
         )
         conn.commit()
-        return {"ok": True, "db_path": str(db_path), "project_key": project_key}
+        return {"ok": True, "db_path": str(db_path), "project_key": project_key, "state_files": state_files}
     finally:
         conn.close()
 
@@ -1004,8 +1011,10 @@ def _merge_state_from_status(legacy_status: dict[str, Any]) -> str:
 
 def _required_review_flags(legacy_status: dict[str, Any]) -> tuple[int, int]:
     reviews = legacy_status.get("reviews") or {}
-    internal_required = 1 if (reviews.get("claudeCode") or {}).get("required") else 0
-    external_required = 1 if (reviews.get("codexCloud") or {}).get("required") else 0
+    internal_review = reviews.get("internalReview") or {}
+    external_review = reviews.get("externalReview") or {}
+    internal_required = 1 if internal_review.get("required") else 0
+    external_required = 1 if external_review.get("required") else 0
     return internal_required, external_required
 
 
@@ -1145,11 +1154,11 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
                 }, sort_keys=True), now_iso, now_iso,
             ),
         )
-        for reviewer_scope, legacy_key, reviewer_role in (
-            ("internal", "claudeCode", "Internal_Reviewer_Agent"),
-            ("external", "codexCloud", "External_Reviewer_Agent"),
+        for reviewer_scope, review_key, reviewer_role in (
+            ("internal", "internalReview", "Internal_Reviewer_Agent"),
+            ("external", "externalReview", "External_Reviewer_Agent"),
         ):
-            review = reviews.get(legacy_key) or {}
+            review = reviews.get(review_key) or {}
             if not review:
                 continue
             review_id = f"review:{lane_id}:{reviewer_scope}"
@@ -1186,7 +1195,7 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
                     reviewer_scope,
                     reviewer_role,
                     review.get("agentName") or reviewer_role,
-                    legacy_key,
+                    review_key,
                     review.get("model"),
                     review.get("status") or "not_started",
                     review.get("verdict"),
@@ -1200,7 +1209,13 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
                     review.get("summary"),
                     review.get("requestedAt"),
                     review.get("updatedAt") if review.get("status") == "completed" else None,
-                    json.dumps({"source": "legacy-status-ingest", "legacyKey": legacy_key}, sort_keys=True),
+                    json.dumps(
+                        {
+                            "source": "legacy-status-ingest",
+                            "reviewKey": review_key,
+                        },
+                        sort_keys=True,
+                    ),
                     now_iso,
                     now_iso,
                 ),
@@ -1324,8 +1339,7 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
         workflow_state == "awaiting_claude_prepublish"
         and not active_pr_number
         and lane_row.get("required_internal_review")
-        and internal_review
-        and internal_review.get("status") == "pending"
+        and (internal_review is None or internal_review.get("status") in {None, "", "pending", "not_started"})
         and current_head_sha
     ):
         return [{
@@ -2357,7 +2371,7 @@ def _semantic_completion_events_for_action(
     impl_status = (post_legacy_status or {}).get("implementation") or {}
     open_pr_status = (post_legacy_status or {}).get("openPr") or {}
     reviews = (post_legacy_status or {}).get("reviews") or {}
-    internal_review = reviews.get("claudeCode") or {}
+    internal_review = reviews.get("internalReview") or {}
     events: list[dict[str, Any]] = []
     if action_type in {"dispatch_implementation_turn", "dispatch_repair_handoff", "restart_actor_session"} and result.get("dispatched"):
         local_head_sha = impl_status.get("localHeadSha") or lane_after.get("current_head_sha") or lane_before.get("current_head_sha")
@@ -2923,6 +2937,7 @@ def _analyze_ambiguous_failure(
     failure_class: str,
     failure_summary: str,
     now_iso: str,
+    project_key: str,
     failure_analyst: Any | None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     analysis_input = _build_failure_analysis_input(
@@ -2942,7 +2957,7 @@ def _analyze_ambiguous_failure(
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Workflow_Orchestrator",
-            "project_key": _project_key_for(workflow_root),
+            "project_key": project_key,
             "lane_id": action.get("lane_id"),
             "issue_number": None,
             "head_sha": action.get("target_head_sha"),
@@ -2988,7 +3003,7 @@ def _analyze_ambiguous_failure(
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Workflow_Orchestrator",
-            "project_key": _project_key_for(workflow_root),
+            "project_key": project_key,
             "lane_id": action.get("lane_id"),
             "issue_number": None,
             "head_sha": action.get("target_head_sha"),
@@ -3291,6 +3306,7 @@ def execute_requested_action(
                     failure_class=raw_failure_class,
                     failure_summary=failure_summary,
                     now_iso=now_iso,
+                    project_key=_project_key_for(workflow_root),
                     failure_analyst=failure_analyst,
                 )
                 recovery["metadata"] = {
