@@ -1352,6 +1352,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
                 "status": "completed",
                 "cancel_requested": False,
                 "cancel_reason": None,
+                "run_id": getattr(ns, "CURRENT_ENGINE_RUN_ID", None),
                 "updated_at": at,
             }
         totals = dict(scheduler.get("codex_totals") or {})
@@ -1400,6 +1401,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             "status": "running",
             "last_event": metrics.get("last_event"),
             "last_message": metrics.get("last_message"),
+            "run_id": getattr(ns, "CURRENT_ENGINE_RUN_ID", None) or prior.get("run_id"),
             "updated_at": ns._now_iso(),
         }
         scheduler.update(
@@ -2237,9 +2239,15 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         return {**result, "after": after}
 
     def tick_raw():
+        def audit_with_run_id(action, summary, **extra):
+            run_id = getattr(ns, "CURRENT_ENGINE_RUN_ID", None)
+            if run_id and not extra.get("run_id"):
+                extra["run_id"] = run_id
+            return ns.audit(action, summary, **extra)
+
         return ns._load_adapter_actions_module().run_tick_raw(
             reconcile_fn=ns.reconcile,
-            audit_fn=ns.audit,
+            audit_fn=audit_with_run_id,
             dispatch_inter_review_agent_review_fn=ns.dispatch_inter_review_agent_review,
             dispatch_implementation_turn_fn=ns.dispatch_implementation_turn,
             publish_ready_pr_fn=ns.publish_ready_pr,
@@ -2322,6 +2330,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
 
     def tick():
         engine_run = ns.ENGINE_STORE.start_run(mode="tick")
+        previous_run_id = getattr(ns, "CURRENT_ENGINE_RUN_ID", None)
+        ns.CURRENT_ENGINE_RUN_ID = engine_run["run_id"]
         try:
             result = ns.tick_raw()
             action = result.get("action") if isinstance(result, dict) else {}
@@ -2350,6 +2360,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             except Exception:
                 pass
             raise
+        finally:
+            ns.CURRENT_ENGINE_RUN_ID = previous_run_id
 
     def dispatch_implementation_turn():
         return ns.dispatch_implementation_turn_raw()

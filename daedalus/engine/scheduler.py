@@ -46,6 +46,7 @@ def restore_scheduler_state(payload: dict[str, Any], *, now_epoch: float) -> Res
             "error": item.get("error"),
             "due_at_epoch": float(item.get("due_at_epoch") or item.get("dueAtEpoch") or now_epoch),
             "current_attempt": item.get("current_attempt") or item.get("currentAttempt"),
+            "run_id": item.get("run_id") or item.get("runId"),
         }
 
     recovered_running: list[dict[str, Any]] = []
@@ -72,6 +73,7 @@ def restore_scheduler_state(payload: dict[str, Any], *, now_epoch: float) -> Res
                 ),
                 "cancel_requested": bool(item.get("cancel_requested") or item.get("cancelRequested") or False),
                 "cancel_reason": item.get("cancel_reason") or item.get("cancelReason"),
+                "run_id": item.get("run_id") or item.get("runId"),
             }
         )
 
@@ -108,6 +110,7 @@ def running_snapshot(
                 "cancel_reason": entry.get("cancel_reason"),
                 "thread_id": entry.get("thread_id"),
                 "turn_id": entry.get("turn_id"),
+                "run_id": entry.get("run_id") or entry.get("runId"),
             }
         )
     running.sort(key=lambda item: (item["state"] or "", item["identifier"] or item["issue_id"]))
@@ -130,6 +133,7 @@ def retry_queue_snapshot(
                 "error": entry.get("error"),
                 "due_at_epoch": due_at,
                 "due_in_ms": max(int((due_at - now_epoch) * 1000), 0),
+                "run_id": entry.get("run_id") or entry.get("runId"),
             }
         )
     entries.sort(key=lambda item: (item["due_in_ms"], item["attempt"], item["identifier"] or item["issue_id"]))
@@ -153,6 +157,7 @@ def restore_codex_threads(raw: Any) -> dict[str, dict[str, Any]]:
             "session_name": item.get("session_name"),
             "thread_id": thread_id,
             "turn_id": item.get("turn_id"),
+            "run_id": item.get("run_id") or item.get("runId"),
             "updated_at": item.get("updated_at"),
         }
     return restored

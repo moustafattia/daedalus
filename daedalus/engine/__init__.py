@@ -30,11 +30,13 @@ from .scheduler import (
 )
 from .sqlite import connect_daedalus_db
 from .state import (
+    engine_run_from_connection,
     engine_state_tables_exist,
     finish_engine_run_to_connection,
     init_engine_state,
     latest_engine_runs_from_connection,
     load_engine_scheduler_state,
+    read_engine_run,
     read_engine_runs,
     read_engine_scheduler_state,
     save_engine_scheduler_state,
@@ -66,6 +68,7 @@ __all__ = [
     "clear_work_entries",
     "codex_threads_snapshot",
     "connect_daedalus_db",
+    "engine_run_from_connection",
     "engine_state_tables_exist",
     "finish_engine_run_to_connection",
     "init_engine_state",
@@ -76,6 +79,7 @@ __all__ = [
     "mark_running_work",
     "make_audit_fn",
     "read_engine_lease",
+    "read_engine_run",
     "read_engine_runs",
     "read_engine_scheduler_state",
     "recover_running_as_retry",

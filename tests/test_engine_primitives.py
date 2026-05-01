@@ -191,6 +191,7 @@ def test_engine_state_persists_scheduler_snapshot_in_sqlite(tmp_path):
                 "attempt": 2,
                 "started_at_epoch": 100.0,
                 "heartbeat_at_epoch": 110.0,
+                "run_id": "run-1",
             }
         },
         retry_entries={
@@ -200,6 +201,7 @@ def test_engine_state_persists_scheduler_snapshot_in_sqlite(tmp_path):
                 "attempt": 1,
                 "due_at_epoch": 130.0,
                 "error": "temporary failure",
+                "run_id": "run-1",
             }
         },
         codex_threads={
@@ -210,6 +212,7 @@ def test_engine_state_persists_scheduler_snapshot_in_sqlite(tmp_path):
                 "runtime_kind": "codex-app-server",
                 "thread_id": "thread-1",
                 "turn_id": "turn-1",
+                "run_id": "run-1",
                 "updated_at": "2026-04-30T00:00:00Z",
             }
         },
@@ -232,10 +235,13 @@ def test_engine_state_persists_scheduler_snapshot_in_sqlite(tmp_path):
     )
 
     assert loaded["running"][0]["issue_id"] == "ISSUE-1"
+    assert loaded["running"][0]["run_id"] == "run-1"
     assert loaded["running"][0]["running_for_ms"] == 25000
     assert loaded["retry_queue"][0]["issue_id"] == "ISSUE-2"
+    assert loaded["retry_queue"][0]["run_id"] == "run-1"
     assert loaded["retry_queue"][0]["due_in_ms"] == 5000
     assert loaded["codex_threads"]["ISSUE-1"]["thread_id"] == "thread-1"
+    assert loaded["codex_threads"]["ISSUE-1"]["run_id"] == "run-1"
     assert loaded["codex_totals"]["total_tokens"] == 7
     assert readonly == loaded
 

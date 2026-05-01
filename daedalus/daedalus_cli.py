@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from engine.state import read_engine_scheduler_state
+from engine.state import read_engine_run, read_engine_runs, read_engine_scheduler_state
 from engine.store import EngineStore
 from workflows.contract import (
     WorkflowContractError,
@@ -538,6 +538,113 @@ def _build_issue_runner_status(workflow_root: Path) -> dict[str, Any]:
 
 def _build_issue_runner_doctor(workflow_root: Path) -> dict[str, Any]:
     return _load_issue_runner_workspace(workflow_root).doctor()
+
+
+def _run_event_id(event: dict[str, Any]) -> str | None:
+    value = event.get("run_id") or event.get("runId")
+    return str(value) if value not in (None, "") else None
+
+
+def _workflow_audit_path(workflow_root: Path, workflow_name: str) -> Path:
+    paths = runtime_paths(workflow_root)
+    if workflow_name != "issue-runner":
+        return paths["event_log_path"].parent / "workflow-audit.jsonl"
+    contract = load_workflow_contract(workflow_root)
+    storage_cfg = contract.config.get("storage") or {}
+    raw = str(storage_cfg.get("audit-log") or "memory/workflow-audit.jsonl").strip()
+    path = Path(raw).expanduser()
+    return path if path.is_absolute() else (workflow_root / path).resolve()
+
+
+def _read_jsonl_events(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    events: list[dict[str, Any]] = []
+    for line in lines[-limit:]:
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            events.append(payload)
+    return events
+
+
+def _run_timeline_for_cli(workflow_root: Path, workflow_name: str, run_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    paths = runtime_paths(workflow_root)
+    source_paths = [paths["event_log_path"], _workflow_audit_path(workflow_root, workflow_name)]
+    timeline: list[dict[str, Any]] = []
+    for path in dict.fromkeys(source_paths):
+        for event in _read_jsonl_events(path, limit=max(limit * 5, limit)):
+            if _run_event_id(event) == run_id:
+                timeline.append({**event, "source_path": str(path)})
+    timeline.sort(key=lambda item: str(item.get("at") or item.get("created_at") or item.get("time") or ""))
+    return timeline[-limit:]
+
+
+def build_runs_report(
+    *,
+    workflow_root: Path,
+    action: str = "list",
+    run_id: str | None = None,
+    limit: int = 20,
+    stale_seconds: int = 600,
+) -> dict[str, Any]:
+    workflow_root = Path(workflow_root).resolve()
+    workflow_name = _workflow_name_for_root(workflow_root)
+    db_path = runtime_paths(workflow_root)["db_path"]
+    now_epoch = time.time()
+    if action == "show":
+        if not run_id:
+            raise DaedalusCommandError("runs show requires a run_id")
+        run = read_engine_run(db_path, workflow=workflow_name, run_id=run_id)
+        if run is None:
+            raise DaedalusCommandError(f"unknown engine run: {run_id}")
+        age_seconds = max(int(now_epoch - float(run.get("started_at_epoch") or now_epoch)), 0)
+        return {
+            "mode": "show",
+            "workflow": workflow_name,
+            "run": {
+                **run,
+                "age_seconds": age_seconds,
+                "stale": run.get("status") == "running" and age_seconds > stale_seconds,
+            },
+            "timeline": _run_timeline_for_cli(workflow_root, workflow_name, run_id, limit=max(limit, 1)),
+        }
+
+    runs = read_engine_runs(db_path, workflow=workflow_name, limit=max(limit, 1) * 5)
+    enriched = []
+    for run in runs:
+        age_seconds = max(int(now_epoch - float(run.get("started_at_epoch") or now_epoch)), 0)
+        item = {
+            **run,
+            "age_seconds": age_seconds,
+            "stale": run.get("status") == "running" and age_seconds > stale_seconds,
+        }
+        if action == "failed" and item.get("status") != "failed":
+            continue
+        if action == "stale" and not item.get("stale"):
+            continue
+        enriched.append(item)
+        if len(enriched) >= limit:
+            break
+    return {
+        "mode": action,
+        "workflow": workflow_name,
+        "counts": {
+            "shown": len(enriched),
+            "failed": len([run for run in enriched if run.get("status") == "failed"]),
+            "running": len([run for run in enriched if run.get("status") == "running"]),
+            "stale": len([run for run in enriched if run.get("stale")]),
+        },
+        "runs": enriched,
+    }
 
 
 def service_loop(
@@ -2697,6 +2804,21 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     doctor_cmd.set_defaults(func=run_cli_command)
 
+    runs_cmd = sub.add_parser("runs", help="Inspect durable engine run history and run timelines.")
+    runs_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
+    runs_cmd.add_argument("runs_action", nargs="?", default="list", choices=["list", "failed", "stale", "show"])
+    runs_cmd.add_argument("run_id", nargs="?")
+    runs_cmd.add_argument("--limit", type=int, default=20)
+    runs_cmd.add_argument("--stale-seconds", type=int, default=600)
+    runs_cmd.add_argument("--json", action="store_true")
+    runs_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
+    runs_cmd.set_defaults(func=run_cli_command)
+
     service_install_cmd = sub.add_parser("service-install", help="Install the supervised Daedalus systemd user service.")
     service_install_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     service_install_cmd.add_argument("--project-key")
@@ -3124,7 +3246,7 @@ def _resolve_format(format_arg: str | None, json_flag: bool | None) -> str:
 def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     workflow_root = Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
     daedalus = _load_daedalus_module(workflow_root) if workflow_root is not None else None
-    eventless_commands = {"codex-app-server"}
+    eventless_commands = {"codex-app-server", "runs"}
     if (
         workflow_root is not None
         and daedalus is not None
@@ -3171,6 +3293,14 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
         return build_doctor_report(
             workflow_root=workflow_root,
             recent_actions_limit=args.recent_actions_limit,
+        )
+    if args.daedalus_command == "runs":
+        return build_runs_report(
+            workflow_root=workflow_root,
+            action=args.runs_action,
+            run_id=args.run_id,
+            limit=args.limit,
+            stale_seconds=args.stale_seconds,
         )
     if args.daedalus_command == "service-install":
         return install_supervised_service(
@@ -3442,6 +3572,37 @@ def render_result(
             spec.loader.exec_module(mod)
             _fmt = mod.format_doctor
         return _fmt(result)
+    if command == "runs":
+        if result.get("mode") == "show":
+            run = result.get("run") or {}
+            lines = [
+                f"run={run.get('run_id')}",
+                f"workflow={result.get('workflow')} mode={run.get('mode')} status={run.get('status')}",
+                f"started_at={run.get('started_at')} completed_at={run.get('completed_at')}",
+                f"selected={run.get('selected_count')} completed={run.get('completed_count')} age_seconds={run.get('age_seconds')}",
+            ]
+            if run.get("error"):
+                lines.append(f"error={run.get('error')}")
+            timeline = result.get("timeline") or []
+            lines.append(f"timeline_events={len(timeline)}")
+            for event in timeline[:10]:
+                kind = event.get("event") or event.get("action") or event.get("event_type") or "event"
+                at = event.get("at") or event.get("created_at") or event.get("time") or ""
+                detail = event.get("summary") or event.get("error") or event.get("reason") or ""
+                lines.append(f"- {at} {kind} {detail}".strip())
+            return "\n".join(lines)
+        runs = result.get("runs") or []
+        if not runs:
+            return f"workflow={result.get('workflow')} runs=0 mode={result.get('mode')}"
+        lines = [f"workflow={result.get('workflow')} mode={result.get('mode')} runs={len(runs)}"]
+        for run in runs:
+            stale = " stale=true" if run.get("stale") else ""
+            lines.append(
+                f"- {run.get('run_id')} {run.get('mode')} {run.get('status')} "
+                f"selected={run.get('selected_count')} completed={run.get('completed_count')} "
+                f"started={run.get('started_at')}{stale}"
+            )
+        return "\n".join(lines)
     if command == "service-install":
         return f"service installed mode={result.get('service_mode')} unit={result.get('unit_path')} ok={result.get('installed')}"
     if command == "service-up":

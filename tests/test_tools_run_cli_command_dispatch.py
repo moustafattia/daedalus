@@ -97,6 +97,45 @@ def test_run_cli_command_dispatches_watch(tmp_path, capsys):
     assert "Daedalus active lanes" in out or "active lanes" in out.lower()
 
 
+def test_execute_raw_args_runs_command_lists_engine_runs(tmp_path):
+    from engine.store import EngineStore
+    from workflows.contract import render_workflow_markdown
+    from workflows.shared.paths import runtime_paths
+
+    tools = _tools()
+    root = tmp_path / "attmous-daedalus-issue-runner"
+    root.mkdir()
+    (root / "WORKFLOW.md").write_text(
+        render_workflow_markdown(
+            config={
+                "workflow": "issue-runner",
+                "schema-version": 1,
+                "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
+                "repository": {"local-path": str(tmp_path / "repo"), "github-slug": "attmous/daedalus"},
+                "tracker": {"kind": "local-json", "path": "config/issues.json"},
+                "workspace": {"root": "workspace/issues"},
+                "agent": {"name": "runner", "model": "gpt-5.4", "runtime": "default"},
+            },
+            prompt_template="Issue: {{ issue.identifier }}",
+        ),
+        encoding="utf-8",
+    )
+    store = EngineStore(
+        db_path=runtime_paths(root)["db_path"],
+        workflow="issue-runner",
+        now_iso=lambda: "2026-04-30T12:00:21Z",
+        now_epoch=lambda: 1714478421.0,
+    )
+    run = store.start_run(mode="tick")
+    store.complete_run(run["run_id"], selected_count=1, completed_count=1)
+
+    output = tools.execute_raw_args(f"runs --workflow-root {root} --json")
+    payload = json.loads(output)
+
+    assert payload["workflow"] == "issue-runner"
+    assert payload["runs"][0]["run_id"] == run["run_id"]
+
+
 def test_run_cli_command_dispatches_scaffold_workflow(tmp_path, capsys):
     tools = _tools()
     root = tmp_path / "attmous-daedalus-issue-runner"

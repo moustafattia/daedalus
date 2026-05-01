@@ -51,6 +51,20 @@ def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     return bool(row)
 
 
+def _column_exists(conn: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    try:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    except sqlite3.OperationalError:
+        return False
+    return any(str(row[1]) == column_name for row in rows)
+
+
+def _ensure_column(conn: sqlite3.Connection, table_name: str, column_sql: str) -> None:
+    column_name = column_sql.split()[0]
+    if _table_exists(conn, table_name) and not _column_exists(conn, table_name, column_name):
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
+
+
 def engine_state_tables_exist(conn: sqlite3.Connection) -> bool:
     return all(_table_exists(conn, name) for name in ENGINE_STATE_TABLES)
 
@@ -90,6 +104,7 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
           cancel_reason TEXT,
           thread_id TEXT,
           turn_id TEXT,
+          run_id TEXT,
           updated_at TEXT NOT NULL,
           updated_at_epoch REAL NOT NULL,
           PRIMARY KEY (workflow, work_id),
@@ -104,6 +119,7 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
           error TEXT,
           current_attempt INTEGER,
           delay_type TEXT NOT NULL DEFAULT 'failure',
+          run_id TEXT,
           updated_at TEXT NOT NULL,
           updated_at_epoch REAL NOT NULL,
           PRIMARY KEY (workflow, work_id),
@@ -122,6 +138,7 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
           status TEXT,
           cancel_requested INTEGER NOT NULL DEFAULT 0,
           cancel_reason TEXT,
+          run_id TEXT,
           metadata_json TEXT,
           updated_at TEXT NOT NULL,
           updated_at_epoch REAL NOT NULL,
@@ -165,6 +182,19 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
           ON engine_runs(workflow, started_at_epoch);
         CREATE INDEX IF NOT EXISTS idx_engine_runs_workflow_status
           ON engine_runs(workflow, status);
+        """
+    )
+    _ensure_column(conn, "engine_running_work", "run_id TEXT")
+    _ensure_column(conn, "engine_retry_queue", "run_id TEXT")
+    _ensure_column(conn, "engine_runtime_sessions", "run_id TEXT")
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_engine_running_workflow_run
+          ON engine_running_work(workflow, run_id);
+        CREATE INDEX IF NOT EXISTS idx_engine_retry_workflow_run
+          ON engine_retry_queue(workflow, run_id);
+        CREATE INDEX IF NOT EXISTS idx_engine_runtime_sessions_run
+          ON engine_runtime_sessions(workflow, run_id);
         """
     )
 
@@ -257,8 +287,8 @@ def save_engine_scheduler_state_to_connection(
             """
             INSERT INTO engine_running_work (
               workflow, work_id, worker_id, attempt, worker_status, started_at_epoch, heartbeat_at_epoch,
-              cancel_requested, cancel_reason, thread_id, turn_id, updated_at, updated_at_epoch
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              cancel_requested, cancel_reason, thread_id, turn_id, run_id, updated_at, updated_at_epoch
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 workflow,
@@ -272,6 +302,7 @@ def save_engine_scheduler_state_to_connection(
                 entry.get("cancel_reason"),
                 entry.get("thread_id"),
                 entry.get("turn_id"),
+                entry.get("run_id") or entry.get("runId"),
                 now_iso,
                 now_epoch,
             ),
@@ -285,8 +316,8 @@ def save_engine_scheduler_state_to_connection(
         conn.execute(
             """
             INSERT INTO engine_retry_queue (
-              workflow, work_id, attempt, due_at_epoch, error, current_attempt, delay_type, updated_at, updated_at_epoch
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              workflow, work_id, attempt, due_at_epoch, error, current_attempt, delay_type, run_id, updated_at, updated_at_epoch
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 workflow,
@@ -296,6 +327,7 @@ def save_engine_scheduler_state_to_connection(
                 entry.get("error"),
                 entry.get("current_attempt"),
                 entry.get("delay_type") or "failure",
+                entry.get("run_id") or entry.get("runId"),
                 now_iso,
                 now_epoch,
             ),
@@ -325,6 +357,8 @@ def save_engine_scheduler_state_to_connection(
                 "status",
                 "cancel_requested",
                 "cancel_reason",
+                "run_id",
+                "runId",
                 "updated_at",
                 "updatedAt",
             }
@@ -333,8 +367,8 @@ def save_engine_scheduler_state_to_connection(
             """
             INSERT INTO engine_runtime_sessions (
               workflow, work_id, session_name, runtime_name, runtime_kind, session_id, thread_id, turn_id,
-              status, cancel_requested, cancel_reason, metadata_json, updated_at, updated_at_epoch
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              status, cancel_requested, cancel_reason, run_id, metadata_json, updated_at, updated_at_epoch
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 workflow,
@@ -348,6 +382,7 @@ def save_engine_scheduler_state_to_connection(
                 entry.get("status"),
                 1 if (entry.get("cancel_requested") or entry.get("cancelRequested")) else 0,
                 entry.get("cancel_reason") or entry.get("cancelReason"),
+                entry.get("run_id") or entry.get("runId"),
                 _json_dumps(metadata),
                 entry.get("updated_at") or entry.get("updatedAt") or now_iso,
                 now_epoch,
@@ -418,11 +453,12 @@ def _scheduler_state_from_connection(
     now_epoch: float,
 ) -> dict[str, Any]:
     running_entries: dict[str, dict[str, Any]] = {}
+    running_run_id_expr = "r.run_id" if _column_exists(conn, "engine_running_work", "run_id") else "NULL"
     for row in conn.execute(
-        """
+        f"""
         SELECT r.work_id, w.identifier, w.state, r.worker_id, r.attempt, r.worker_status,
                r.started_at_epoch, r.heartbeat_at_epoch, r.cancel_requested, r.cancel_reason,
-               r.thread_id, r.turn_id
+               r.thread_id, r.turn_id, {running_run_id_expr}
         FROM engine_running_work r
         LEFT JOIN engine_work_items w ON w.workflow = r.workflow AND w.work_id = r.work_id
         WHERE r.workflow=?
@@ -442,6 +478,7 @@ def _scheduler_state_from_connection(
             cancel_reason,
             thread_id,
             turn_id,
+            run_id,
         ) = row
         running_entries[str(work_id)] = {
             "issue_id": str(work_id),
@@ -456,19 +493,21 @@ def _scheduler_state_from_connection(
             "cancel_reason": cancel_reason,
             "thread_id": thread_id,
             "turn_id": turn_id,
+            "run_id": run_id,
         }
 
     retry_entries: dict[str, dict[str, Any]] = {}
+    retry_run_id_expr = "q.run_id" if _column_exists(conn, "engine_retry_queue", "run_id") else "NULL"
     for row in conn.execute(
-        """
-        SELECT q.work_id, w.identifier, q.attempt, q.due_at_epoch, q.error, q.current_attempt, q.delay_type
+        f"""
+        SELECT q.work_id, w.identifier, q.attempt, q.due_at_epoch, q.error, q.current_attempt, q.delay_type, {retry_run_id_expr}
         FROM engine_retry_queue q
         LEFT JOIN engine_work_items w ON w.workflow = q.workflow AND w.work_id = q.work_id
         WHERE q.workflow=?
         """,
         (workflow,),
     ).fetchall():
-        work_id, identifier, attempt, due_at_epoch, error, current_attempt, delay_type = row
+        work_id, identifier, attempt, due_at_epoch, error, current_attempt, delay_type, run_id = row
         retry_entries[str(work_id)] = {
             "issue_id": str(work_id),
             "identifier": identifier,
@@ -477,13 +516,15 @@ def _scheduler_state_from_connection(
             "error": error,
             "current_attempt": current_attempt,
             "delay_type": delay_type or "failure",
+            "run_id": run_id,
         }
 
     codex_threads: dict[str, dict[str, Any]] = {}
+    session_run_id_expr = "s.run_id" if _column_exists(conn, "engine_runtime_sessions", "run_id") else "NULL"
     for row in conn.execute(
-        """
+        f"""
         SELECT s.work_id, w.identifier, s.session_name, s.runtime_name, s.runtime_kind, s.session_id,
-               s.thread_id, s.turn_id, s.status, s.cancel_requested, s.cancel_reason, s.metadata_json, s.updated_at
+               s.thread_id, s.turn_id, s.status, s.cancel_requested, s.cancel_reason, {session_run_id_expr}, s.metadata_json, s.updated_at
         FROM engine_runtime_sessions s
         LEFT JOIN engine_work_items w ON w.workflow = s.workflow AND w.work_id = s.work_id
         WHERE s.workflow=? AND s.thread_id IS NOT NULL AND s.thread_id != ''
@@ -502,6 +543,7 @@ def _scheduler_state_from_connection(
             status,
             cancel_requested,
             cancel_reason,
+            run_id,
             metadata_json,
             updated_at,
         ) = row
@@ -519,6 +561,7 @@ def _scheduler_state_from_connection(
             "status": status,
             "cancel_requested": bool(cancel_requested),
             "cancel_reason": cancel_reason,
+            "run_id": run_id,
             "updated_at": updated_at,
         }
         codex_threads[str(work_id)] = {key: value for key, value in entry.items() if value is not None}
@@ -775,6 +818,58 @@ def latest_engine_runs_from_connection(
         (workflow, max(int(limit or 10), 1)),
     ).fetchall()
     return [_run_row_to_dict(row) for row in rows]
+
+
+def engine_run_from_connection(
+    conn: sqlite3.Connection,
+    *,
+    workflow: str,
+    run_id: str,
+) -> dict[str, Any] | None:
+    init_engine_state(conn)
+    row = conn.execute(
+        """
+        SELECT workflow, run_id, mode, status, started_at, started_at_epoch,
+               completed_at, completed_at_epoch, selected_count, completed_count,
+               error, metadata_json
+        FROM engine_runs
+        WHERE workflow=? AND run_id=?
+        """,
+        (workflow, run_id),
+    ).fetchone()
+    return _run_row_to_dict(row) if row is not None else None
+
+
+def read_engine_run(
+    db_path: Path,
+    *,
+    workflow: str,
+    run_id: str,
+) -> dict[str, Any] | None:
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(db_path)
+    except sqlite3.OperationalError:
+        return None
+    try:
+        if not _table_exists(conn, "engine_runs"):
+            return None
+        row = conn.execute(
+            """
+            SELECT workflow, run_id, mode, status, started_at, started_at_epoch,
+                   completed_at, completed_at_epoch, selected_count, completed_count,
+                   error, metadata_json
+            FROM engine_runs
+            WHERE workflow=? AND run_id=?
+            """,
+            (workflow, run_id),
+        ).fetchone()
+        return _run_row_to_dict(row) if row is not None else None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
 
 
 def read_engine_runs(

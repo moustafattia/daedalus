@@ -16,6 +16,7 @@ from .sqlite import connect_daedalus_db
 from .state import (
     ENGINE_STATE_TABLES,
     engine_state_tables_exist,
+    engine_run_from_connection,
     finish_engine_run_to_connection,
     init_engine_state,
     latest_engine_runs_from_connection,
@@ -275,6 +276,13 @@ class EngineStore:
         finally:
             conn.close()
 
+    def get_run(self, run_id: str) -> dict[str, Any] | None:
+        conn = self.connect()
+        try:
+            return engine_run_from_connection(conn, workflow=self.workflow, run_id=run_id)
+        finally:
+            conn.close()
+
     def doctor(self, *, stale_running_seconds: int = 600) -> list[dict[str, Any]]:
         checks: list[dict[str, Any]] = []
         try:
@@ -336,7 +344,7 @@ class EngineStore:
 
             stale_runs = conn.execute(
                 """
-                SELECT run_id, mode, started_at
+                SELECT run_id, mode, started_at, started_at_epoch
                 FROM engine_runs
                 WHERE workflow=? AND status='running' AND completed_at IS NULL AND started_at_epoch < ?
                 ORDER BY started_at_epoch ASC
@@ -344,16 +352,28 @@ class EngineStore:
                 """,
                 (self.workflow, now_epoch - stale_running_seconds),
             ).fetchall()
+            stale_run_details = [
+                {
+                    "run_id": row[0],
+                    "mode": row[1],
+                    "started_at": row[2],
+                    "age_seconds": max(int(now_epoch - float(row[3] or now_epoch)), 0),
+                    "suggested_recovery": f"inspect with `hermes daedalus runs show {row[0]}`",
+                }
+                for row in stale_runs
+            ]
             checks.append(
                 {
                     "name": "engine-runs",
                     "status": "warn" if stale_runs else "pass",
                     "detail": (
-                        f"{len(stale_runs)} stale running engine run(s)"
+                        f"{len(stale_runs)} stale running engine run(s); "
+                        f"oldest_age_seconds={stale_run_details[0]['age_seconds'] if stale_run_details else 0}"
                         if stale_runs
                         else "no stale running engine runs"
                     ),
                     "items": [row[0] for row in stale_runs],
+                    "details": stale_run_details,
                 }
             )
 

@@ -14,6 +14,7 @@ import json
 import sqlite3
 import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from unittest import mock
@@ -547,6 +548,43 @@ def test_server_known_issue_returns_view(tmp_path: Path) -> None:
             assert resp.status == 200
             payload = json.loads(resp.read().decode("utf-8"))
         assert payload["issue_identifier"] == "#42"
+    finally:
+        handle.shutdown()
+
+
+def test_server_runs_endpoints_return_run_history_and_timeline(tmp_path: Path) -> None:
+    from engine.store import EngineStore
+    from workflows.shared.paths import runtime_paths
+
+    store = EngineStore(
+        db_path=runtime_paths(tmp_path)["db_path"],
+        workflow="change-delivery",
+        now_iso=lambda: "2026-04-30T12:00:21Z",
+        now_epoch=lambda: 1714478421.0,
+    )
+    engine_run = store.start_run(mode="active-iteration")
+    completed = store.complete_run(engine_run["run_id"], selected_count=1, completed_count=1)
+    _make_events_log(
+        tmp_path / "events.jsonl",
+        [{"at": "2026-04-30T12:00:22Z", "event_type": "test_event", "run_id": completed["run_id"]}],
+    )
+
+    handle = _start_test_server(tmp_path)
+    try:
+        _make_events_log(
+            tmp_path / "events.jsonl",
+            [{"at": "2026-04-30T12:00:22Z", "event_type": "test_event", "run_id": completed["run_id"]}],
+        )
+        with urllib.request.urlopen(f"http://127.0.0.1:{handle.port}/api/v1/runs", timeout=5) as resp:
+            runs_payload = json.loads(resp.read().decode("utf-8"))
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{handle.port}/api/v1/runs/{urllib.parse.quote(completed['run_id'], safe='')}",
+            timeout=5,
+        ) as resp:
+            run_payload = json.loads(resp.read().decode("utf-8"))
+        assert runs_payload["runs"][0]["run_id"] == completed["run_id"]
+        assert run_payload["run"]["run_id"] == completed["run_id"]
+        assert run_payload["timeline"][0]["event_type"] == "test_event"
     finally:
         handle.shutdown()
 

@@ -8,7 +8,9 @@ Path layout (Symphony §13.7 / spec §6.3):
 
     GET  /                  → HTML dashboard
     GET  /api/v1/state      → state_view() JSON
-    GET  /api/v1/<id>       → issue_view(id) JSON or 404
+    GET  /api/v1/runs      → runs_view() JSON
+    GET  /api/v1/runs/<id> → run_view(id) JSON or 404
+    GET  /api/v1/<id>      → issue_view(id) JSON or 404
     POST /api/v1/refresh    → spawn a tick subprocess (debounced)
     *    other              → 404 JSON
 
@@ -29,7 +31,7 @@ from typing import Any
 from workflows.change_delivery.paths import runtime_paths
 from workflows.change_delivery.server.html import render_dashboard
 from workflows.change_delivery.server.refresh import RefreshController
-from workflows.change_delivery.server.views import issue_view, state_view
+from workflows.change_delivery.server.views import issue_view, run_view, runs_view, state_view
 
 
 @dataclass
@@ -85,6 +87,20 @@ def _make_handler_class(
                 return
             if path == "/api/v1/state":
                 self._respond_json(200, state_view(db_path, events_log_path, workflow_root=workflow_root))
+                return
+            if path == "/api/v1/runs":
+                self._respond_json(200, runs_view(workflow_root))
+                return
+            if path.startswith("/api/v1/runs/"):
+                run_id = urllib.parse.unquote(path[len("/api/v1/runs/"):])
+                view = run_view(workflow_root, events_log_path, run_id)
+                if view is None:
+                    self._respond_json(
+                        404,
+                        {"error": {"code": "run_not_found", "message": f"unknown run: {run_id}"}},
+                    )
+                    return
+                self._respond_json(200, view)
                 return
             if path.startswith("/api/v1/"):
                 ident = urllib.parse.unquote(path[len("/api/v1/"):])

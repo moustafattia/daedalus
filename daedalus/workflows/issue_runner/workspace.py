@@ -606,6 +606,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
         issue: dict[str, Any],
         session_name: str,
         metrics: dict[str, Any],
+        run_id: str | None = None,
     ) -> None:
         issue_id = str(issue.get("id") or "").strip()
         thread_id = str(metrics.get("thread_id") or "").strip()
@@ -617,6 +618,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
             "session_name": session_name,
             "thread_id": thread_id,
             "turn_id": metrics.get("turn_id"),
+            "run_id": run_id,
             "updated_at": _now_iso(),
         }
 
@@ -651,6 +653,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
         error: str,
         current_attempt: int | None,
         delay_type: str = "failure",
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         max_backoff_ms = int((self.config.get("agent") or {}).get("max_retry_backoff_ms") or 300000)
         work_item = work_item_from_issue(issue, source=str((self.config.get("tracker") or {}).get("kind") or "tracker"))
@@ -663,12 +666,16 @@ class IssueRunnerWorkspace(WorkflowDriver):
             max_backoff_ms=max_backoff_ms,
             now_epoch=_now_epoch(),
         )
+        if run_id:
+            entry["run_id"] = run_id
+            retry["run_id"] = run_id
         self.retry_entries[work_item.id] = entry
         self._emit_event(
             "issue_runner.retry.scheduled",
             {
                 **retry,
                 "error": error,
+                "run_id": run_id,
             },
         )
         return retry
@@ -778,7 +785,12 @@ class IssueRunnerWorkspace(WorkflowDriver):
             return int(last_run.get("attempt") or 0) + 1
         return 1
 
-    def _mark_running(self, selections: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> None:
+    def _mark_running(
+        self,
+        selections: list[tuple[dict[str, Any], dict[str, Any] | None]],
+        *,
+        run_id: str | None = None,
+    ) -> None:
         now_epoch = _now_epoch()
         tracker_kind = str((self.config.get("tracker") or {}).get("kind") or "tracker")
         self.running_entries = mark_running_work(
@@ -793,6 +805,11 @@ class IssueRunnerWorkspace(WorkflowDriver):
             ],
             now_epoch=now_epoch,
         )
+        if run_id:
+            for issue, _retry_entry in selections:
+                issue_id = str(issue.get("id") or "").strip()
+                if issue_id in self.running_entries:
+                    self.running_entries[issue_id]["run_id"] = run_id
         self.running_issue_id = next(iter(self.running_entries), None)
         self._persist_scheduler_state()
 
@@ -818,10 +835,12 @@ class IssueRunnerWorkspace(WorkflowDriver):
         reason: str,
         workspace: Path | None = None,
         output_path: Path | None = None,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         return {
             "ok": False,
             "canceled": True,
+            "runId": run_id,
             "suppressRetry": reason == "terminal-state",
             "issue": issue,
             "attempt": attempt,
@@ -841,6 +860,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
         issue: dict[str, Any],
         retry_entry: dict[str, Any] | None,
         cancel_event: threading.Event | None = None,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         hook_results: list[dict[str, Any]] = []
         runtime: Runtime | None = None
@@ -859,6 +879,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                     issue=issue,
                     attempt=attempt,
                     reason="requested-before-start",
+                    run_id=run_id,
                 )
             issue_workspace = _safe_issue_workspace_path(self.issue_workspace_root, issue)
             issue_workspace.mkdir(parents=True, exist_ok=True)
@@ -884,6 +905,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                     reason="requested-before-run",
                     workspace=issue_workspace,
                     output_path=output_path,
+                    run_id=run_id,
                 )
             if created_workspace:
                 hook_results.append(self._run_hook("after_create", issue_workspace, env))
@@ -942,6 +964,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
             hook_results.append(self._run_hook("after_run", issue_workspace, env))
             return {
                 "ok": True,
+                "runId": run_id,
                 "issue": issue,
                 "attempt": attempt,
                 "workspace": str(issue_workspace),
@@ -957,6 +980,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                 hook_results.append(self._run_hook("after_run", issue_workspace, env, ignore_failure=True))
             return {
                 "ok": False,
+                "runId": run_id,
                 "issue": issue,
                 "attempt": attempt,
                 "workspace": str(issue_workspace) if issue_workspace is not None else None,
@@ -977,6 +1001,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
         for result in results:
             issue = result.get("issue") or {}
             issue_id = str(issue.get("id") or "")
+            run_id = result.get("run_id") or result.get("runId")
             metrics = result.get("metrics") or {}
             if metrics:
                 recorded_metrics = self._record_metrics(
@@ -997,6 +1022,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                         issue=issue,
                         session_name=issue_session_name(issue),
                         metrics=recorded_metrics,
+                        run_id=run_id,
                     )
                 result["metrics"] = recorded_metrics
 
@@ -1010,6 +1036,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                         error="continuation",
                         current_attempt=result.get("attempt"),
                         delay_type="continuation",
+                        run_id=run_id,
                     )
                     result["retry"] = retry
                 self._emit_event(
@@ -1019,6 +1046,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                         "attempt": result.get("attempt"),
                         "workspace": result.get("workspace"),
                         "output_path": result.get("outputPath"),
+                        "run_id": run_id,
                         "continuation_retry_attempt": (result.get("retry") or {}).get("retry_attempt"),
                         "continuation_retry_delay_ms": (result.get("retry") or {}).get("delay_ms"),
                     },
@@ -1033,6 +1061,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                             "attempt": result.get("attempt"),
                             "workspace": result.get("workspace"),
                             "error": result.get("error"),
+                            "run_id": run_id,
                             "retry_suppressed": True,
                         },
                     )
@@ -1041,6 +1070,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                         issue=issue,
                         error=str(result.get("error") or "issue execution failed"),
                         current_attempt=result.get("attempt"),
+                        run_id=run_id,
                     )
                     result["retry"] = retry
                     self._emit_event(
@@ -1050,6 +1080,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                             "attempt": result.get("attempt"),
                             "workspace": result.get("workspace"),
                             "error": result.get("error"),
+                            "run_id": run_id,
                             "retry_attempt": retry.get("retry_attempt"),
                             "retry_delay_ms": retry.get("delay_ms"),
                         },
@@ -1120,6 +1151,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                 "identifier": entry.get("identifier"),
                 "reason": reason,
                 "worker_id": entry.get("worker_id"),
+                "run_id": entry.get("run_id") or entry.get("runId"),
             },
         )
         self._persist_scheduler_state()
@@ -1161,6 +1193,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                     },
                     attempt=int(entry.get("attempt") or 0),
                     reason=str(entry.get("cancel_reason") or "canceled"),
+                    run_id=entry.get("run_id") or entry.get("runId"),
                 )
             else:
                 try:
@@ -1182,6 +1215,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                         "metrics": {},
                         "runtime": None,
                         "runtimeKind": None,
+                        "runId": entry.get("run_id") or entry.get("runId"),
                     }
             if entry.get("cancel_requested"):
                 result["cancelRequested"] = True
@@ -1203,6 +1237,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                     "issue_id": issue_id,
                     "identifier": (result.get("issue") or {}).get("identifier") or entry.get("identifier"),
                     "worker_id": entry.get("worker_id"),
+                    "run_id": entry.get("run_id") or entry.get("runId") or result.get("runId"),
                     "ok": result.get("ok"),
                     "canceled": result.get("canceled"),
                     "error": result.get("error"),
@@ -1215,11 +1250,13 @@ class IssueRunnerWorkspace(WorkflowDriver):
     def _dispatch_supervised_workers(
         self,
         selections: list[tuple[dict[str, Any], dict[str, Any] | None]],
+        *,
+        run_id: str | None = None,
     ) -> list[dict[str, Any]]:
         if not selections:
             return []
         executor = self._ensure_supervisor_executor()
-        self._mark_running(selections)
+        self._mark_running(selections, run_id=run_id)
         dispatched: list[dict[str, Any]] = []
         for issue, retry_entry in selections:
             issue_id = str(issue.get("id") or "").strip()
@@ -1232,6 +1269,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                 issue=issue,
                 retry_entry=retry_entry,
                 cancel_event=cancel_event,
+                run_id=run_id,
             )
             self._supervisor_futures[issue_id] = future
             entry = self.running_entries.get(issue_id) or {}
@@ -1247,6 +1285,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                     "worker_id": entry.get("worker_id"),
                     "attempt": entry.get("attempt"),
                     "state": issue.get("state"),
+                    "run_id": run_id,
                 },
             )
         self._persist_scheduler_state()
@@ -1289,6 +1328,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                     {
                         "error": status["error"],
                         "reason": "tracker-load-failed",
+                        "run_id": engine_run["run_id"],
                     },
                 )
                 return status
@@ -1312,11 +1352,14 @@ class IssueRunnerWorkspace(WorkflowDriver):
             selections = refreshed_selections
             status["selectedIssues"] = [issue for issue, _retry_entry in selections]
             status["selectedIssue"] = selections[0][0] if selections else None
-            dispatched = self._dispatch_supervised_workers(selections)
+            dispatched = self._dispatch_supervised_workers(selections, run_id=engine_run["run_id"])
             status["dispatchedWorkers"] = dispatched
             if not completed and not dispatched:
                 status["message"] = "no dispatchable issues"
-                self._emit_event("issue_runner.tick.noop", {"reason": "no-dispatchable-issues"})
+                self._emit_event(
+                    "issue_runner.tick.noop",
+                    {"reason": "no-dispatchable-issues", "run_id": engine_run["run_id"]},
+                )
 
             if completed and not all(result.get("ok") or result.get("suppressRetry") for result in completed):
                 status["ok"] = False
@@ -1410,6 +1453,7 @@ class IssueRunnerWorkspace(WorkflowDriver):
                     {
                         "error": status["error"],
                         "reason": "tracker-load-failed",
+                        "run_id": engine_run["run_id"],
                     },
                 )
                 return status
@@ -1437,19 +1481,33 @@ class IssueRunnerWorkspace(WorkflowDriver):
                 )
                 self._write_status(status, health="healthy")
                 self._persist_scheduler_state()
-                self._emit_event("issue_runner.tick.noop", {"reason": "no-dispatchable-issues"})
+                self._emit_event(
+                    "issue_runner.tick.noop",
+                    {"reason": "no-dispatchable-issues", "run_id": engine_run["run_id"]},
+                )
                 return status
 
-            self._mark_running(selections)
+            self._mark_running(selections, run_id=engine_run["run_id"])
             results: list[dict[str, Any]] = []
             try:
                 if len(selections) == 1:
                     issue, retry_entry = selections[0]
-                    results = [self._execute_issue(issue=issue, retry_entry=retry_entry)]
+                    results = [
+                        self._execute_issue(
+                            issue=issue,
+                            retry_entry=retry_entry,
+                            run_id=engine_run["run_id"],
+                        )
+                    ]
                 else:
                     with concurrent.futures.ThreadPoolExecutor(max_workers=len(selections)) as executor:
                         future_map = {
-                            executor.submit(self._execute_issue, issue=issue, retry_entry=retry_entry): (issue, retry_entry)
+                            executor.submit(
+                                self._execute_issue,
+                                issue=issue,
+                                retry_entry=retry_entry,
+                                run_id=engine_run["run_id"],
+                            ): (issue, retry_entry)
                             for issue, retry_entry in selections
                         }
                         for future in concurrent.futures.as_completed(future_map):

@@ -241,8 +241,19 @@ def test_issue_runner_tick_runs_selected_issue_and_writes_artifacts(tmp_path):
     assert result["engineRun"]["mode"] == "tick"
     assert result["engineRun"]["status"] == "completed"
     assert workspace.engine_store.latest_runs(limit=1)[0]["run_id"] == result["engineRun"]["run_id"]
+    audit_events = [
+        json.loads(line)
+        for line in (workflow_root / "memory" / "workflow-audit.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    correlated = [event for event in audit_events if event.get("run_id") == result["engineRun"]["run_id"]]
+    assert {event["event"] for event in correlated} >= {
+        "issue_runner.retry.scheduled",
+        "issue_runner.tick.completed",
+    }
     assert result["selectedIssue"]["id"] == "ISSUE-1"
     assert result["results"][0]["retry"]["delay_type"] == "continuation"
+    assert result["results"][0]["retry"]["run_id"] == result["engineRun"]["run_id"]
     assert result["results"][0]["retry"]["delay_ms"] == 1000
     output_path = Path(result["outputPath"])
     assert output_path.exists()

@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from engine.state import read_engine_runs, read_engine_scheduler_state
+from engine.state import read_engine_run, read_engine_runs, read_engine_scheduler_state
 from workflows.contract import WorkflowContractError, load_workflow_contract
 from workflows.shared.paths import runtime_paths
 
@@ -220,6 +220,103 @@ def _engine_runs(workflow_root: Path | None, workflow: str, *, limit: int = 5) -
         workflow=workflow,
         limit=limit,
     )
+
+
+def _event_run_id(event: dict[str, Any]) -> str | None:
+    value = event.get("run_id") or event.get("runId")
+    return str(value) if value not in (None, "") else None
+
+
+def _workflow_audit_log_path(workflow_root: Path, events_log_path: Path) -> Path | None:
+    if _workflow_name(workflow_root) == "issue-runner":
+        return _resolve_issue_runner_storage_path(workflow_root, "audit-log", "memory/workflow-audit.jsonl")
+    return events_log_path.parent / "workflow-audit.jsonl"
+
+
+def _run_timeline(workflow_root: Path, events_log_path: Path, run_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    paths: list[Path] = [events_log_path]
+    audit_path = _workflow_audit_log_path(workflow_root, events_log_path)
+    if audit_path is not None and audit_path not in paths:
+        paths.append(audit_path)
+    events: list[dict[str, Any]] = []
+    for path in paths:
+        for event in _read_events_tail(path, max(limit * 5, limit)):
+            if _event_run_id(event) == run_id:
+                events.append({**event, "source_path": str(path)})
+    events.sort(key=lambda item: str(item.get("at") or item.get("time") or ""))
+    return events[-limit:]
+
+
+def runs_view(workflow_root: Path, *, limit: int = 20, stale_seconds: int = 600) -> dict[str, Any]:
+    workflow_root = Path(workflow_root)
+    workflow = _workflow_name(workflow_root) or "change-delivery"
+    now_epoch = time.time()
+    runs = read_engine_runs(
+        runtime_paths(workflow_root)["db_path"],
+        workflow=workflow,
+        limit=limit,
+    )
+    enriched = []
+    for run in runs:
+        started_at_epoch = float(run.get("started_at_epoch") or now_epoch)
+        age_seconds = max(int(now_epoch - started_at_epoch), 0)
+        enriched.append(
+            {
+                **run,
+                "age_seconds": age_seconds,
+                "stale": run.get("status") == "running" and age_seconds > stale_seconds,
+            }
+        )
+    return {
+        "generated_at": _now_iso(),
+        "workflow": workflow,
+        "counts": {
+            "total": len(enriched),
+            "running": len([run for run in enriched if run.get("status") == "running"]),
+            "failed": len([run for run in enriched if run.get("status") == "failed"]),
+            "stale": len([run for run in enriched if run.get("stale")]),
+        },
+        "runs": enriched,
+    }
+
+
+def run_view(workflow_root: Path, events_log_path: Path, run_id: str) -> dict[str, Any] | None:
+    workflow_root = Path(workflow_root)
+    workflow = _workflow_name(workflow_root) or "change-delivery"
+    run = read_engine_run(
+        runtime_paths(workflow_root)["db_path"],
+        workflow=workflow,
+        run_id=run_id,
+    )
+    if run is None:
+        return None
+    scheduler = _engine_scheduler(workflow_root, workflow)
+    running = [
+        row
+        for row in (scheduler.get("running") or [])
+        if isinstance(row, dict) and _event_run_id(row) == run_id
+    ]
+    retrying = [
+        row
+        for row in (scheduler.get("retry_queue") or scheduler.get("retryQueue") or [])
+        if isinstance(row, dict) and _event_run_id(row) == run_id
+    ]
+    codex_threads = [
+        row
+        for row in (scheduler.get("codex_threads") or scheduler.get("codexThreads") or {}).values()
+        if isinstance(row, dict) and _event_run_id(row) == run_id
+    ]
+    return {
+        "generated_at": _now_iso(),
+        "workflow": workflow,
+        "run": run,
+        "related": {
+            "running": running,
+            "retrying": retrying,
+            "codex_threads": codex_threads,
+        },
+        "timeline": _run_timeline(workflow_root, events_log_path, run_id),
+    }
 
 
 def _epoch_to_iso(value: Any) -> str | None:

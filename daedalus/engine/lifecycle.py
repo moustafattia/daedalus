@@ -95,5 +95,6 @@ def recover_running_as_retry(
             "error": error,
             "due_at_epoch": now_epoch,
             "current_attempt": running.get("attempt"),
+            "run_id": running.get("run_id") or running.get("runId"),
         }
     return entries
