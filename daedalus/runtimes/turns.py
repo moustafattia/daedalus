@@ -1,3 +1,9 @@
+"""Run one Daedalus actor turn through a configured runtime.
+
+A Daedalus turn is one prompt/result exchange at the runtime boundary. Some
+backends, such as Codex app-server, implement that with their own protocol
+turns (`turn/start`, `turn/completed`), but this module stays backend-neutral.
+"""
 from __future__ import annotations
 
 import hashlib
