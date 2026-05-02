@@ -20,7 +20,7 @@ Treat these as code execution surfaces:
 ## Files
 
 - Plugin code: `~/.hermes/plugins/sprints`
-- Workflow roots: `~/.hermes/workflows/<owner>-<repo>-agentic`
+- Workflow roots: `~/.hermes/workflows/<owner>-<repo>-change-delivery`
 - Target checkout: `repository.local-path`
 - Engine DB: `<workflow-root>/runtime/state/sprints/sprints.db`
 

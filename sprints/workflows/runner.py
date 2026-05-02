@@ -10,7 +10,7 @@ from typing import Any, Literal, Mapping, Protocol
 
 from workflows.actions import run_action
 from workflows.actors import build_actor_runtime
-from workflows.config import AgenticConfig, AgenticConfigError
+from workflows.config import WorkflowConfig, WorkflowConfigError
 from workflows.contracts import (
     WorkflowPolicy,
     load_workflow_contract,
@@ -29,7 +29,7 @@ _DEFAULT_TIMEOUT_MS = 300_000
 
 @dataclass
 class WorkflowState:
-    workflow: str = "agentic"
+    workflow: str = ""
     current_stage: str = ""
     status: str = "running"
     attempt: int = 1
@@ -40,8 +40,8 @@ class WorkflowState:
     operator_attention: dict[str, Any] | None = None
 
     @classmethod
-    def initial(cls, first_stage: str) -> "WorkflowState":
-        return cls(current_stage=first_stage)
+    def initial(cls, *, workflow: str, first_stage: str) -> "WorkflowState":
+        return cls(workflow=workflow, current_stage=first_stage)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "WorkflowState":
@@ -67,11 +67,11 @@ class _RunningEntry(Protocol):
 
 
 def main(workspace: object, argv: list[str]) -> int:
-    if not isinstance(workspace, AgenticConfig):
+    if not isinstance(workspace, WorkflowConfig):
         raise TypeError(
-            f"agentic CLI expected AgenticConfig, got {type(workspace).__name__}"
+            f"workflow CLI expected WorkflowConfig, got {type(workspace).__name__}"
         )
-    parser = argparse.ArgumentParser(prog="agentic")
+    parser = argparse.ArgumentParser(prog=workspace.workflow_name)
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("validate")
     subcommands.add_parser("show")
@@ -88,10 +88,13 @@ def main(workspace: object, argv: list[str]) -> int:
     raise RuntimeError(f"unhandled command {args.command}")
 
 
-def load_state(path: Path, *, first_stage: str) -> WorkflowState:
+def load_state(path: Path, *, workflow: str, first_stage: str) -> WorkflowState:
     if not path.exists():
-        return WorkflowState.initial(first_stage)
-    return WorkflowState.from_dict(json.loads(path.read_text(encoding="utf-8")))
+        return WorkflowState.initial(workflow=workflow, first_stage=first_stage)
+    state = WorkflowState.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    if not state.workflow:
+        state.workflow = workflow
+    return state
 
 
 def save_state(path: Path, state: WorkflowState) -> None:
@@ -108,14 +111,14 @@ def append_audit(path: Path, event: dict[str, Any]) -> None:
 
 
 def actor_variables(
-    *, config: AgenticConfig, state: WorkflowState, inputs: dict[str, Any]
+    *, config: WorkflowConfig, state: WorkflowState, inputs: dict[str, Any]
 ) -> dict[str, Any]:
     return {"workflow": state.to_dict(), "config": config.raw, **inputs}
 
 
 def run_stage_actor(
     *,
-    config: AgenticConfig,
+    config: WorkflowConfig,
     policy: WorkflowPolicy,
     state: WorkflowState,
     actor_name: str,
@@ -148,7 +151,7 @@ def run_stage_actor(
 
 def apply_action_result(
     *,
-    config: AgenticConfig,
+    config: WorkflowConfig,
     state: WorkflowState,
     action_name: str,
     inputs: dict[str, Any],
@@ -163,18 +166,18 @@ def apply_action_result(
     return payload
 
 
-def validate_current_stage(config: AgenticConfig, state: WorkflowState) -> None:
+def validate_current_stage(config: WorkflowConfig, state: WorkflowState) -> None:
     if state.current_stage not in config.stages:
         raise RuntimeError(f"unknown current stage: {state.current_stage}")
     validate_stage_gates(config, state.current_stage)
 
 
-def validate_stage_gates(config: AgenticConfig, stage_name: str) -> None:
+def validate_stage_gates(config: WorkflowConfig, stage_name: str) -> None:
     stage = config.stages[stage_name]
     for gate_name in stage.gates:
         gate = config.gates[gate_name]
         if gate.type != "orchestrator-evaluated":
-            raise AgenticConfigError(
+            raise WorkflowConfigError(
                 f"unsupported gate type for {gate_name}: {gate.type}"
             )
 
@@ -184,9 +187,14 @@ def ensure_workflow_state_files(
 ) -> dict[str, str]:
     root = Path(workflow_root).expanduser().resolve()
     raw = config if config is not None else load_workflow_contract(root).config
-    typed = AgenticConfig.from_raw(raw=raw, workflow_root=root)
+    typed = WorkflowConfig.from_raw(raw=raw, workflow_root=root)
     if not typed.storage.state_path.exists():
-        save_state(typed.storage.state_path, WorkflowState.initial(typed.first_stage))
+        save_state(
+            typed.storage.state_path,
+            WorkflowState.initial(
+                workflow=typed.workflow_name, first_stage=typed.first_stage
+            ),
+        )
     typed.storage.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
     typed.storage.audit_log_path.touch(exist_ok=True)
     return {
@@ -198,7 +206,7 @@ def ensure_workflow_state_files(
 def build_status(workflow_root: Path) -> dict[str, Any]:
     root = Path(workflow_root).expanduser().resolve()
     contract = load_workflow_contract(root)
-    config = AgenticConfig.from_raw(raw=contract.config, workflow_root=root)
+    config = WorkflowConfig.from_raw(raw=contract.config, workflow_root=root)
     state: dict[str, Any] = {}
     if config.storage.state_path.exists():
         try:
@@ -206,7 +214,7 @@ def build_status(workflow_root: Path) -> dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             state = {}
     return {
-        "workflow": "agentic",
+        "workflow": config.workflow_name,
         "health": "ok" if state else "unknown",
         "workflow_root": str(root),
         "contract_path": str(contract.source_path),
@@ -255,12 +263,12 @@ def canonicalize(event_type: str) -> str:
     return str(event_type or "").strip()
 
 
-def _load_policy(config: AgenticConfig) -> WorkflowPolicy:
+def _load_policy(config: WorkflowConfig) -> WorkflowPolicy:
     contract = load_workflow_contract(config.workflow_root)
     return parse_workflow_policy(contract.prompt_template)
 
 
-def _validate(config: AgenticConfig) -> int:
+def _validate(config: WorkflowConfig) -> int:
     policy = _load_policy(config)
     missing = [
         actor
@@ -270,20 +278,28 @@ def _validate(config: AgenticConfig) -> int:
     ]
     if missing:
         raise RuntimeError(f"missing actor policy sections: {sorted(set(missing))}")
-    state = load_state(config.storage.state_path, first_stage=config.first_stage)
+    state = load_state(
+        config.storage.state_path,
+        workflow=config.workflow_name,
+        first_stage=config.first_stage,
+    )
     validate_current_stage(config, state)
-    print("agentic workflow valid")
+    print(f"{config.workflow_name} workflow valid")
     return 0
 
 
-def _show(config: AgenticConfig) -> int:
+def _show(config: WorkflowConfig) -> int:
     print(json.dumps(config.raw, indent=2, sort_keys=True))
     return 0
 
 
-def _tick(config: AgenticConfig, *, orchestrator_output: str) -> int:
+def _tick(config: WorkflowConfig, *, orchestrator_output: str) -> int:
     policy = _load_policy(config)
-    state = load_state(config.storage.state_path, first_stage=config.first_stage)
+    state = load_state(
+        config.storage.state_path,
+        workflow=config.workflow_name,
+        first_stage=config.first_stage,
+    )
     validate_current_stage(config, state)
     output = _read_output_arg(orchestrator_output) or _run_orchestrator(
         config=config,
@@ -296,7 +312,7 @@ def _tick(config: AgenticConfig, *, orchestrator_output: str) -> int:
     append_audit(
         config.storage.audit_log_path,
         {
-            "event": "agentic.tick",
+            "event": f"{config.workflow_name}.tick",
             "decision": decision.to_dict(),
             "state": state.to_dict(),
         },
@@ -306,7 +322,7 @@ def _tick(config: AgenticConfig, *, orchestrator_output: str) -> int:
 
 
 def _run_orchestrator(
-    *, config: AgenticConfig, policy: WorkflowPolicy, state: WorkflowState
+    *, config: WorkflowConfig, policy: WorkflowPolicy, state: WorkflowState
 ) -> str:
     prompt = build_orchestrator_prompt(
         config=config, policy=policy, state=state, facts={}
@@ -327,7 +343,7 @@ def _read_output_arg(value: str) -> str:
 
 def _apply_decision(
     *,
-    config: AgenticConfig,
+    config: WorkflowConfig,
     policy: WorkflowPolicy,
     state: WorkflowState,
     decision: OrchestratorDecision,
@@ -376,7 +392,7 @@ def _apply_decision(
 
 
 def _advance(
-    *, config: AgenticConfig, state: WorkflowState, target: str | None
+    *, config: WorkflowConfig, state: WorkflowState, target: str | None
 ) -> None:
     next_stage = target or config.stages[state.current_stage].next_stage
     if not next_stage:

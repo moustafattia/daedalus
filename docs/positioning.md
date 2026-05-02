@@ -19,7 +19,7 @@ belongs in `WORKFLOW.md`, split into orchestrator and actor sections.
 
 ## Why Sprints Exists
 
-Agentic work needs state that survives one chat turn:
+Supervised workflow execution needs state that survives one chat turn:
 
 - which work item is active
 - which actor ran

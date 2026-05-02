@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from workflows.loader import (
     CONFIG_SCHEMA_PATH,
+    DEFAULT_WORKFLOW_NAME,
     NAME,
     SUPPORTED_SCHEMA_VERSIONS,
+    SUPPORTED_WORKFLOW_NAMES,
     WORKFLOW,
-    AgenticWorkflow,
+    WORKFLOWS,
+    SprintsWorkflow,
     ActorPolicy,
     RuntimePresetError,
     Workflow,
@@ -42,11 +45,14 @@ from workflows.runner import main as cli_main
 
 __all__ = [
     "NAME",
+    "DEFAULT_WORKFLOW_NAME",
+    "SUPPORTED_WORKFLOW_NAMES",
     "SUPPORTED_SCHEMA_VERSIONS",
     "CONFIG_SCHEMA_PATH",
     "WORKFLOW",
+    "WORKFLOWS",
     "Workflow",
-    "AgenticWorkflow",
+    "SprintsWorkflow",
     "WorkflowContract",
     "WorkflowContractError",
     "WorkflowPolicy",

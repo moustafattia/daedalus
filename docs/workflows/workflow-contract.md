@@ -1,6 +1,6 @@
 # WORKFLOW.md Contract
 
-`WORKFLOW.md` is the repo-owned contract for `workflow: agentic`.
+`WORKFLOW.md` is the repo-owned contract for a Sprints workflow.
 
 It has two parts:
 
@@ -13,7 +13,7 @@ Minimal shape:
 
 ```yaml
 ---
-workflow: agentic
+workflow: change-delivery
 schema-version: 1
 
 repository:
@@ -50,8 +50,8 @@ gates:
 actions: {}
 
 storage:
-  state: .sprints/agentic-state.json
-  audit-log: .sprints/agentic-audit.jsonl
+  state: .sprints/change-delivery-state.json
+  audit-log: .sprints/change-delivery-audit.jsonl
 ---
 ```
 
@@ -162,5 +162,5 @@ WORKFLOW-release.md
 WORKFLOW-triage.md
 ```
 
-The engine still uses the same `agentic` implementation. The file name only
-selects which contract to load.
+Each contract declares its own `workflow:` value. The file name selects which
+contract to load.

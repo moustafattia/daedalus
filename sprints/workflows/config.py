@@ -1,4 +1,4 @@
-"""Typed config for the generic agentic workflow."""
+"""Typed config for Sprints workflows."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 
-class AgenticConfigError(RuntimeError):
-    """Raised when an agentic workflow config is structurally invalid."""
+class WorkflowConfigError(RuntimeError):
+    """Raised when workflow config is structurally invalid."""
 
 
 @dataclass(frozen=True)
@@ -57,8 +57,9 @@ class StorageConfig:
 
 
 @dataclass(frozen=True)
-class AgenticConfig:
+class WorkflowConfig:
     workflow_root: Path
+    workflow_name: str
     raw: dict[str, Any]
     orchestrator_actor: str
     runtimes: dict[str, RuntimeConfig]
@@ -69,8 +70,11 @@ class AgenticConfig:
     storage: StorageConfig
 
     @classmethod
-    def from_raw(cls, *, raw: dict[str, Any], workflow_root: Path) -> "AgenticConfig":
+    def from_raw(cls, *, raw: dict[str, Any], workflow_root: Path) -> "WorkflowConfig":
         root = workflow_root.resolve()
+        workflow_name = str(raw.get("workflow") or "").strip()
+        if not workflow_name:
+            raise WorkflowConfigError("workflow config requires top-level workflow")
         runtimes = {
             name: RuntimeConfig(
                 name=name,
@@ -109,14 +113,20 @@ class AgenticConfig:
         }
         storage_raw = dict(raw.get("storage") or {})
         state_path = _resolve(
-            root, str(storage_raw.get("state", ".sprints/agentic-state.json"))
+            root, str(storage_raw.get("state", f".sprints/{workflow_name}-state.json"))
         )
         audit_log_path = _resolve(
-            root, str(storage_raw.get("audit-log", ".sprints/agentic-audit.jsonl"))
+            root,
+            str(
+                storage_raw.get(
+                    "audit-log", f".sprints/{workflow_name}-audit.jsonl"
+                )
+            ),
         )
         orchestrator_actor = str(dict(raw.get("orchestrator") or {}).get("actor", ""))
         config = cls(
             workflow_root=root,
+            workflow_name=workflow_name,
             raw=dict(raw),
             orchestrator_actor=orchestrator_actor,
             runtimes=runtimes,
@@ -134,34 +144,32 @@ class AgenticConfig:
         try:
             return next(iter(self.stages))
         except StopIteration as exc:
-            raise AgenticConfigError(
-                "agentic workflow requires at least one stage"
-            ) from exc
+            raise WorkflowConfigError("workflow requires at least one stage") from exc
 
     def validate_references(self) -> None:
         if self.orchestrator_actor not in self.actors:
-            raise AgenticConfigError(
+            raise WorkflowConfigError(
                 f"unknown orchestrator actor: {self.orchestrator_actor}"
             )
         for actor in self.actors.values():
             if actor.runtime not in self.runtimes:
-                raise AgenticConfigError(
+                raise WorkflowConfigError(
                     f"actor {actor.name} references unknown runtime {actor.runtime}"
                 )
         for stage in self.stages.values():
             for actor in stage.actors:
                 if actor not in self.actors:
-                    raise AgenticConfigError(
+                    raise WorkflowConfigError(
                         f"stage {stage.name} references unknown actor {actor}"
                     )
             for gate in stage.gates:
                 if gate not in self.gates:
-                    raise AgenticConfigError(
+                    raise WorkflowConfigError(
                         f"stage {stage.name} references unknown gate {gate}"
                     )
             for action in stage.actions:
                 if action not in self.actions:
-                    raise AgenticConfigError(
+                    raise WorkflowConfigError(
                         f"stage {stage.name} references unknown action {action}"
                     )
             if (
@@ -169,7 +177,7 @@ class AgenticConfig:
                 and stage.next_stage != "done"
                 and stage.next_stage not in self.stages
             ):
-                raise AgenticConfigError(
+                raise WorkflowConfigError(
                     f"stage {stage.name} references unknown next stage {stage.next_stage}"
                 )
 

@@ -1,6 +1,6 @@
 # Architecture
 
-Sprints is a Hermes plugin for running repo-owned agentic workflows.
+Sprints is a Hermes plugin for running repo-owned supervised workflows.
 
 The core rule is simple: `WORKFLOW.md` decides policy; Sprints executes the
 mechanics.

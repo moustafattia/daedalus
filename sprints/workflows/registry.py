@@ -9,10 +9,12 @@ from typing import Any, Protocol, runtime_checkable
 import jsonschema
 import yaml
 
-from workflows.config import AgenticConfig
+from workflows.config import WorkflowConfig
 from workflows.contracts import WorkflowContractError, load_workflow_contract
 
-NAME = "agentic"
+DEFAULT_WORKFLOW_NAME = "change-delivery"
+SUPPORTED_WORKFLOW_NAMES = ("change-delivery", "issue-runner", "release", "triage")
+NAME = DEFAULT_WORKFLOW_NAME
 SUPPORTED_SCHEMA_VERSIONS = (1,)
 CONFIG_SCHEMA_PATH = Path(__file__).with_name("schema.yaml")
 
@@ -31,8 +33,8 @@ class Workflow(Protocol):
 
 
 @dataclass(frozen=True)
-class AgenticWorkflow:
-    name: str = NAME
+class SprintsWorkflow:
+    name: str
     schema_versions: tuple[int, ...] = SUPPORTED_SCHEMA_VERSIONS
     schema_path: Path = CONFIG_SCHEMA_PATH
 
@@ -48,24 +50,25 @@ class AgenticWorkflow:
         return main(workspace, argv)
 
 
-def load_config(*, workflow_root: Path, raw: dict[str, Any]) -> AgenticConfig:
-    return AgenticConfig.from_raw(raw=raw, workflow_root=workflow_root)
+def load_config(*, workflow_root: Path, raw: dict[str, Any]) -> WorkflowConfig:
+    return WorkflowConfig.from_raw(raw=raw, workflow_root=workflow_root)
 
 
-def make_workspace(*, workflow_root: Path, config: object) -> AgenticConfig:
-    if isinstance(config, AgenticConfig):
+def make_workspace(*, workflow_root: Path, config: object) -> WorkflowConfig:
+    if isinstance(config, WorkflowConfig):
         return config
     if isinstance(config, dict):
-        return AgenticConfig.from_raw(raw=config, workflow_root=workflow_root)
-    raise TypeError(f"unsupported agentic config object: {type(config).__name__}")
+        return WorkflowConfig.from_raw(raw=config, workflow_root=workflow_root)
+    raise TypeError(f"unsupported workflow config object: {type(config).__name__}")
 
 
 def load_workflow_object(name: str) -> Workflow:
-    if name == NAME:
-        return WORKFLOW
-    raise WorkflowContractError(
-        f"unknown workflow {name!r}; supported workflows: {list_workflows()}"
-    )
+    try:
+        return WORKFLOWS[name]
+    except KeyError as exc:
+        raise WorkflowContractError(
+            f"unknown workflow {name!r}; supported workflows: {list_workflows()}"
+        ) from exc
 
 
 def run_cli(
@@ -98,7 +101,8 @@ def run_cli(
 
 
 def list_workflows() -> list[str]:
-    return [NAME]
+    return list(SUPPORTED_WORKFLOW_NAMES)
 
 
-WORKFLOW = AgenticWorkflow()
+WORKFLOWS = {name: SprintsWorkflow(name=name) for name in SUPPORTED_WORKFLOW_NAMES}
+WORKFLOW = WORKFLOWS[DEFAULT_WORKFLOW_NAME]

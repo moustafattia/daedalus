@@ -9,7 +9,7 @@ required:
   - gates
 properties:
   workflow:
-    const: agentic
+    enum: [change-delivery, issue-runner, release, triage]
   schema-version:
     type: integer
     enum: [1]

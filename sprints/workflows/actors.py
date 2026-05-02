@@ -1,4 +1,4 @@
-"""Actor runtime dispatch for agentic workflows."""
+"""Actor runtime dispatch for Sprints workflows."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Protocol
 
 from runtimes import build_runtimes
 from runtimes.turns import run_runtime_stage
-from workflows.config import ActorConfig, AgenticConfig
+from workflows.config import ActorConfig, WorkflowConfig
 
 
 class ActorRuntime(Protocol):
@@ -17,7 +17,7 @@ class ActorRuntime(Protocol):
 
 @dataclass(frozen=True)
 class ConfiguredActorRuntime:
-    config: AgenticConfig
+    config: WorkflowConfig
 
     def run(self, *, actor: ActorConfig, prompt: str, stage_name: str) -> str:
         runtime_cfg = self.config.runtimes[actor.runtime]
@@ -39,11 +39,11 @@ class ConfiguredActorRuntime:
         return result.output
 
 
-def build_actor_runtime(*, config: AgenticConfig, actor: ActorConfig) -> ActorRuntime:
+def build_actor_runtime(*, config: WorkflowConfig, actor: ActorConfig) -> ActorRuntime:
     return ConfiguredActorRuntime(config=config)
 
 
-def _repository_worktree(config: AgenticConfig) -> Path:
+def _repository_worktree(config: WorkflowConfig) -> Path:
     repository = config.raw.get("repository") or {}
     if not isinstance(repository, dict):
         raise RuntimeError("repository config must be a mapping")
@@ -63,7 +63,7 @@ def _repository_worktree(config: AgenticConfig) -> Path:
     return resolved
 
 
-def _session_name(*, config: AgenticConfig, actor: ActorConfig, stage_name: str) -> str:
+def _session_name(*, config: WorkflowConfig, actor: ActorConfig, stage_name: str) -> str:
     raw = actor.raw.get("session-name") or actor.raw.get("session_name")
     if raw:
         return str(raw)

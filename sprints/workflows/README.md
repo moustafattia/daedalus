@@ -1,6 +1,7 @@
 # Sprints Workflows
 
-`sprints/workflows/` is the flat implementation of `workflow: agentic`.
+`sprints/workflows/` is the flat implementation shared by bundled workflow
+templates.
 
 Workflow intent lives in `WORKFLOW.md`. Python owns the mechanics: loading the
 contract, typing front matter, dispatching actors/actions, applying
@@ -24,8 +25,7 @@ workflows/
 |-- actors.py                # actor runtime dispatch
 |-- actions.py               # deterministic action execution
 |-- paths.py                 # workflow root and runtime path helpers
-|-- schema.yaml              # agentic config schema
-|-- workflow.template.md     # minimal bootstrap template
+|-- schema.yaml              # workflow config schema
 `-- templates/               # bundled WORKFLOW.md policy templates
     |-- issue-runner.md
     |-- change-delivery.md

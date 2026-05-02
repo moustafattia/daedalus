@@ -10,7 +10,9 @@ from typing import Any
 
 from engine.reports import EngineReportError, build_events_report, build_runs_report
 from workflows.loader import (
+    DEFAULT_WORKFLOW_NAME,
     RuntimePresetError,
+    SUPPORTED_WORKFLOW_NAMES,
     WorkflowContractError,
     available_runtime_presets,
     build_runtime_matrix_report,
@@ -187,7 +189,11 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         required=True,
         help="Workflow root to create. Directory name must be <owner>-<repo>-<workflow-type>.",
     )
-    scaffold_cmd.add_argument("--workflow", default="agentic", choices=["agentic"])
+    scaffold_cmd.add_argument(
+        "--workflow",
+        default=DEFAULT_WORKFLOW_NAME,
+        choices=SUPPORTED_WORKFLOW_NAMES,
+    )
     scaffold_cmd.add_argument("--repo-path", type=Path)
     scaffold_cmd.add_argument(
         "--repo-slug",
@@ -213,7 +219,11 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     bootstrap_cmd.add_argument(
         "--workflow-root", type=Path, help="Optional explicit workflow root override."
     )
-    bootstrap_cmd.add_argument("--workflow", default="agentic", choices=["agentic"])
+    bootstrap_cmd.add_argument(
+        "--workflow",
+        default=DEFAULT_WORKFLOW_NAME,
+        choices=SUPPORTED_WORKFLOW_NAMES,
+    )
     bootstrap_cmd.add_argument(
         "--repo-slug", help="Override the inferred repository slug from git origin."
     )

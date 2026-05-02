@@ -5,7 +5,7 @@ Use these when installing or running Sprints.
 | Doc | Purpose |
 | --- | --- |
 | [Installation](installation.md) | Install, bootstrap, validate, and run. |
-| [Slash Commands](slash-commands.md) | `/sprints` and `/workflow agentic` commands. |
+| [Slash Commands](slash-commands.md) | `/sprints` and `/workflow change-delivery` commands. |
 | [Codex App-Server](codex-app-server.md) | Shared Codex listener operations. |
 
 Normal loop:

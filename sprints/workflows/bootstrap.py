@@ -16,6 +16,7 @@ from workflows.paths import (
     derive_workflow_instance_name,
     repo_local_workflow_pointer_path,
 )
+from workflows.registry import SUPPORTED_WORKFLOW_NAMES
 
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 
@@ -31,11 +32,12 @@ _REMOTE_SCP_RE = re.compile(
 
 
 def _workflow_template_path(workflow_name: str) -> Path:
-    if workflow_name != "agentic":
+    if workflow_name not in SUPPORTED_WORKFLOW_NAMES:
         raise WorkflowBootstrapError(
-            f"no bundled workflow template for {workflow_name!r}"
+            f"no bundled workflow template for {workflow_name!r}; "
+            f"expected one of {list(SUPPORTED_WORKFLOW_NAMES)}"
         )
-    return PLUGIN_DIR / "workflows" / "workflow.template.md"
+    return PLUGIN_DIR / "workflows" / "templates" / f"{workflow_name}.md"
 
 
 def _git_stdout(*args: str, cwd: Path) -> str:

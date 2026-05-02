@@ -2,7 +2,7 @@
 
 Current docs for Hermes Sprints.
 
-Sprints has one workflow engine: `agentic`. Policy lives in repo-owned
+Sprints has one default template: `change-delivery`. Policy lives in repo-owned
 `WORKFLOW.md`; Python owns loading, validation, runtime dispatch, state, and
 operator commands.
 
@@ -15,7 +15,7 @@ operator commands.
 | [Runtimes](concepts/runtimes.md) | Runtime profiles, actors, and turn execution. |
 | [Engine](concepts/engine.md) | SQLite-backed state, leases, runs, and events. |
 | [Installation](operator/installation.md) | Install, bootstrap, validate, and run. |
-| [Slash Commands](operator/slash-commands.md) | `/sprints` and `/workflow agentic` commands. |
+| [Slash Commands](operator/slash-commands.md) | `/sprints` and `/workflow change-delivery` commands. |
 | [Codex App-Server](operator/codex-app-server.md) | Shared Codex listener setup and checks. |
 | [Public Contract](public-contract.md) | Compatibility-sensitive surfaces. |
 | [Security](security.md) | Trust model and execution risk. |
@@ -29,7 +29,7 @@ sprints/
 |-- observe/      # watch/status read side
 |-- runtimes/     # Codex, Hermes Agent, Claude, ACPX adapters
 |-- trackers/     # GitHub and Linear tracker clients
-`-- workflows/    # agentic WORKFLOW.md loader, runner, actors, actions
+`-- workflows/    # WORKFLOW.md loader, runner, actors, actions
 ```
 
 ## Workflow Templates
@@ -41,5 +41,5 @@ Bundled policy templates live in `sprints/workflows/templates/`:
 - `release.md`
 - `triage.md`
 
-They are templates for the same `workflow: agentic` engine. They are not
-separate Python workflow packages.
+They use the same Python implementation. The selected template defines the
+workflow name and policy.

@@ -1,15 +1,15 @@
 # Workflows
 
-Sprints ships one workflow engine: `agentic`.
+Sprints defaults to `change-delivery`.
 
-The bundled files under `sprints/workflows/templates/` are policy templates for
-that engine. They are not separate Python workflow packages.
+The bundled files under `sprints/workflows/templates/` are policy templates.
+Bootstrap writes the `change-delivery` template by default, and `--workflow`
+selects a different bundled template.
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
-| `sprints/workflows/workflow.template.md` | Minimal bootstrap contract. |
 | `sprints/workflows/templates/issue-runner.md` | Issue-focused policy template. |
 | `sprints/workflows/templates/change-delivery.md` | Implementation/review policy template. |
 | `sprints/workflows/templates/release.md` | Release planning and verification template. |

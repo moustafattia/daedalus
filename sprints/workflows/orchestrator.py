@@ -7,7 +7,7 @@ from typing import Any
 import json
 import re
 
-from workflows.config import AgenticConfig
+from workflows.config import WorkflowConfig
 from workflows.contracts import ActorPolicy, WorkflowPolicy
 
 
@@ -101,7 +101,7 @@ def render_prompt_template(
 
 def build_orchestrator_prompt(
     *,
-    config: AgenticConfig,
+    config: WorkflowConfig,
     policy: WorkflowPolicy,
     state: Any,
     facts: dict[str, Any],

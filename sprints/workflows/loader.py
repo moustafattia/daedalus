@@ -25,10 +25,13 @@ from workflows.contracts import (
 )
 from workflows.registry import (
     CONFIG_SCHEMA_PATH,
+    DEFAULT_WORKFLOW_NAME,
     NAME,
     SUPPORTED_SCHEMA_VERSIONS,
+    SUPPORTED_WORKFLOW_NAMES,
     WORKFLOW,
-    AgenticWorkflow,
+    WORKFLOWS,
+    SprintsWorkflow,
     Workflow,
     list_workflows,
     load_config,

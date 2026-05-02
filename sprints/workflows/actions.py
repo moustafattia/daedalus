@@ -1,4 +1,4 @@
-"""Deterministic actions available to agentic workflows."""
+"""Deterministic actions available to Sprints workflows."""
 
 from __future__ import annotations
 

@@ -4,7 +4,7 @@
   <img src="assets/sprints-banner.gif" alt="Hermes Sprints banner">
 </p>
 
-Hermes Sprints is a Hermes plugin for durable agentic workflow execution.
+Hermes Sprints is a Hermes plugin for durable supervised workflow execution.
 
 Sprints writes a repo-owned `WORKFLOW.md`, dispatches actors through configured
 runtimes, stores state, and exposes operator commands. Policy belongs in
@@ -31,9 +31,9 @@ Inside Hermes:
 /sprints status
 /sprints doctor
 /sprints watch
-/workflow agentic status
-/workflow agentic validate
-/workflow agentic tick
+/workflow change-delivery status
+/workflow change-delivery validate
+/workflow change-delivery tick
 ```
 
 ## What Sprints Owns
@@ -43,12 +43,12 @@ Inside Hermes:
 | Workflow contract | `WORKFLOW.md` front matter plus orchestrator/actor policy sections. |
 | Runtime dispatch | Actor turns through Codex app-server, Hermes Agent, Claude, ACPX, or command-backed runtime profiles. |
 | Durable state | SQLite runs, events, leases, retries, runtime sessions, and status projections. |
-| Operator surface | `/sprints`, `/workflow agentic`, watch output, and runtime diagnostics. |
+| Operator surface | `/sprints`, `/workflow change-delivery`, watch output, and runtime diagnostics. |
 | Trackers | GitHub and Linear client boundaries. |
 
 ## Workflow Model
 
-The public workflow implementation is `agentic`.
+The default workflow template is `change-delivery`.
 
 Each contract defines:
 
@@ -67,8 +67,8 @@ Bundled policy templates live under `sprints/workflows/templates/`:
 - `release.md`
 - `triage.md`
 
-They are templates for `workflow: agentic`, not separate Python workflow
-packages.
+They use the same Python implementation: loader, typed config, runner, actors,
+actions, gates, and runtime dispatch.
 
 ## Package Layout
 
@@ -79,7 +79,7 @@ sprints/
 |-- observe/      # read-only operator views
 |-- runtimes/     # runtime adapters and turn dispatch
 |-- trackers/     # GitHub and Linear trackers
-`-- workflows/    # WORKFLOW.md loader and agentic runner
+`-- workflows/    # WORKFLOW.md loader and workflow runner
 ```
 
 ## Docs

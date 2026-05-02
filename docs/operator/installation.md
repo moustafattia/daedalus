@@ -26,7 +26,7 @@ contract.
 Default workflow root:
 
 ```text
-~/.hermes/workflows/<owner>-<repo>-agentic/
+~/.hermes/workflows/<owner>-<repo>-change-delivery/
 ```
 
 The repo pointer is written to:
@@ -79,9 +79,9 @@ Inside Hermes:
 /sprints status
 /sprints doctor
 /sprints watch
-/workflow agentic status
-/workflow agentic validate
-/workflow agentic tick
+/workflow change-delivery status
+/workflow change-delivery validate
+/workflow change-delivery tick
 ```
 
 ## Local Development Install

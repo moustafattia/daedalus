@@ -1,5 +1,5 @@
 ---
-workflow: agentic
+workflow: issue-runner
 schema-version: 1
 template: issue-runner
 orchestrator:
@@ -21,7 +21,7 @@ stages:
     actors: [implementer]
     actions: [issue.record]
     gates: [issue-ready]
-    next: complete
+    next: done
 gates:
   issue-ready:
     type: orchestrator-evaluated

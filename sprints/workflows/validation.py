@@ -138,7 +138,7 @@ def build_readiness_recommendations(
         elif name == "workflow-package":
             _append_once(
                 recommendations,
-                "Use `workflow: agentic` or reinstall the Sprints plugin.",
+                "Use a bundled workflow name or reinstall the Sprints plugin.",
             )
         elif name == "schema":
             _append_once(

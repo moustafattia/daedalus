@@ -1,5 +1,5 @@
 ---
-workflow: agentic
+workflow: release
 schema-version: 1
 template: release
 orchestrator:
@@ -28,7 +28,7 @@ stages:
     actors: [verifier]
     actions: [release.verification-record]
     gates: [release-verified]
-    next: complete
+    next: done
 gates:
   release-plan-ready:
     type: orchestrator-evaluated

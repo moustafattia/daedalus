@@ -1,5 +1,5 @@
 ---
-workflow: agentic
+workflow: triage
 schema-version: 1
 template: triage
 orchestrator:
@@ -21,7 +21,7 @@ stages:
     actors: [triager]
     actions: [triage.record]
     gates: [triage-ready]
-    next: complete
+    next: done
 gates:
   triage-ready:
     type: orchestrator-evaluated

@@ -286,7 +286,7 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
                     "url": lane.get("url"),
                     "state": lane.get("state"),
                 },
-                source="agentic",
+                source="change-delivery",
             ).to_dict()
             out.append(lane)
     except sqlite3.OperationalError:

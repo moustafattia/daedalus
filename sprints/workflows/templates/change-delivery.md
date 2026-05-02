@@ -1,5 +1,5 @@
 ---
-workflow: agentic
+workflow: change-delivery
 schema-version: 1
 template: change-delivery
 orchestrator:
@@ -28,7 +28,7 @@ stages:
     actors: [reviewer]
     actions: [review.record]
     gates: [review-ready]
-    next: complete
+    next: done
 gates:
   implementation-ready:
     type: orchestrator-evaluated

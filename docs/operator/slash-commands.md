@@ -34,9 +34,9 @@ Sprints exposes two Hermes command roots.
 | Command | Purpose |
 | --- | --- |
 | `/workflow` | List installed workflows. |
-| `/workflow agentic status` | Show agentic workflow state. |
-| `/workflow agentic validate` | Validate the contract. |
-| `/workflow agentic tick` | Run one orchestrator tick. |
+| `/workflow change-delivery status` | Show change-delivery workflow state. |
+| `/workflow change-delivery validate` | Validate the contract. |
+| `/workflow change-delivery tick` | Run one orchestrator tick. |
 
 Most commands accept `--workflow-root <path>`. JSON-capable commands expose
 `--json` or `--format json`.
