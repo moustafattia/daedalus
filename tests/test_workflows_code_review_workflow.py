@@ -23,7 +23,16 @@ def test_derive_next_action_prefers_merge_for_clean_published_pr():
             "openPr": {"number": 301, "headRefOid": "abc123"},
             "health": "healthy",
             "implementation": {"localHeadSha": "abc123", "sessionActionRecommendation": {"action": "continue-session"}, "laneState": {}},
-            "reviews": {},
+            "reviews": {
+                "externalReview": {
+                    "required": True,
+                    "reviewScope": "postpublish-pr",
+                    "status": "completed",
+                    "verdict": "PASS_CLEAN",
+                    "reviewedHeadSha": "abc123",
+                    "openFindingCount": 0,
+                }
+            },
             "repairBrief": None,
             "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "under_review"},
@@ -35,6 +44,38 @@ def test_derive_next_action_prefers_merge_for_clean_published_pr():
 
     assert result["type"] == "merge_and_promote"
     assert result["reason"] == "published-pr-approved"
+
+
+def test_derive_next_action_blocks_merge_until_external_review_clean_for_pr_head():
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
+
+    result = workflow_module.derive_next_action(
+        {
+            "activeLane": {"number": 224},
+            "openPr": {"number": 301, "headRefOid": "abc123"},
+            "health": "healthy",
+            "implementation": {"localHeadSha": "abc123", "sessionActionRecommendation": {"action": "continue-session"}, "laneState": {}},
+            "reviews": {
+                "externalReview": {
+                    "required": True,
+                    "reviewScope": "postpublish-pr",
+                    "status": "pending",
+                    "verdict": None,
+                    "reviewedHeadSha": "abc123",
+                    "openFindingCount": 0,
+                }
+            },
+            "repairBrief": None,
+            "preflight": {"prePublishReview": {"shouldRun": False}},
+            "ledger": {"workflowState": "under_review"},
+            "derivedReviewLoopState": "clean",
+            "derivedMergeBlocked": False,
+            "nextAction": {"type": "noop", "reason": "old-wrapper-value"},
+        }
+    )
+
+    assert result["type"] == "noop"
+    assert result["reason"] == "external-review-not-clean-for-current-head"
 
 
 def test_derive_next_action_uses_fresh_session_noop_for_healthy_implementation_lane():
@@ -205,6 +246,46 @@ def test_derive_next_action_dispatches_internal_review_repair_handoff_when_revie
             "ledger": {"workflowState": "pre_publish_review_findings"},
             "derivedReviewLoopState": "findings_open",
             "derivedMergeBlocked": True,
+            "nextAction": {"type": "noop", "reason": "old-wrapper-value"},
+        }
+    )
+
+    assert result["type"] == "dispatch_implementation_turn"
+    assert result["mode"] == "internal_review_repair_handoff"
+    assert result["reason"] == "internal-review-findings-need-repair"
+
+
+def test_derive_next_action_dispatches_internal_review_repair_handoff_from_stale_lane_with_ledger_brief():
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
+
+    result = workflow_module.derive_next_action(
+        {
+            "activeLane": {"number": 224},
+            "openPr": None,
+            "health": "stale-lane",
+            "implementation": {
+                "localHeadSha": "head123",
+                "sessionActionRecommendation": {"action": "restart-session", "sessionName": "lane-224"},
+                "laneState": {},
+            },
+            "reviews": {
+                "internalReview": {
+                    "reviewScope": "local-prepublish",
+                    "status": "completed",
+                    "verdict": "REWORK",
+                    "reviewedHeadSha": "head123",
+                    "updatedAt": "2026-04-22T01:00:00Z",
+                }
+            },
+            "repairBrief": None,
+            "preflight": {"prePublishReview": {"shouldRun": False}},
+            "ledger": {
+                "workflowState": "pre_publish_review_findings",
+                "repairBrief": {"forHeadSha": "head123", "mustFix": [{"summary": "Fix it"}]},
+            },
+            "derivedReviewLoopState": "rework_required",
+            "derivedMergeBlocked": True,
+            "staleLaneReasons": ["active lane has no PR and implementation state is stale"],
             "nextAction": {"type": "noop", "reason": "old-wrapper-value"},
         }
     )

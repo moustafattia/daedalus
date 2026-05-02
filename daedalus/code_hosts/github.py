@@ -206,7 +206,7 @@ class GithubCodeHostClient:
                 "api",
                 "graphql",
                 "-f",
-                "query=query { repository(owner:\"%s\", name:\"%s\") { pullRequest(number: %d) { state headRefOid reviewThreads(first: 100) { nodes { id isResolved isOutdated path line comments(first: 20) { nodes { author { login } body url createdAt } } } } } } }"
+                "query=query { repository(owner:\"%s\", name:\"%s\") { pullRequest(number: %d) { state headRefOid commits(last: 1) { nodes { commit { oid committedDate } } } reviewThreads(first: 100) { nodes { id isResolved isOutdated path line comments(first: 20) { nodes { author { login } body url createdAt } } } } } } }"
                 % (owner, name, number),
             ]),
             cwd=self._repo_path,

@@ -68,4 +68,5 @@ def test_github_code_host_client_assembles_review_queries(tmp_path):
     assert calls[2][0][-2:] == ["--hostname", "github.example.com"]
     assert "owner:\"owner\"" in " ".join(calls[3][0])
     assert "name:\"repo\"" in " ".join(calls[3][0])
+    assert "commits(last: 1)" in " ".join(calls[3][0])
     assert calls[3][0][-2:] == ["--hostname", "github.example.com"]

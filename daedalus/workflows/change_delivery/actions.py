@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from workflows.change_delivery.migrations import get_review
 from workflows.change_delivery.paths import lane_memo_path, lane_state_path
+from workflows.change_delivery.reviews import external_review_clean_for_head
 from workflows.change_delivery.sessions import (
     expected_lane_branch,
     expected_lane_worktree,
@@ -206,6 +207,28 @@ def run_merge_and_promote(
     pr = status.get('openPr') or {}
     if not issue or not pr:
         return {'merged': False, 'reason': 'missing-active-lane-or-pr'}
+    review_loop_state = status.get("derivedReviewLoopState")
+    merge_blocked = bool(status.get("derivedMergeBlocked"))
+    external_review = get_review(status.get("reviews"), "externalReview")
+    if (
+        review_loop_state != "clean"
+        or merge_blocked
+        or not external_review_clean_for_head(external_review, pr.get("headRefOid"))
+    ):
+        return {
+            "merged": False,
+            "reason": "merge-gate-not-satisfied",
+            "reviewLoopState": review_loop_state,
+            "mergeBlocked": merge_blocked,
+            "mergeBlockers": list(status.get("derivedMergeBlockers") or []),
+            "externalReview": {
+                "required": external_review.get("required"),
+                "status": external_review.get("status"),
+                "verdict": external_review.get("verdict"),
+                "reviewedHeadSha": external_review.get("reviewedHeadSha"),
+            },
+            "headSha": pr.get("headRefOid"),
+        }
     code_host_client.merge_pull_request(
         pr.get('number'),
         squash=True,

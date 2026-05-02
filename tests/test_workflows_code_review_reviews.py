@@ -121,6 +121,28 @@ def test_should_dispatch_internal_review_repair_handoff_when_local_review_is_act
     assert result == {"shouldDispatch": True, "reason": None}
 
 
+def test_should_dispatch_internal_review_repair_handoff_allows_restart_session():
+    reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
+
+    result = reviews_module.should_dispatch_internal_review_repair_handoff(
+        lane_state={},
+        session_action={"action": "restart-session", "sessionName": "lane-224"},
+        internal_review={
+            "reviewScope": "local-prepublish",
+            "status": "completed",
+            "verdict": "REWORK",
+            "reviewedHeadSha": "head123",
+            "updatedAt": "2026-04-22T01:00:00Z",
+        },
+        repair_brief={"forHeadSha": "head123", "mustFix": [{"summary": "Fix this"}]},
+        workflow_state="pre_publish_review_findings",
+        current_head_sha="head123",
+        has_open_pr=False,
+    )
+
+    assert result == {"shouldDispatch": True, "reason": None}
+
+
 def test_should_dispatch_internal_review_repair_handoff_rejects_duplicate_handoff_for_same_review():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
@@ -171,6 +193,30 @@ def test_pr_ready_for_review_and_has_local_candidate_are_simple_truth_checks():
     assert reviews_module.pr_ready_for_review({"number": 1, "isDraft": False}) is True
     assert reviews_module.pr_ready_for_review({"number": 1, "isDraft": True}) is False
     assert reviews_module.pr_ready_for_review(None) is False
+
+    assert reviews_module.external_review_clean_for_head(
+        {
+            "required": True,
+            "reviewScope": "postpublish-pr",
+            "status": "completed",
+            "verdict": "PASS_CLEAN",
+            "reviewedHeadSha": "abc123",
+            "openFindingCount": 0,
+        },
+        "abc123",
+    ) is True
+    assert reviews_module.external_review_clean_for_head(
+        {
+            "required": True,
+            "reviewScope": "postpublish-pr",
+            "status": "pending",
+            "verdict": None,
+            "reviewedHeadSha": "abc123",
+            "openFindingCount": 0,
+        },
+        "abc123",
+    ) is False
+    assert reviews_module.external_review_clean_for_head({"required": False}, "abc123") is True
 
     assert reviews_module.has_local_candidate("abc123", 2) is True
     assert reviews_module.has_local_candidate("abc123", 0) is False
@@ -693,6 +739,21 @@ def test_external_review_review_shaping_helpers_cover_thread_mapping_findings_pe
         pr_signal={"state": "pending", "createdAt": "2026-04-23T00:11:00Z", "content": "eyes", "user": "codex-cloud"},
         agent_name="External_Reviewer_Agent",
     )
+    no_signal = reviews_module.summarize_external_review(
+        head_sha="head-4",
+        latest_ts=None,
+        threads=[],
+        pr_signal=None,
+        agent_name="External_Reviewer_Agent",
+    )
+    stale_signal = reviews_module.summarize_external_review(
+        head_sha="head-5",
+        latest_ts="2026-04-23T00:11:00Z",
+        threads=[],
+        pr_signal={"state": "clean", "createdAt": "2026-04-23T00:01:00Z", "content": "+1", "user": "codex-cloud"},
+        signal_current=False,
+        agent_name="External_Reviewer_Agent",
+    )
     clean = reviews_module.summarize_external_review(
         head_sha="head-3",
         latest_ts="2026-04-23T00:06:00Z",
@@ -706,9 +767,15 @@ def test_external_review_review_shaping_helpers_cover_thread_mapping_findings_pe
     assert findings["openFindingCount"] == 1
     assert findings["supersededOpenFindingCount"] == 1
     assert findings["blockingFindings"] == ["real blocker"]
-    assert pending["status"] == "completed"
+    assert pending["status"] == "pending"
     assert pending["verdict"] is None
     assert "still reviewing the current PR head" in pending["summary"]
+    assert no_signal["status"] == "pending"
+    assert no_signal["verdict"] is None
+    assert "Waiting for External_Reviewer_Agent" in no_signal["summary"]
+    assert stale_signal["status"] == "pending"
+    assert stale_signal["verdict"] is None
+    assert "older than the current PR head" in stale_signal["summary"]
     assert clean["verdict"] == "PASS_CLEAN"
     assert clean["allFindingsClosed"] is True
     assert "lingering open thread(s) were superseded" in clean["summary"]
@@ -829,7 +896,7 @@ def test_fetch_external_review_review_uses_cache_and_builds_from_graphql_threads
     cached = reviews_module.fetch_external_review(
         297,
         current_head_sha="head-1",
-        cached_review={"reviewedHeadSha": "head-1", "updatedAt": "cached-ts", "summary": "cached summary"},
+        cached_review={"reviewedHeadSha": "head-1", "updatedAt": "cached-ts", "summary": "cached summary", "verdict": "PASS_CLEAN"},
         fetch_pr_body_signal_fn=lambda _pr_number: (_ for _ in ()).throw(AssertionError("cache hit should skip signal fetch")),
         code_host_client=object(),
         codex_bot_logins={"codex-bot"},
@@ -868,6 +935,15 @@ def test_fetch_external_review_review_uses_cache_and_builds_from_graphql_threads
                 },
             }
 
+    class NoSignalCodeHost:
+        def fetch_pull_request_review_threads(self, pr_number):
+            assert pr_number == 298
+            return {
+                "headRefOid": "head-3",
+                "commits": {"nodes": [{"commit": {"oid": "head-3", "committedDate": "2026-04-23T00:10:00Z"}}]},
+                "reviewThreads": {"nodes": []},
+            }
+
     built = reviews_module.fetch_external_review(
         297,
         current_head_sha="head-other",
@@ -882,6 +958,34 @@ def test_fetch_external_review_review_uses_cache_and_builds_from_graphql_threads
         extract_summary_fn=lambda body: body,
         agent_name="External_Reviewer_Agent",
     )
+    pending_without_signal = reviews_module.fetch_external_review(
+        298,
+        current_head_sha="head-3",
+        cached_review=None,
+        fetch_pr_body_signal_fn=lambda _pr_number: None,
+        code_host_client=NoSignalCodeHost(),
+        codex_bot_logins={"codex-bot"},
+        cache_seconds=30,
+        iso_to_epoch_fn=lambda value: {"2026-04-23T00:10:00Z": 100}.get(value),
+        now_epoch_fn=lambda: 999,
+        extract_severity_fn=lambda body: "minor",
+        extract_summary_fn=lambda body: body,
+        agent_name="External_Reviewer_Agent",
+    )
+    stale_clean_signal = reviews_module.fetch_external_review(
+        298,
+        current_head_sha="head-3",
+        cached_review=None,
+        fetch_pr_body_signal_fn=lambda _pr_number: {"state": "clean", "createdAt": "2026-04-23T00:01:00Z", "content": "+1", "user": "codex-bot"},
+        code_host_client=NoSignalCodeHost(),
+        codex_bot_logins={"codex-bot"},
+        cache_seconds=30,
+        iso_to_epoch_fn=lambda value: {"2026-04-23T00:01:00Z": 10, "2026-04-23T00:10:00Z": 100}.get(value),
+        now_epoch_fn=lambda: 999,
+        extract_severity_fn=lambda body: "minor",
+        extract_summary_fn=lambda body: body,
+        agent_name="External_Reviewer_Agent",
+    )
 
     assert cached["summary"] == "cached summary"
     assert cached["required"] is True
@@ -890,6 +994,12 @@ def test_fetch_external_review_review_uses_cache_and_builds_from_graphql_threads
     assert built["openFindingCount"] == 1
     assert built["supersededOpenFindingCount"] == 1
     assert built["blockingFindings"] == ["sev0 blocker"]
+    assert pending_without_signal["status"] == "pending"
+    assert pending_without_signal["verdict"] is None
+    assert "clean PR-body review signal" in pending_without_signal["summary"]
+    assert stale_clean_signal["status"] == "pending"
+    assert stale_clean_signal["verdict"] is None
+    assert "older than the current PR head" in stale_clean_signal["summary"]
 
 
 def test_codex_parsing_and_checks_helpers_cover_severity_summary_and_acceptability():
@@ -1136,6 +1246,44 @@ def test_run_inter_review_agent_review_returns_parsed_payload_on_success():
     assert "--model" in seen["command"]
 
 
+def test_run_inter_review_agent_review_uses_codex_for_gpt_models(tmp_path):
+    reviews_module = load_module("daedalus_workflows_change_delivery_reviews_riar_codex", "workflows/change_delivery/reviews.py")
+    ok_payload = (
+        '{"verdict":"PASS_CLEAN","summary":"fine","blockingFindings":[],'
+        '"majorConcerns":[],"minorSuggestions":[],"requiredNextAction":null}'
+    )
+
+    class _Completed:
+        stdout = "codex logs"
+
+    seen: dict = {}
+
+    def fake_run(command, cwd=None):
+        seen["command"] = command
+        seen["cwd"] = str(cwd) if cwd else None
+        output_path = Path(command[command.index("-o") + 1])
+        output_path.write_text(ok_payload, encoding="utf-8")
+        return _Completed()
+
+    result = reviews_module.run_inter_review_agent_review(
+        issue={"number": 1, "title": "T", "url": "https://example.test/1"},
+        worktree=tmp_path,
+        lane_memo_path=None,
+        lane_state_path=None,
+        head_sha="abc123",
+        run_fn=fake_run,
+        inter_review_agent_model="gpt-5.3-codex",
+        inter_review_agent_max_turns=10,
+        error_cls=_FakeCalledProcessError,
+    )
+
+    assert result["verdict"] == "PASS_CLEAN"
+    assert seen["command"][:2] == ["codex", "exec"]
+    assert "--dangerously-bypass-approvals-and-sandbox" in seen["command"]
+    assert seen["command"][seen["command"].index("-m") + 1] == "gpt-5.3-codex"
+    assert seen["cwd"] == str(tmp_path)
+
+
 def test_run_inter_review_agent_review_extracts_payload_from_stdout_on_cli_error():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_riar", "workflows/change_delivery/reviews.py")
     crashed_payload = (
@@ -1279,6 +1427,32 @@ def test_build_reviews_block_routes_postpublish_defaults_when_pr_is_ready_for_re
     assert reviews["externalReview"]["reviewScope"] == "postpublish-pr"
     assert reviews["externalReview"]["agentName"] == "External_Reviewer_Agent"
     assert reviews["rockClaw"]["required"] is False
+
+
+def test_build_reviews_block_respects_disabled_external_review_after_publish():
+    reviews_module = load_module("daedalus_workflows_change_delivery_reviews_brb_disabled", "workflows/change_delivery/reviews.py")
+
+    reviews = reviews_module.build_reviews_block(
+        existing_reviews={},
+        external_review={
+            "required": False,
+            "status": "skipped",
+            "summary": "External review disabled.",
+            "reviewScope": "postpublish-pr",
+        },
+        publish_ready=True,
+        local_head_sha="prsha",
+        local_candidate_exists=False,
+        inter_review_agent_model="claude-sonnet-4-6",
+        internal_reviewer_agent_name="Internal_Reviewer_Agent",
+        external_reviewer_agent_name="External_Reviewer_Agent",
+        advisory_reviewer_agent_name="Advisory_Reviewer_Agent",
+        now_iso="2026-04-23T00:00:00Z",
+    )
+
+    assert reviews["externalReview"]["required"] is False
+    assert reviews["externalReview"]["status"] == "skipped"
+    assert reviews["externalReview"]["summary"] == "External review disabled."
 
 
 def test_build_reviews_block_seeds_local_prepublish_for_draft_pr_state():

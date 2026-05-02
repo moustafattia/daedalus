@@ -1402,7 +1402,7 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
             "reason": "local-repair-head-ahead-of-published-pr",
         }]
     if (
-        workflow_state == "awaiting_pre_publish_review"
+        workflow_state in {"awaiting_pre_publish_review", "pre_publish_review_findings", "rework_required"}
         and not active_pr_number
         and internal_review_needs_request
     ):
@@ -3836,6 +3836,101 @@ def run_shadow_loop(
     }
 
 
+def _ledger_active_lane_number(ledger: dict[str, Any]) -> Any:
+    active_lane = ledger.get("activeLane")
+    if isinstance(active_lane, dict):
+        return active_lane.get("number")
+    return active_lane
+
+
+def _active_iteration_reconcile_trigger(legacy_status: dict[str, Any] | None) -> str | None:
+    status = legacy_status or {}
+    active_lane = status.get("activeLane") or {}
+    issue_number = active_lane.get("number")
+    if issue_number is None:
+        return None
+
+    if status.get("health") == "stale-ledger":
+        return "stale-ledger"
+
+    ledger = status.get("ledger") or {}
+    ledger_active = _ledger_active_lane_number(ledger)
+    workflow_state = str(ledger.get("workflowState") or "").strip()
+    next_action = status.get("nextAction") or {}
+    if (
+        ledger_active not in {issue_number, str(issue_number), f"lane:{issue_number}"}
+        and workflow_state in {"", "idle", "unknown"}
+    ):
+        return "active-lane-ledger-mismatch"
+    if workflow_state in {"", "idle", "unknown"} and next_action.get("type") == "noop":
+        return "active-lane-idle-ledger"
+    return None
+
+
+def _maybe_reconcile_active_iteration_status(
+    *,
+    workflow_root: Path,
+    legacy_status: dict[str, Any],
+    legacy_workspace: Any | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    trigger = _active_iteration_reconcile_trigger(legacy_status)
+    if not trigger:
+        return legacy_status, {"attempted": False, "reason": "status-current"}
+
+    try:
+        workspace = legacy_workspace or _load_legacy_workflow_module(workflow_root)
+    except Exception as exc:
+        return legacy_status, {
+            "attempted": True,
+            "ok": False,
+            "trigger": trigger,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    reconcile = getattr(workspace, "reconcile", None)
+    if not callable(reconcile):
+        return legacy_status, {
+            "attempted": False,
+            "reason": "reconcile-unavailable",
+            "trigger": trigger,
+        }
+    try:
+        signature = inspect.signature(reconcile)
+        accepts_fix_watchers = "fix_watchers" in signature.parameters or any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+    except (TypeError, ValueError):
+        accepts_fix_watchers = True
+    try:
+        if accepts_fix_watchers:
+            reconciled = reconcile(fix_watchers=True)
+        else:
+            reconciled = reconcile()
+    except Exception as exc:
+        return legacy_status, {
+            "attempted": True,
+            "ok": False,
+            "trigger": trigger,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    if not isinstance(reconciled, dict):
+        return legacy_status, {
+            "attempted": True,
+            "ok": False,
+            "trigger": trigger,
+            "reason": "reconcile-returned-non-dict",
+        }
+    return reconciled, {
+        "attempted": True,
+        "ok": True,
+        "trigger": trigger,
+        "health": reconciled.get("health"),
+        "active_lane": (reconciled.get("activeLane") or {}).get("number"),
+        "workflow_state": (reconciled.get("ledger") or {}).get("workflowState"),
+    }
+
+
 def _run_active_iteration_body(
     *,
     workflow_root: Path,
@@ -3849,9 +3944,15 @@ def _run_active_iteration_body(
     heartbeat = refresh_runtime_lease(workflow_root=workflow_root, instance_id=instance_id, now_iso=now_iso)
     if not heartbeat.get("refreshed"):
         return {"iteration_status": "blocked", "reason": heartbeat.get("reason"), "owner_instance_id": heartbeat.get("owner_instance_id")}
+    legacy = None
     if legacy_status is None:
         legacy = _load_legacy_workflow_module(workflow_root)
         legacy_status = legacy.build_status()
+    legacy_status, auto_reconcile = _maybe_reconcile_active_iteration_status(
+        workflow_root=workflow_root,
+        legacy_status=legacy_status,
+        legacy_workspace=legacy,
+    )
     comparison = compare_with_legacy_status(workflow_root=workflow_root, legacy_status=legacy_status, now_iso=now_iso)
     gate = evaluate_active_execution_gate(workflow_root=workflow_root, legacy_status=legacy_status)
     if not comparison.get("compatible"):
@@ -3868,6 +3969,7 @@ def _run_active_iteration_body(
             "gate": gate,
             "comparison": comparison,
             "ingested": ingested,
+            "auto_reconcile": auto_reconcile,
             "dispatched_reap": {"checked": 0, "reaped": 0, "failures": [], "recovery_actions": []},
         }
     lane_id = ingested.get("lane_id")
@@ -3879,6 +3981,7 @@ def _run_active_iteration_body(
             "gate": gate,
             "comparison": comparison,
             "ingested": ingested,
+            "auto_reconcile": auto_reconcile,
             "requested_actions": [],
             "executed_action": None,
             "stalled_recoveries": {"checked": 0, "stalled": 0, "escalated": []},
@@ -3907,6 +4010,7 @@ def _run_active_iteration_body(
             "gate": gate,
             "comparison": comparison,
             "ingested": ingested,
+            "auto_reconcile": auto_reconcile,
             "requested_actions": [],
             "executed_action": None,
             "stalled_recoveries": stalled_recoveries,
@@ -3925,6 +4029,7 @@ def _run_active_iteration_body(
         "gate": gate,
         "comparison": comparison,
         "ingested": ingested,
+        "auto_reconcile": auto_reconcile,
         "requested_actions": requested_actions,
         "executed_action": executed_action,
         "stalled_recoveries": stalled_recoveries,

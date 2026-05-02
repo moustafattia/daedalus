@@ -183,15 +183,23 @@ def get_active_lane_from_repo(
     run_json: Callable[..., list[dict[str, Any]]],
     active_lane_label: str = "active-lane",
 ) -> dict[str, Any] | None:
-    client = GithubTrackerClient(
-        workflow_root=repo_path,
-        repo_path=repo_path,
-        tracker_cfg={"kind": "github"},
-        run_json=run_json,
-    )
-    items = client.list_open_issue_payloads(
-        limit=200,
-        fields="number,title,url,labels,assignees,updatedAt",
+    # Query the lane label directly. Repos can have more than 200 open issues,
+    # so scanning the newest open issues can miss an older selected lane.
+    items = run_json(
+        [
+            "gh",
+            "issue",
+            "list",
+            "--state",
+            "open",
+            "--label",
+            active_lane_label,
+            "--limit",
+            "100",
+            "--json",
+            "number,title,url,labels,assignees,updatedAt",
+        ],
+        cwd=repo_path,
     )
     items = [
         item

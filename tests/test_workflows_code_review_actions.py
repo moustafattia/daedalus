@@ -206,7 +206,22 @@ def test_run_merge_and_promote_promotes_next_lane_after_merge():
 
     def fake_reconcile(*, fix_watchers=False):
         reconcile_calls.append(fix_watchers)
-        return {"activeLane": {"number": 224, "title": "T"}, "openPr": {"number": 301}}
+        return {
+            "activeLane": {"number": 224, "title": "T"},
+            "openPr": {"number": 301, "headRefOid": "prsha"},
+            "derivedReviewLoopState": "clean",
+            "derivedMergeBlocked": False,
+            "reviews": {
+                "externalReview": {
+                    "required": True,
+                    "reviewScope": "postpublish-pr",
+                    "status": "completed",
+                    "verdict": "PASS_CLEAN",
+                    "reviewedHeadSha": "prsha",
+                    "openFindingCount": 0,
+                }
+            },
+        }
 
     calls: dict = {"audits": [], "issue": []}
     code_host = FakeCodeHost()
@@ -247,6 +262,47 @@ def test_run_merge_and_promote_promotes_next_lane_after_merge():
     assert code_host.calls[0] == ("merge", 301, {"squash": True, "delete_branch": True})
     assert ("remove", 224, "P0") in calls["issue"]
     assert ("add", 225, "P0") in calls["issue"]
+
+
+def test_run_merge_and_promote_refuses_when_external_review_is_not_clean():
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_map", "workflows/change_delivery/actions.py")
+    code_host = FakeCodeHost()
+
+    def fake_reconcile(*, fix_watchers=False):
+        return {
+            "activeLane": {"number": 224, "title": "T"},
+            "openPr": {"number": 301, "headRefOid": "prsha"},
+            "derivedReviewLoopState": "awaiting_reviews",
+            "derivedMergeBlocked": True,
+            "derivedMergeBlockers": ["externalReview-pending"],
+            "reviews": {
+                "externalReview": {
+                    "required": True,
+                    "reviewScope": "postpublish-pr",
+                    "status": "pending",
+                    "verdict": None,
+                    "reviewedHeadSha": "prsha",
+                    "openFindingCount": 0,
+                }
+            },
+        }
+
+    result = actions_module.run_merge_and_promote(
+        reconcile_fn=fake_reconcile,
+        audit_fn=lambda *a, **k: None,
+        issue_remove_label_fn=lambda *a, **k: None,
+        issue_close_fn=lambda *a, **k: None,
+        issue_add_label_fn=lambda *a, **k: None,
+        issue_comment_fn=lambda *a, **k: None,
+        pick_next_lane_issue_fn=lambda: None,
+        now_iso_fn=lambda: "2026-04-23T00:00:00Z",
+        active_lane_label="P0",
+        code_host_client=code_host,
+    )
+
+    assert result["merged"] is False
+    assert result["reason"] == "merge-gate-not-satisfied"
+    assert code_host.calls == []
 
 
 def test_run_ensure_active_lane_promotes_first_eligible_issue():

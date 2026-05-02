@@ -390,6 +390,56 @@ def test_derive_shadow_actions_requests_internal_review_after_terminal_review_st
     ]
 
 
+def test_derive_shadow_actions_reruns_internal_review_after_local_repair(runtime_module):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:250",
+            "issue_number": 250,
+            "workflow_state": "pre_publish_review_findings",
+            "required_internal_review": 1,
+            "active_pr_number": None,
+            "current_head_sha": "newhead",
+        },
+        reviews=[
+            {
+                "reviewer_scope": "internal",
+                "status": "completed",
+                "verdict": "REWORK",
+                "review_scope": "local-prepublish",
+                "reviewed_head_sha": "oldhead",
+                "requested_head_sha": "oldhead",
+                "completed_at": "2026-05-02T02:27:33Z",
+            }
+        ],
+        actor_row={
+            "backend_identity": "lane-250",
+            "runtime_status": "healthy",
+            "session_action_recommendation": "continue-session",
+            "metadata_json": json.dumps(
+                {
+                    "sessionControl": {
+                        "lastInternalReviewRepairHandoff": {
+                            "sessionName": "lane-250",
+                            "headSha": "oldhead",
+                            "reviewedAt": "2026-05-02T02:27:33Z",
+                        }
+                    }
+                }
+            ),
+        },
+    )
+
+    assert actions == [
+        {
+            "action_type": "request_internal_review",
+            "lane_id": "lane:250",
+            "issue_number": 250,
+            "target_head_sha": "newhead",
+            "reason": "internal-review-pending",
+        }
+    ]
+
+
 def test_derive_shadow_actions_dispatches_local_review_repair_handoff_when_session_routable(runtime_module):
     actions = runtime_module.derive_shadow_actions_for_lane(
         lane_row={
@@ -1099,6 +1149,70 @@ def test_run_active_loop_reconciles_fast_supervised_iteration_before_bounded_exi
     finally:
         conn.close()
     assert action_status == "completed"
+
+
+def test_run_active_iteration_auto_reconciles_stale_ledger_before_deriving_actions(runtime_module, tmp_path, monkeypatch):
+    workflow_root = tmp_path / "workflow"
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    runtime_module.bootstrap_runtime(
+        workflow_root=workflow_root,
+        project_key="workflow-example",
+        instance_id="active-test",
+        mode="active",
+        now_iso="2026-04-22T00:00:00Z",
+    )
+    stale_status = _active_dispatch_legacy_status()
+    stale_status["health"] = "stale-ledger"
+    stale_status["ledger"] = {
+        "activeLane": None,
+        "workflowState": "idle",
+        "reviewState": "idle",
+        "repairBrief": None,
+    }
+    stale_status["nextAction"] = {"type": "noop", "reason": "no-forward-action-needed"}
+
+    reconciled_status = _active_dispatch_legacy_status()
+    reconciled_status["health"] = "healthy"
+    reconciled_status["ledger"] = {
+        **reconciled_status["ledger"],
+        "activeLane": 221,
+    }
+
+    calls = {"reconcile": 0, "dispatch": 0}
+
+    class FakeWorkspace:
+        def reconcile(self, *, fix_watchers=False):
+            calls["reconcile"] += 1
+            assert fix_watchers is True
+            return reconciled_status
+
+    monkeypatch.setattr(runtime_module, "_load_legacy_workflow_module", lambda _workflow_root: FakeWorkspace())
+
+    def run_action():
+        calls["dispatch"] += 1
+        return {"dispatched": True, "after": reconciled_status}
+
+    result = runtime_module.run_active_iteration(
+        workflow_root=workflow_root,
+        instance_id="active-test",
+        legacy_status=stale_status,
+        now_iso="2026-04-22T00:01:00Z",
+        action_runners={"dispatch_implementation_turn": run_action},
+    )
+
+    assert result["auto_reconcile"] == {
+        "attempted": True,
+        "ok": True,
+        "trigger": "stale-ledger",
+        "health": "healthy",
+        "active_lane": 221,
+        "workflow_state": "implementing_local",
+    }
+    assert result["iteration_status"] == "executed"
+    assert result["comparison"]["legacy_action_type"] == "dispatch_implementation_turn"
+    assert result["comparison"]["relay_action_type"] == "dispatch_implementation_turn"
+    assert result["requested_actions"][0]["action_type"] == "dispatch_implementation_turn"
+    assert calls == {"reconcile": 1, "dispatch": 1}
 
 
 def test_runtime_event_retention_uses_repo_owned_workflow_contract(runtime_module, tmp_path):

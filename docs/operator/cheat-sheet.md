@@ -15,6 +15,7 @@ It is specifically written for the opinionated `change-delivery` workflow.
 | **Full health check** | `/daedalus doctor` |
 | **Validate config** | `/daedalus validate` |
 | **Live dashboard** | `/daedalus watch` |
+| **Ticket progress with agent transcript** | `scripts/daedalus-ticket-progress watch --verbose` |
 | **Event retention posture** | `/daedalus events stats` |
 | **Service health** | `systemctl --user status daedalus-active@<profile>.service` |
 | **Recent logs** | `journalctl --user -u daedalus-active@<profile>.service -n 200` |
@@ -111,6 +112,24 @@ python3 ~/.hermes/plugins/daedalus/runtime.py \
   --workflow-root ~/.hermes/workflows/<owner>-<repo>-<workflow-type> \
   --lane-id lane:220 --json
 ```
+
+### Ticket Progress Helper
+
+```bash
+# Compact one-shot status for the active lane.
+scripts/daedalus-ticket-progress
+
+# Live active ticket status plus Codex transcript messages and recent tool calls.
+scripts/daedalus-ticket-progress watch --verbose
+
+# Faster refresh or explicit workflow root.
+DAEDALUS_PROGRESS_INTERVAL=2 scripts/daedalus-ticket-progress watch --verbose
+scripts/daedalus-ticket-progress --workflow-root ~/.hermes/workflows/<profile> --verbose
+```
+
+The helper reads Daedalus status, runs, events, the active worktree git state,
+and matching Codex JSONL sessions under `~/.codex/sessions`. It redacts common
+token, secret, signed URL, and authorization patterns before rendering output.
 
 ### Service Control
 
