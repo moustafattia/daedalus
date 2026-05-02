@@ -208,11 +208,11 @@ def reconcile_stalls_tick(
     orchestrator,
     now: float | None = None,
 ) -> list:
-    from workflows.change_delivery.event_taxonomy import (
+    from workflows.event_taxonomy import (
         DAEDALUS_STALL_DETECTED,
         DAEDALUS_STALL_TERMINATED,
     )
-    from workflows.change_delivery.stall import reconcile_stalls
+    from workflows.stall import reconcile_stalls
 
     if now is None:
         now = time.monotonic()

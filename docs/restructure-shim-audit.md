@@ -48,8 +48,8 @@ The public root-level `workflows/` compatibility package remains.
 
 ## Removed In Turn 12
 
-- Private duplicate change-delivery storage path resolver, replaced by
-  `workflows.change_delivery.config.ChangeDeliveryConfig`.
+- Private duplicate change-delivery storage path resolver, removed with the
+  legacy workflow package.
 
 No public shim was removed in this branch because root-level compatibility
 packages are still listed as stable public contract.

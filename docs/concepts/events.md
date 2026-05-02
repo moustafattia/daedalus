@@ -15,7 +15,7 @@ These event streams are consumed by:
 State is workflow-specific. **History is in events.** Never reconstruct current state by replaying events.
 
 - Shared engine execution state is in SQLite: work items, running workers, retry queue, runtime sessions, and token totals.
-- `change-delivery` adds workflow-specific SQLite state: lanes, actions, reviews, failures, and leases.
+- `agentic` adds workflow-specific state through generic stages, actor outputs, action results, and orchestrator decisions.
 - JSON status/health/scheduler files are projections for operators and file-oriented tools.
 - Engine events are queryable by run, work item, type, and severity.
 - JSONL audit files are retained as write-ahead/debug tails, not the primary operator query path.
@@ -35,7 +35,7 @@ State is workflow-specific. **History is in events.** Never reconstruct current 
 
 ## Taxonomy (Symphony §10.4)
 
-Daedalus follows the Symphony event taxonomy with a `daedalus.*` prefix on orchestration events. The bare names are defined as Symphony-compatible aliases (`workflows.change_delivery.event_taxonomy.EVENT_ALIASES`) and run for one release before the prefixed form becomes the only canonical type.
+Daedalus follows the Symphony event taxonomy with a `daedalus.*` prefix on orchestration events.
 
 ```mermaid
 flowchart LR
@@ -75,7 +75,7 @@ flowchart LR
 | Lane-level (Daedalus orchestration) | accepted (alias window) | ✅ canonical |
 | Session-level | ✅ canonical | also accepted |
 
-`workflows.change_delivery.event_taxonomy.canonicalize(event_type)` resolves either form to the current canonical name.
+`workflows.event_taxonomy.canonicalize(event_type)` resolves event names to the current canonical name.
 
 ## Event writer
 

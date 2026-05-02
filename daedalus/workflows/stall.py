@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Mapping, Protocol
-
-from workflows.config_snapshot import ConfigSnapshot
+from typing import Any, Literal, Mapping, Protocol
 
 _DEFAULT_TIMEOUT_MS = 300_000
 
@@ -24,7 +22,7 @@ class _RunningEntry(Protocol):
 
 
 def reconcile_stalls(
-    snapshot: ConfigSnapshot,
+    snapshot: Any,
     running: Mapping[str, object],
     now: float,
 ) -> list[StallVerdict]:

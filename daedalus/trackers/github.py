@@ -409,8 +409,6 @@ class GithubTrackerClient:
         return sorted(issues.values(), key=issue_priority_sort_key)
 
     def list_candidates(self) -> list[dict[str, Any]]:
-        from workflows.issue_runner.tracker import eligible_issues
-
         issues = [
             normalize_github_issue(payload)
             for payload in self.list_issue_payloads(
@@ -419,7 +417,7 @@ class GithubTrackerClient:
                 fields="number,title,url,body,labels,createdAt,updatedAt,state",
             )
         ]
-        return eligible_issues(tracker_cfg=self._tracker_cfg, issues=issues)
+        return sorted(issues, key=issue_priority_sort_key)
 
     def refresh(self, issue_ids: list[str]) -> dict[str, dict[str, Any]]:
         refreshed: dict[str, dict[str, Any]] = {}

@@ -139,8 +139,6 @@ class LinearTrackerClient:
         return sorted(issues.values(), key=issue_priority_sort_key)
 
     def list_candidates(self) -> list[dict[str, Any]]:
-        from workflows.issue_runner.tracker import eligible_issues
-
         raw_issues = self._query_issues_by_states(
             _configured_states(
                 self._tracker_cfg,
@@ -149,10 +147,7 @@ class LinearTrackerClient:
                 default=DEFAULT_ACTIVE_STATES,
             )
         )
-        return eligible_issues(
-            tracker_cfg=self._tracker_cfg,
-            issues=[normalize_linear_issue(issue) for issue in raw_issues],
-        )
+        return [normalize_linear_issue(issue) for issue in raw_issues]
 
     def refresh(self, issue_ids: list[str]) -> dict[str, dict[str, Any]]:
         ids = [str(issue_id).strip() for issue_id in issue_ids if str(issue_id).strip()]

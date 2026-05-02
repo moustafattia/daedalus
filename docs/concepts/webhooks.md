@@ -101,7 +101,7 @@ This is the same contract used by `workspace._make_audit_fn`.
    - `name: str`
    - `deliver(audit_event: dict) -> None`
    - `matches(audit_event: dict) -> bool`
-2. Decorate with `@register("your-kind")` from `workflows.change_delivery.webhooks`.
+2. Decorate with `@register("your-kind")` from the notification/webhook registry used by the deployment.
 3. Add the kind to `schema.yaml`.
 4. Lazy-import in `build_webhooks` so side-effect registration happens.
 

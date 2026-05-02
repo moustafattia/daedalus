@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from workflows.agentic.config import ActorConfig, AgenticConfig
+from workflows.config import ActorConfig, AgenticConfig
 
 
 DEFAULT_ACTOR_OUTPUT = (

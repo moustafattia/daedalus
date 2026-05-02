@@ -22,21 +22,20 @@ _REQUIRED_ATTRS = (
 
 
 def load_workflow(name: str) -> ModuleType:
-    """Import ``workflows.<slug>`` and verify it meets the public contract."""
+    """Import a workflow module and verify it meets the public contract."""
 
     workflow = load_workflow_object(name)
-    module = importlib.import_module(f"workflows.{name.replace('-', '_')}")
+    module = _import_workflow_module(name)
     if module.NAME != workflow.name:
         raise WorkflowContractError(
-            f"workflow module workflows/{name.replace('-', '_')} declares NAME={module.NAME!r}, "
+            f"workflow module for {name!r} declares NAME={module.NAME!r}, "
             f"which does not match the workflow object {workflow.name!r}"
         )
     return module
 
 
 def load_workflow_object(name: str) -> Workflow:
-    slug = name.replace("-", "_")
-    module = importlib.import_module(f"workflows.{slug}")
+    module = _import_workflow_module(name)
     workflow = getattr(module, "WORKFLOW", None)
     if workflow is None:
         missing = [attr for attr in _REQUIRED_ATTRS if not hasattr(module, attr)]
@@ -47,10 +46,15 @@ def load_workflow_object(name: str) -> Workflow:
         workflow = ModuleWorkflow(module)
     if workflow.name != name:
         raise WorkflowContractError(
-            f"workflow module workflows/{slug} declares NAME={workflow.name!r}, "
-            f"which does not match the directory '{name}'"
+            f"workflow module for {name!r} declares NAME={workflow.name!r}"
         )
     return workflow
+
+
+def _import_workflow_module(name: str) -> ModuleType:
+    if name == "agentic":
+        return importlib.import_module("workflows")
+    return importlib.import_module(f"workflows.{name.replace('-', '_')}")
 
 
 def run_cli(
@@ -131,17 +135,4 @@ def _emit_dispatch_skipped_event(
 
 
 def list_workflows() -> list[str]:
-    pkg_dir = Path(__file__).parent
-    names: list[str] = []
-    for entry in sorted(pkg_dir.iterdir()):
-        if not entry.is_dir() or entry.name.startswith("_"):
-            continue
-        init_file = entry / "__init__.py"
-        if not init_file.exists():
-            continue
-        try:
-            workflow = load_workflow_object(entry.name.replace("_", "-"))
-        except Exception:
-            continue
-        names.append(workflow.name)
-    return names
+    return ["agentic"]

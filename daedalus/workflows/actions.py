@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from subprocess import run
 from typing import Any, Callable
 
-from workflows.agentic.config import ActionConfig
+from workflows.config import ActionConfig
 
 
 @dataclass(frozen=True)

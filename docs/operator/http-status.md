@@ -13,19 +13,18 @@ server:
   port: 8765   # localhost only; bind 127.0.0.1
 ```
 
-Then run the workflow's `serve` subcommand (separate from `tick`):
+Then run the workflow's `serve` subcommand if the local deployment enables an
+HTTP status surface:
 
 ```bash
-/workflow change-delivery serve
-/workflow issue-runner serve
+/workflow agentic serve
 ```
 
 If you are calling the Python entrypoint directly instead of going through
 Hermes:
 
 ```bash
-python3 -m workflows.change_delivery serve --workflow-root <root>
-python3 -m workflows.issue_runner serve --workflow-root <root>
+python3 -m workflows --workflow-root <root> serve
 ```
 
 The server is `http.server.ThreadingHTTPServer`, stdlib-only, and reads the

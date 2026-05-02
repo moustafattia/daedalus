@@ -1,7 +1,7 @@
 """Gate helpers for agentic workflows."""
 from __future__ import annotations
 
-from workflows.agentic.config import AgenticConfig, AgenticConfigError
+from workflows.config import AgenticConfig, AgenticConfigError
 
 
 def validate_stage_gates(config: AgenticConfig, stage_name: str) -> None:

@@ -1,7 +1,9 @@
-"""Operator HTTP status server compatibility exports."""
+"""Operator HTTP status server placeholder for the flat agentic workflow."""
+from __future__ import annotations
 
-try:
-    from workflows.change_delivery.server import *  # type: ignore # noqa: F401,F403
-except ModuleNotFoundError:
-    from daedalus.workflows.change_delivery.server import *  # type: ignore # noqa: F401,F403
 
+def start_server(*args, **kwargs):
+    raise RuntimeError("legacy workflow HTTP server was removed; use workflow: agentic CLI status instead")
+
+
+__all__ = ["start_server"]

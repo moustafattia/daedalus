@@ -4,13 +4,13 @@ from __future__ import annotations
 from typing import Any
 import json
 
-from workflows.agentic.actions import run_action
-from workflows.agentic.actors import build_actor_runtime
-from workflows.agentic.config import AgenticConfig
-from workflows.agentic.contract import AgenticPolicy
-from workflows.agentic.gates import validate_stage_gates
-from workflows.agentic.prompts import build_actor_prompt
-from workflows.agentic.state import WorkflowState
+from workflows.actions import run_action
+from workflows.actors import build_actor_runtime
+from workflows.config import AgenticConfig
+from workflows.contract import WorkflowPolicy
+from workflows.gates import validate_stage_gates
+from workflows.prompts import build_actor_prompt
+from workflows.state import WorkflowState
 
 
 def actor_variables(
@@ -29,7 +29,7 @@ def actor_variables(
 def run_stage_actor(
     *,
     config: AgenticConfig,
-    policy: AgenticPolicy,
+    policy: WorkflowPolicy,
     state: WorkflowState,
     actor_name: str,
     inputs: dict[str, Any],

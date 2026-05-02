@@ -39,7 +39,7 @@ States with no outgoing arrows in this diagram (other than terminal `merged` / `
 | `lane_id` | string | Stable identifier (UUID v4). |
 | `issue_number` | int | GitHub issue number. The friendly form `#42` is what humans use. |
 | `issue_url` | string | Full URL — for clicking from the dashboard. |
-| `workflow_state` | enum | One of the states above. Owned by the `change-delivery` workflow package. |
+| `workflow_state` | enum | One of the states above. Owned by `WORKFLOW.md` policy and persisted as agentic state. |
 | `lane_status` | enum | `running` / `retrying` / `merged` / `closed` / `archived`. Owned by Daedalus. |
 | `active_actor_id` | string \| null | Lease holder for the next action, or `null` when idle. |
 | `current_action_id` | string \| null | Running action row, or `null`. |
@@ -49,7 +49,7 @@ States with no outgoing arrows in this diagram (other than terminal `merged` / `
 
 ## Terminal states
 
-`merged`, `closed`, and `archived` are terminal. The `workflows.change_delivery.server.views._TERMINAL_LANE_STATUSES` set keeps these out of the operator dashboard. Anything else is "active" for observability purposes.
+`merged`, `closed`, and `archived` are terminal. Agentic state projections keep terminal work out of the active operator view. Anything else is "active" for observability purposes.
 
 ## Lane selection
 

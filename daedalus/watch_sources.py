@@ -21,7 +21,6 @@ from typing import Any
 
 from engine.state import read_engine_events, read_engine_runs, read_engine_scheduler_state
 from engine.work_items import work_item_from_issue
-from workflows.change_delivery.work_items import lane_to_work_item_ref
 from workflows.contract import WorkflowContractError, load_workflow_contract
 
 # Sibling-import boilerplate.
@@ -250,7 +249,16 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
                 "issue_identifier": f"#{row[2]}",
                 "lane_status": row[3],
             }
-            lane["work_item"] = lane_to_work_item_ref(lane).to_dict()
+            lane["work_item"] = work_item_from_issue(
+                {
+                    "id": str(lane.get("issue_id") or lane.get("issue_identifier") or lane.get("id") or ""),
+                    "identifier": str(lane.get("issue_identifier") or lane.get("issue_number") or lane.get("id") or ""),
+                    "title": str(lane.get("title") or ""),
+                    "url": lane.get("url"),
+                    "state": lane.get("state"),
+                },
+                source="agentic",
+            ).to_dict()
             out.append(lane)
     except sqlite3.OperationalError:
         out = []

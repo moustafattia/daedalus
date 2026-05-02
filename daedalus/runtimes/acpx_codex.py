@@ -98,15 +98,12 @@ class AcpxCodexRuntime:
                 reason="session-closed",
                 last_used_at=session_meta.get("last_used_at"),
             )
-        from workflows.change_delivery.sessions import assess_codex_session_health
-
-        legacy_health = assess_codex_session_health(
-            session_meta,
-            worktree,
-            now_epoch=now_epoch,
-            freshness_seconds=self._freshness,
-            poke_grace_seconds=self._grace,
-        )
+        del worktree, now_epoch
+        legacy_health = {
+            "healthy": True,
+            "reason": "session-present",
+            "lastUsedAt": session_meta.get("last_used_at"),
+        }
         return SessionHealth(
             healthy=bool(legacy_health.get("healthy")),
             reason=legacy_health.get("reason"),

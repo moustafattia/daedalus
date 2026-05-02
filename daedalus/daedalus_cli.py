@@ -49,7 +49,7 @@ from workflows.runtime_presets import (
     runtime_stage_checks,
 )
 from workflows.runtime_matrix import build_runtime_matrix_report
-from workflows.change_delivery.storage import ensure_change_delivery_state_files
+from workflows.storage import ensure_workflow_state_files as ensure_change_delivery_state_files
 from workflows.paths import (
     derive_workflow_instance_name,
     project_key_for_workflow_root,
@@ -58,7 +58,7 @@ from workflows.paths import (
     runtime_paths,
     workflow_cli_argv,
 )
-from workflows.change_delivery.status import build_status as build_workflow_status
+from workflows.status import build_status as build_workflow_status
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 DEFAULT_WORKFLOW_ROOT_ENV_VARS = ("DAEDALUS_WORKFLOW_ROOT",)
@@ -323,31 +323,11 @@ def _load_workflow_module_for_root(workflow_root: Path):
 
 
 def _load_issue_runner_workspace(workflow_root: Path):
-    try:
-        from workflows.issue_runner.workspace import load_workspace_from_config
-    except ImportError:
-        path = PLUGIN_DIR / "workflows" / "issue_runner" / "workspace.py"
-        spec = importlib.util.spec_from_file_location("daedalus_issue_runner_workspace_for_tools", path)
-        if spec is None or spec.loader is None:
-            raise DaedalusCommandError(f"unable to load issue-runner workspace module from {path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        load_workspace_from_config = module.load_workspace_from_config
-    return load_workspace_from_config(workspace_root=workflow_root)
+    raise DaedalusCommandError("issue-runner was removed; use workflow: agentic")
 
 
 def _load_change_delivery_workspace(workflow_root: Path):
-    try:
-        from workflows.change_delivery.workspace import load_workspace_from_config
-    except ImportError:
-        path = PLUGIN_DIR / "workflows" / "change_delivery" / "workspace.py"
-        spec = importlib.util.spec_from_file_location("daedalus_change_delivery_workspace_for_tools", path)
-        if spec is None or spec.loader is None:
-            raise DaedalusCommandError(f"unable to load change-delivery workspace module from {path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        load_workspace_from_config = module.load_workspace_from_config
-    return load_workspace_from_config(workspace_root=workflow_root)
+    raise DaedalusCommandError("change-delivery was removed; use workflow: agentic")
 
 
 def _ensure_change_delivery_active_lane_for_start(workflow_root: Path) -> dict[str, Any]:

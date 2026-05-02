@@ -10,6 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import re
 
 import yaml
 
@@ -17,10 +18,15 @@ DEFAULT_WORKFLOW_MARKDOWN_FILENAME = "WORKFLOW.md"
 WORKFLOW_MARKDOWN_PREFIX = "WORKFLOW-"
 WORKFLOW_CONTRACT_POINTER_RELATIVE_PATH = Path("config") / "workflow-contract-path"
 WORKFLOW_POLICY_KEY = "workflow-policy"
+_HEADING_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 
 
 class WorkflowContractError(RuntimeError):
     """Raised when the workflow contract file cannot be loaded or projected."""
+
+
+class WorkflowPolicyError(RuntimeError):
+    """Raised when the Markdown policy chunks are missing or malformed."""
 
 
 @dataclass(frozen=True)
@@ -31,6 +37,18 @@ class WorkflowContract:
     config: dict[str, Any]
     prompt_template: str
     front_matter: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ActorPolicy:
+    name: str
+    body: str
+
+
+@dataclass(frozen=True)
+class WorkflowPolicy:
+    orchestrator: str
+    actors: dict[str, ActorPolicy]
 
 
 def workflow_markdown_path(workflow_root: Path) -> Path:
@@ -273,3 +291,31 @@ def render_workflow_markdown(*, config: dict[str, Any], prompt_template: str | N
     if body_text:
         return f"---\n{front_matter_text}\n---\n\n{body_text}\n"
     return f"---\n{front_matter_text}\n---\n"
+
+
+def parse_workflow_policy(markdown_body: str) -> WorkflowPolicy:
+    sections: list[tuple[str, str]] = []
+    body = markdown_body or ""
+    matches = list(_HEADING_RE.finditer(body))
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        sections.append((match.group(1).strip(), body[start:end].strip()))
+
+    orchestrator = ""
+    actors: dict[str, ActorPolicy] = {}
+    for title, section_body in sections:
+        if title == "Orchestrator Policy":
+            orchestrator = section_body
+            continue
+        if title.startswith("Actor:"):
+            name = title.split(":", 1)[1].strip()
+            if not name:
+                raise WorkflowPolicyError("actor policy heading is missing a name")
+            actors[name] = ActorPolicy(name=name, body=section_body)
+
+    if not orchestrator:
+        raise WorkflowPolicyError("missing # Orchestrator Policy section")
+    if not actors:
+        raise WorkflowPolicyError("missing # Actor: <name> policy sections")
+    return WorkflowPolicy(orchestrator=orchestrator, actors=actors)

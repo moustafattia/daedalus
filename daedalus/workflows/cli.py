@@ -5,17 +5,17 @@ import argparse
 import json
 from pathlib import Path
 
-from workflows.agentic.actors import build_actor_runtime
-from workflows.agentic.config import AgenticConfig
-from workflows.agentic.contract import AgenticPolicy, parse_agentic_policy
-from workflows.agentic.orchestrator import OrchestratorDecision
-from workflows.agentic.prompts import build_orchestrator_prompt
-from workflows.agentic.stages import (
+from workflows.actors import build_actor_runtime
+from workflows.config import AgenticConfig
+from workflows.contract import WorkflowPolicy, parse_workflow_policy
+from workflows.orchestrator import OrchestratorDecision
+from workflows.prompts import build_orchestrator_prompt
+from workflows.stages import (
     apply_action_result,
     run_stage_actor,
     validate_current_stage,
 )
-from workflows.agentic.state import WorkflowState, append_audit, load_state, save_state
+from workflows.state import WorkflowState, append_audit, load_state, save_state
 from workflows.contract import load_workflow_contract
 
 
@@ -41,7 +41,7 @@ def main(workspace: object, argv: list[str]) -> int:
 
 def _load_policy(config: AgenticConfig):
     contract = load_workflow_contract(config.workflow_root)
-    return parse_agentic_policy(contract.prompt_template)
+    return parse_workflow_policy(contract.prompt_template)
 
 
 def _validate(config: AgenticConfig) -> int:
@@ -88,7 +88,7 @@ def _tick(config: AgenticConfig, *, orchestrator_output: str) -> int:
 def _run_local_orchestrator(
     *,
     config: AgenticConfig,
-    policy: AgenticPolicy,
+    policy: WorkflowPolicy,
     state: WorkflowState,
 ) -> str:
     prompt = build_orchestrator_prompt(config=config, policy=policy, state=state, facts={})
@@ -121,7 +121,7 @@ def _read_output_arg(value: str) -> str:
 def _apply_decision(
     *,
     config: AgenticConfig,
-    policy: AgenticPolicy,
+    policy: WorkflowPolicy,
     state: WorkflowState,
     decision: OrchestratorDecision,
 ) -> None:
