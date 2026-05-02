@@ -222,7 +222,7 @@ def test_workspace_adapter_loader_does_not_depend_on_workflow_local_plugin(tmp_p
     workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=_minimal_config(tmp_path))
     module = ws._load_adapter_status_module()
-    assert module.__file__.endswith("workflows/change_delivery/status.py")
+    assert module.__file__.replace("\\", "/").endswith("workflows/change_delivery/status.py")
 
 
 def test_workspace_exposes_full_wrapper_facade(tmp_path):

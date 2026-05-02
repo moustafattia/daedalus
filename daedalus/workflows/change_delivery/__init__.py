@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from workflows.workflow import ModuleWorkflow
+from workflows.change_delivery.config import ChangeDeliveryConfig
 
 NAME = "change-delivery"
 SUPPORTED_SCHEMA_VERSIONS = (1,)
@@ -55,7 +56,11 @@ import sys as _sys
 WORKFLOW = ModuleWorkflow(_sys.modules[__name__])
 
 
-def make_workspace(*, workflow_root: Path, config: dict):
+def load_config(*, workflow_root: Path, raw: dict[str, Any]) -> ChangeDeliveryConfig:
+    return ChangeDeliveryConfig.from_raw(raw, workflow_root=workflow_root)
+
+
+def make_workspace(*, workflow_root: Path, config: dict | ChangeDeliveryConfig):
     """Plugin-contract factory.
 
     The plugin contract uses ``workflow_root``; the internal workspace
@@ -63,7 +68,8 @@ def make_workspace(*, workflow_root: Path, config: dict):
     boundary, then pass the YAML config dict through for the factory to
     detect-and-bridge to its legacy view if needed.
     """
-    return _make_workspace_inner(workspace_root=workflow_root, config=config)
+    raw_config = config.raw if hasattr(config, "raw") else config
+    return _make_workspace_inner(workspace_root=workflow_root, config=raw_config)
 
 
 def _instance_id_for(*, service_mode: str, workflow_root: Path) -> str:
@@ -155,6 +161,7 @@ __all__ = [
     "PREFLIGHT_GATED_COMMANDS",
     "SERVICE_MODES",
     "WORKFLOW",
+    "load_config",
     "make_workspace",
     "cli_main",
     "run_preflight",
