@@ -1,13 +1,21 @@
 # Daedalus Workflows
 
-`daedalus/workflows/` has one flat support layer plus two bundled workflow
-packages. Runtime adapters live under top-level `runtimes/`; workflow code
-imports them directly.
+`daedalus/workflows/` has one flat support layer plus bundled workflow packages.
+Runtime adapters live under top-level `runtimes/`; workflow code imports them
+directly.
 
 Bundled workflow packages:
 
+- `agentic/` - policy-driven workflow mechanics where `WORKFLOW.md` defines
+  stages, gates, actors, actions, and orchestrator policy.
 - `change_delivery/` - managed SDLC workflow: issue, implementation, review, PR, merge.
 - `issue_runner/` - generic tracker-driven reference workflow.
+
+`agentic/` is the clean replacement path for hardcoded workflow policy. It
+reads `WORKFLOW.md` front matter plus Markdown policy chunks, runs
+actors/actions mechanically, and stores generic state. `issue_runner/` and
+`change_delivery/` remain legacy packages until their policies are ported into
+agentic workflow templates.
 
 Workflows are loaded by name through `workflows.<slug>`. The registry adapts
 each package's `WORKFLOW` object while keeping the legacy package constants
@@ -38,6 +46,7 @@ workflows/
 |-- readiness.py             # readiness recommendations
 |-- runtime_matrix.py        # runtime matrix command support
 |-- runtime_presets.py       # runtime config normalization
+|-- agentic/                 # policy-driven workflow mechanics
 |-- change_delivery/         # managed SDLC workflow internals
 `-- issue_runner/            # generic tracker-driven workflow internals
 ```
@@ -64,4 +73,5 @@ only as public compatibility adapters:
 - `make_workspace(...)`
 - `cli_main(workspace, argv)`
 
-Start by copying the bundled workflow whose lifecycle is closest to yours.
+Start from `agentic/` when the workflow can be expressed as orchestrator policy,
+stages, gates, actors, and actions in `WORKFLOW.md`.

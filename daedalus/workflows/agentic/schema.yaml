@@ -1,0 +1,88 @@
+type: object
+required:
+  - workflow
+  - schema-version
+  - orchestrator
+  - runtimes
+  - actors
+  - stages
+  - gates
+properties:
+  workflow:
+    const: agentic
+  schema-version:
+    type: integer
+    enum: [1]
+  instance:
+    type: object
+    additionalProperties: true
+  repository:
+    type: object
+    additionalProperties: true
+  orchestrator:
+    type: object
+    required: [actor]
+    properties:
+      actor:
+        type: string
+    additionalProperties: true
+  runtimes:
+    type: object
+    additionalProperties:
+      type: object
+      additionalProperties: true
+  actors:
+    type: object
+    additionalProperties:
+      type: object
+      required: [runtime]
+      properties:
+        runtime:
+          type: string
+        model:
+          type: string
+        mode:
+          type: string
+      additionalProperties: true
+  stages:
+    type: object
+    additionalProperties:
+      type: object
+      properties:
+        actors:
+          type: array
+          items:
+            type: string
+        actions:
+          type: array
+          items:
+            type: string
+        gates:
+          type: array
+          items:
+            type: string
+        next:
+          type: string
+      additionalProperties: true
+  gates:
+    type: object
+    additionalProperties:
+      type: object
+      required: [type]
+      properties:
+        type:
+          enum: [orchestrator-evaluated]
+      additionalProperties: true
+  actions:
+    type: object
+    additionalProperties:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+      additionalProperties: true
+  storage:
+    type: object
+    additionalProperties: true
+additionalProperties: true
