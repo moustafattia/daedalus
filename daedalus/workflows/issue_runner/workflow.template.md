@@ -11,34 +11,12 @@ repository:
   slug: your-org/your-repo
 
 tracker:
-  kind: local-json
-  path: config/issues.json
+  kind: github
+  github_slug: your-org/your-repo
   active_states:
-    - todo
-    - in-progress
+    - open
   terminal_states:
-    - done
-    - canceled
-
-tracker-feedback:
-  enabled: true
-  comment-mode: append
-  include:
-    - issue.selected
-    - issue.dispatched
-    - issue.running
-    - issue.completed
-    - issue.failed
-    - issue.canceled
-    - issue.retry_scheduled
-  state-updates:
-    enabled: true
-    on-selected: in-progress
-    on-dispatched: in-progress
-    on-running: in-progress
-    on-completed: done
-    on-failed: todo
-    on-canceled: canceled
+    - closed
 
 polling:
   interval_ms: 30000

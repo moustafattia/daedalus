@@ -39,7 +39,6 @@ _PUBLIC_NAMES = (
     "tick_dispatch_history_dir",
     "plugin_root_path",
     "plugin_entrypoint_path",
-    "plugin_runtime_path",
     "workflow_cli_argv",
     "resolve_default_workflow_root",
 )

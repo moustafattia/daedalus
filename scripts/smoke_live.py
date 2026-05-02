@@ -3,7 +3,7 @@
 
 The script is intentionally environment-driven: each smoke declares the env
 vars that make it runnable, and unavailable smokes are skipped rather than
-pretending to validate live integrations.
+pretending to validate live services.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class Smoke:
 SMOKES: tuple[Smoke, ...] = (
     Smoke(
         name="github-issue-runner",
-        description="Live GitHub issue-runner feedback, retry, and cleanup smoke.",
+        description="Live GitHub issue-runner retry and cleanup smoke.",
         command=(sys.executable, "-m", "pytest", "tests/test_github_issue_runner_smoke.py", "-q", "-s"),
         required_env=("DAEDALUS_GITHUB_SMOKE_REPO",),
     ),

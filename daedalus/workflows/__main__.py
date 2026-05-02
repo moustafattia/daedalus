@@ -5,7 +5,7 @@ Invocation forms (both supported):
     python3 -m workflows --workflow-root <path> <subcommand> [args ...]
     python3 /path/to/plugin/workflows/__main__.py --workflow-root <path> <subcommand>
 
-The script-form invocation is what runtime.py's action runners use (via
+The script-form invocation is what plugin command dispatch uses (via
 paths.workflow_cli_argv). When invoked as a script, sys.path[0] is the
 script's containing directory (``.../workflows/``) instead of the plugin
 root, so ``from workflows import run_cli`` would fail. We compensate by

@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
-from integrations.trackers.github import GithubTrackerClient, issue_label_names as _shared_issue_label_names
+from trackers.github import GithubTrackerClient, issue_label_names as _shared_issue_label_names
 
 
 """Change-delivery workflow GitHub integration helpers.

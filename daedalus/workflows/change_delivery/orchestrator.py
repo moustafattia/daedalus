@@ -26,8 +26,9 @@ def emit_operator_attention_transition(
     """Emit a semantic audit event when a lane crosses the operator-attention
     boundary. No-op when the state did not change.
 
-    Tracker feedback can include ``operator-attention-transition`` and
-    ``operator-attention-recovered`` so the issue timeline records both edges.
+    Agents may use ``operator-attention-transition`` and
+    ``operator-attention-recovered`` from the audit log when preparing status
+    updates.
     """
     OAS = "operator_attention_required"
     if previous_state == new_state:

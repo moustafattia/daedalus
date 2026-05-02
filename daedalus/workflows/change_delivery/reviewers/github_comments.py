@@ -47,7 +47,7 @@ class GithubCommentsReviewer:
         self._repo_slug = cfg.get("repo-slug") or ws_context.repo_slug
         self._code_host_client = ws_context.code_host_client
         if self._repo_slug != ws_context.repo_slug:
-            from integrations.code_hosts import build_code_host_client
+            from trackers import build_code_host_client
 
             self._code_host_client = build_code_host_client(
                 workflow_root=ws_context.repo_path,

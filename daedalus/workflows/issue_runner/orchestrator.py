@@ -211,29 +211,6 @@ class IssueRunnerOrchestrator:
     def clear_retry(self, issue_id: str | None) -> None:
         self.workspace.retry_entries = clear_work_entries(self.workspace.retry_entries, [issue_id])
 
-    def publish_selected_feedback(
-        self,
-        selections: list[tuple[dict[str, Any], dict[str, Any] | None]],
-        *,
-        run_id: str | None,
-    ) -> None:
-        w = self.workspace
-        for issue, retry_entry in selections:
-            attempt = self.issue_attempt(issue=issue, retry_entry=retry_entry)
-            retrying = retry_entry is not None
-            verb = "Selected this issue for another execution attempt." if retrying else "Selected this issue for execution."
-            w._publish_tracker_feedback(
-                issue=issue,
-                event="issue.selected",
-                summary=verb,
-                run_id=run_id,
-                metadata={
-                    "attempt": attempt,
-                    "retrying": retrying,
-                    "state": issue.get("state"),
-                },
-            )
-
     def apply_issue_results(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         w = self.workspace
         applied: list[dict[str, Any]] = []
@@ -267,20 +244,6 @@ class IssueRunnerOrchestrator:
                 result["metrics"] = recorded_metrics
 
             if result.get("ok"):
-                feedback_result = w._publish_tracker_feedback(
-                    issue=issue,
-                    event="issue.completed",
-                    summary="The configured runtime completed this issue run successfully.",
-                    run_id=run_id,
-                    metadata={
-                        "attempt": result.get("attempt"),
-                        "workspace": result.get("workspace"),
-                        "output_path": result.get("outputPath"),
-                        "runtime": result.get("runtime"),
-                    },
-                )
-                if w._feedback_reached_terminal_state(feedback_result):
-                    result["suppressRetry"] = True
                 self.clear_retry(issue_id)
                 if result.get("suppressRetry"):
                     result["retry"] = None
@@ -293,17 +256,6 @@ class IssueRunnerOrchestrator:
                         run_id=run_id,
                     )
                     result["retry"] = retry
-                    w._publish_tracker_feedback(
-                        issue=issue,
-                        event="issue.retry_scheduled",
-                        summary="Scheduled a continuation retry for this issue.",
-                        run_id=run_id,
-                        metadata={
-                            "retry_attempt": retry.get("retry_attempt"),
-                            "delay_ms": retry.get("delay_ms"),
-                            "delay_type": retry.get("delay_type"),
-                        },
-                    )
                 w._emit_event(
                     "issue_runner.tick.completed",
                     {
@@ -319,17 +271,6 @@ class IssueRunnerOrchestrator:
             else:
                 if result.get("suppressRetry"):
                     result["retry"] = None
-                    w._publish_tracker_feedback(
-                        issue=issue,
-                        event="issue.canceled",
-                        summary=str(result.get("error") or "The issue run was canceled and will not be retried."),
-                        run_id=run_id,
-                        metadata={
-                            "attempt": result.get("attempt"),
-                            "workspace": result.get("workspace"),
-                            "retry_suppressed": True,
-                        },
-                    )
                     w._emit_event(
                         "issue_runner.tick.canceled",
                         {
@@ -342,17 +283,6 @@ class IssueRunnerOrchestrator:
                         },
                     )
                 else:
-                    w._publish_tracker_feedback(
-                        issue=issue,
-                        event="issue.failed",
-                        summary=str(result.get("error") or "The configured runtime failed this issue run."),
-                        run_id=run_id,
-                        metadata={
-                            "attempt": result.get("attempt"),
-                            "workspace": result.get("workspace"),
-                            "runtime": result.get("runtime"),
-                        },
-                    )
                     retry = self.schedule_retry(
                         issue=issue,
                         error=str(result.get("error") or "issue execution failed"),
@@ -360,22 +290,6 @@ class IssueRunnerOrchestrator:
                         run_id=run_id,
                     )
                     result["retry"] = retry
-                    w._publish_tracker_feedback(
-                        issue=issue,
-                        event="issue.retry_scheduled",
-                        summary=(
-                            "Scheduled a retry after the issue run failed."
-                            if retry.get("delay_type") != "continuation"
-                            else "Scheduled a continuation retry for this issue."
-                        ),
-                        run_id=run_id,
-                        metadata={
-                            "retry_attempt": retry.get("retry_attempt"),
-                            "delay_ms": retry.get("delay_ms"),
-                            "delay_type": retry.get("delay_type"),
-                            "error": retry.get("error"),
-                        },
-                    )
                     w._emit_event(
                         "issue_runner.tick.failed",
                         {
@@ -592,17 +506,6 @@ class IssueRunnerOrchestrator:
                     "run_id": run_id,
                 },
             )
-            w._publish_tracker_feedback(
-                issue=issue,
-                event="issue.dispatched",
-                summary="Dispatched a supervised worker for this issue.",
-                run_id=run_id,
-                metadata={
-                    "attempt": entry.get("attempt"),
-                    "worker_id": entry.get("worker_id"),
-                    "state": issue.get("state"),
-                },
-            )
         w._persist_scheduler_state()
         return dispatched
 
@@ -676,7 +579,6 @@ class IssueRunnerOrchestrator:
             selections = self._refresh_selections(selections)
             status["selectedIssues"] = [issue for issue, _retry_entry in selections]
             status["selectedIssue"] = selections[0][0] if selections else None
-            self.publish_selected_feedback(selections, run_id=engine_run["run_id"])
             dispatched = self.dispatch_supervised_workers(selections, run_id=engine_run["run_id"])
             status["dispatchedWorkers"] = dispatched
             if not completed and not dispatched:
@@ -808,7 +710,6 @@ class IssueRunnerOrchestrator:
                 )
                 return status
 
-            self.publish_selected_feedback(selections, run_id=engine_run["run_id"])
             self.mark_running(selections, run_id=engine_run["run_id"])
             results: list[dict[str, Any]] = []
             try:

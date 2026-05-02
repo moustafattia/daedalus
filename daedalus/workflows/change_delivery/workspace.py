@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import calendar
 import json
@@ -19,11 +19,9 @@ from engine.storage import write_text_atomic as _write_text
 from workflows.change_delivery.contract_model import compile_change_delivery_contract
 from workflows.change_delivery.migrations import get_ledger_field
 from workflows.change_delivery.storage import ensure_change_delivery_state_files
-from runtimes.registry import build_runtimes
-from workflows.paths import runtime_paths
-from integrations.code_hosts import build_code_host_client
-from integrations.trackers import build_tracker_client
-from integrations.trackers.feedback import feedback_enabled, publish_tracker_feedback
+from workflows.change_delivery.runtimes import build_runtimes
+from workflows.shared.paths import runtime_paths
+from trackers import build_code_host_client
 
 
 def _derive_lane_selection_cfg(yaml_cfg, *, active_lane_label):
@@ -49,10 +47,6 @@ def _derive_lane_selection_cfg(yaml_cfg, *, active_lane_label):
 def _workflow_section(yaml_cfg: dict | None, key: str) -> dict[str, Any]:
     section = (yaml_cfg or {}).get(key) or {}
     return dict(section) if isinstance(section, dict) else {}
-
-
-def _change_delivery_tracker_cfg(yaml_cfg: dict | None) -> dict[str, Any]:
-    return _workflow_section(yaml_cfg, "tracker")
 
 
 def _code_host_github_slug(yaml_cfg: dict | None) -> str:
@@ -190,11 +184,11 @@ and I/O primitives.
 
 Two factories are provided:
 
-* :func:`make_workspace` â€” builds a :class:`types.SimpleNamespace`-style
+* :func:`make_workspace` — builds a :class:`types.SimpleNamespace`-style
   workspace accessor. This is the primary API: adapter code (``cli``,
   ``orchestrator``, etc.) looks up workspace attributes by name, so any
   duck-typed accessor works.
-* :func:`load_workspace_from_config` â€” convenience wrapper that reads the
+* :func:`load_workspace_from_config` — convenience wrapper that reads the
   project workflow contract from ``WORKFLOW.md`` / ``WORKFLOW-<name>.md`` and
   applies the same derived constants the workspace uses internally.
 """
@@ -315,8 +309,8 @@ def _make_audit_fn(
 
       1. Always appends a JSONL row to ``audit_log_path``.
       2. If ``publisher`` is provided, calls ``publisher(action=..., summary=..., extra=...)``
-         after the write. Publisher exceptions are swallowed so tracker feedback
-         and webhook fanout never break workflow execution.
+         after the write. Publisher exceptions are swallowed so webhook fanout
+         never breaks workflow execution.
     """
     event_sink = None
     if engine_store is not None:
@@ -339,56 +333,6 @@ def _make_audit_fn(
         publisher=publisher,
         event_sink=event_sink,
     )
-
-
-def _make_tracker_feedback_publisher(
-    *,
-    workflow_root,
-    tracker_cfg,
-    repo_path,
-    workflow_yaml,
-    get_active_issue_number,
-    get_workflow_state,
-    get_is_operator_attention,
-    tracker_client=None,
-):
-    """Build the tracker-feedback subscriber consumed by ``_make_audit_fn``."""
-    workflow_root = Path(workflow_root)
-    tracker_cfg = dict(tracker_cfg or {})
-    if tracker_client is None and tracker_cfg and feedback_enabled(workflow_yaml or {}):
-        tracker_client = build_tracker_client(
-            workflow_root=workflow_root,
-            tracker_cfg=tracker_cfg,
-            repo_path=Path(repo_path) if repo_path else None,
-        )
-
-    def publisher(*, action, summary, extra):
-        if tracker_client is None:
-            return
-        issue_number = get_active_issue_number()
-        if issue_number is None:
-            return
-        workflow_state = get_workflow_state()
-        publish_tracker_feedback(
-            tracker_client=tracker_client,
-            workflow_config=workflow_yaml or {},
-            issue={
-                "id": str(issue_number),
-                "identifier": f"#{issue_number}",
-                "state": workflow_state,
-            },
-            event=str(action or ""),
-            summary=str(summary or "Daedalus recorded a change-delivery update."),
-            metadata={
-                "workflow": "change-delivery",
-                "workflow_state": workflow_state,
-                "operator_attention": bool(get_is_operator_attention()),
-                "action": action,
-                **(extra or {}),
-            },
-        )
-
-    return publisher
 
 
 def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNamespace:
@@ -536,20 +480,6 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         )
         _write_json(scheduler_path, payload)
 
-    # Wire tracker feedback through the shared tracker client. The audit hook
-    # still writes locally first; tracker publishing is best-effort fanout.
-    _ns_holder: dict[str, Any] = {}
-
-    def _ns_load_ledger() -> dict[str, Any]:
-        ns_obj = _ns_holder.get("ns")
-        if ns_obj is None or not hasattr(ns_obj, "load_ledger"):
-            return {}
-        try:
-            return ns_obj.load_ledger() or {}
-        except Exception:
-            return {}
-
-    _tracker_cfg = _change_delivery_tracker_cfg(yaml_cfg)
     _code_host_cfg = _change_delivery_code_host_cfg(yaml_cfg)
     _code_host_slug = _code_host_github_slug(yaml_cfg)
     _code_host_client = (
@@ -563,33 +493,9 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         if _code_host_cfg
         else None
     )
-    _tracker_feedback_publisher = _make_tracker_feedback_publisher(
-        workflow_root=workspace_root,
-        tracker_cfg=_tracker_cfg,
-        repo_path=repo_path,
-        workflow_yaml=yaml_cfg or {},
-        get_active_issue_number=lambda: (_ns_load_ledger().get("activeLane") or {}).get("number"),
-        get_workflow_state=lambda: _ns_load_ledger().get("workflowState") or "unknown",
-        get_is_operator_attention=lambda: (
-            _ns_load_ledger().get("workflowState") == "operator_attention_required"
-        ),
-    )
     from workflows.change_delivery.webhooks import build_webhooks, compose_audit_subscribers
 
     _webhooks = build_webhooks((yaml_cfg or {}).get("webhooks") or [], run_fn=_run)
-
-    def _adapt_tracker_feedback_publisher(feedback_pub):
-        """Tracker feedback takes (action=, summary=, extra=).
-        Compose-style subscribers receive a single audit_event dict. Adapt."""
-        if feedback_pub is None:
-            return None
-        def _sub(audit_event):
-            feedback_pub(
-                action=audit_event.get("action") or "",
-                summary=audit_event.get("summary") or "",
-                extra={k: v for k, v in audit_event.items() if k not in ("action", "summary", "at")},
-            )
-        return _sub
 
     def _adapt_webhook(wh):
         """Wrap a Webhook into a (audit_event)->None subscriber that respects matches()."""
@@ -600,9 +506,6 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         return _sub
 
     _subscribers = []
-    _tracker_feedback = _adapt_tracker_feedback_publisher(_tracker_feedback_publisher)
-    if _tracker_feedback is not None:
-        _subscribers.append(_tracker_feedback)
     for _wh in _webhooks:
         _subscribers.append(_adapt_webhook(_wh))
 
@@ -708,8 +611,6 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         save_scheduler=save_scheduler,
         audit=audit,
     )
-    # Bind ns into the publisher's holder so its lambdas can read load_ledger().
-    _ns_holder["ns"] = ns
     # Adapter module loaders (cached per-workspace).
     for loader_name, loader_fn in _build_adapter_module_loaders(workspace_root).items():
         setattr(ns, loader_name, loader_fn)
@@ -1099,7 +1000,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         return ns.restart_actor_session_raw()
 
     # -----------------------------------------------------------------
-    # Job-state helpers â€” pure reads over the cron jobs payload.
+    # Job-state helpers — pure reads over the cron jobs payload.
     # -----------------------------------------------------------------
 
     def _managed_job_names():
@@ -2514,7 +2415,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
     _new_review_run_id = _new_inter_review_agent_run_id
 
     # Expose the InterReviewAgentError class so callers using
-    # ``workspace.InterReviewAgentError`` can catch it. We bind lazily â€” if the
+    # ``workspace.InterReviewAgentError`` can catch it. We bind lazily — if the
     # plugin payload isn't present (e.g. unit tests under a temp root), the
     # attribute is simply absent and the adapter reviews helper resolves it at
     # call time via ``ns._load_adapter_reviews_module()`` instead.
@@ -2549,5 +2450,3 @@ def load_workspace_from_config(
     return make_workspace(
         workspace_root=workspace_root, config=load_workflow_contract(workspace_root).config
     )
-
-

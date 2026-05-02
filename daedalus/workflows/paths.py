@@ -144,10 +144,6 @@ def plugin_entrypoint_path(workflow_root: Path | None = None, *, plugin_dir: Pat
     return plugin_root_path(plugin_dir=plugin_dir) / "workflows" / "__main__.py"
 
 
-def plugin_runtime_path(*, plugin_dir: Path | None = None) -> Path:
-    return plugin_root_path(plugin_dir=plugin_dir) / "runtime.py"
-
-
 def workflow_cli_argv(workflow_root: Path, *command_args: str) -> list[str]:
     import sys
 

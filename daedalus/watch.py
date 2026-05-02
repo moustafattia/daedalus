@@ -1,12 +1,14 @@
-﻿"""TUI frame rendering for /daedalus watch.
+"""TUI frame rendering for /daedalus watch.
 
 Phase 2 (this file) implements the frame renderer. The live loop is wired
-in later â€” this module exposes ``render_frame_to_string(snapshot)`` so the
+in later — this module exposes ``render_frame_to_string(snapshot)`` so the
 CLI handler and tests can both produce frame text without spinning up a
 real TTY.
 """
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -38,11 +40,11 @@ def _lanes_table(lanes: list[dict[str, Any]]) -> Table:
 
 def _alerts_panel(alert_state: Mapping[str, Any]) -> Panel | None:
     if alert_state.get("_stale"):
-        return Panel(_esc("[stale] alert source unreadable"), title="âš ï¸  Active alerts")
+        return Panel(_esc("[stale] alert source unreadable"), title="⚠️  Active alerts")
     if not alert_state or not alert_state.get("active"):
         return None
     msg = alert_state.get("message") or alert_state.get("fingerprint") or "active alert"
-    return Panel(str(msg), title="âš ï¸  Active alerts")
+    return Panel(str(msg), title="⚠️  Active alerts")
 
 
 def _events_table(events: list[dict[str, Any]]) -> Table:
@@ -168,7 +170,7 @@ def cmd_watch(args, parser) -> str:
     if getattr(args, "once", False) or not _stdout_is_tty():
         return text
 
-    # Live mode â€” rich.live polling at 2s.
+    # Live mode — rich.live polling at 2s.
     from rich.live import Live
     from rich.console import Console
     from time import sleep
@@ -187,10 +189,10 @@ def cmd_watch(args, parser) -> str:
     return ""
 
 
-# --- Stall reconciliation hook (Symphony Â§8.5) ---------------------------
+# --- Stall reconciliation hook (Symphony §8.5) ---------------------------
 #
 # This function is called from the tick loop owner BEFORE tracker-state
-# refresh per spec Â§8.6, so a stalled worker on a now-terminal issue still
+# refresh per spec §8.6, so a stalled worker on a now-terminal issue still
 # gets stall-terminated. The contract is intentionally minimal: the caller
 # supplies a snapshot, a running-lanes mapping (issue_id -> entry exposing
 # `.runtime` and `.started_at_monotonic`), an event-log path, and an
@@ -206,33 +208,33 @@ def reconcile_stalls_tick(
     orchestrator,
     now: float | None = None,
 ) -> list:
-    import time as _time
-
     from workflows.change_delivery.event_taxonomy import (
         DAEDALUS_STALL_DETECTED,
         DAEDALUS_STALL_TERMINATED,
     )
-    from workflows.stall import reconcile_stalls
-    from runtime import append_daedalus_event
+    from workflows.change_delivery.stall import reconcile_stalls
 
     if now is None:
-        now = _time.monotonic()
+        now = time.monotonic()
+
+    def append_event(event: dict[str, Any]) -> None:
+        event_log_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            **event,
+        }
+        with event_log_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, sort_keys=True) + "\n")
+
     verdicts = reconcile_stalls(snapshot, running, now=now)
     for verdict in verdicts:
-        append_daedalus_event(
-            event_log_path=event_log_path,
-            event={
-                "type": DAEDALUS_STALL_DETECTED,
-                "issue_id": verdict.issue_id,
-                "elapsed_seconds": verdict.elapsed_seconds,
-                "threshold_seconds": verdict.threshold_seconds,
-            },
-        )
+        append_event({
+            "type": DAEDALUS_STALL_DETECTED,
+            "issue_id": verdict.issue_id,
+            "elapsed_seconds": verdict.elapsed_seconds,
+            "threshold_seconds": verdict.threshold_seconds,
+        })
         orchestrator.terminate_worker(verdict.issue_id, reason="stall")
-        append_daedalus_event(
-            event_log_path=event_log_path,
-            event={"type": DAEDALUS_STALL_TERMINATED, "issue_id": verdict.issue_id},
-        )
+        append_event({"type": DAEDALUS_STALL_TERMINATED, "issue_id": verdict.issue_id})
         orchestrator.queue_retry(verdict.issue_id, error="stall_timeout")
     return verdicts
-

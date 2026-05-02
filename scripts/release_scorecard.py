@@ -44,8 +44,6 @@ CHECKS: tuple[Check, ...] = (
     Check("change-delivery E2E gap", READINESS, "full issue-to-PR-to-review-to-merge E2E"),
     Check("live smoke harness", HARNESS, "scripts/smoke-live.sh"),
     Check("scorecard automation", HARNESS, "release-scorecard.yml"),
-    Check("GitHub smoke test", REPO_ROOT / "tests" / "test_github_issue_runner_smoke.py", "test_live_github_issue_runner_feedback_retry_recovery_and_cleanup"),
-    Check("change-delivery Codex smoke", REPO_ROOT / "tests" / "test_change_delivery_codex_app_server_smoke.py", "test_live_change_delivery_codex_app_server_creates_issue_and_dispatches_lane"),
     Check("smoke runner script", REPO_ROOT / "scripts" / "smoke_live.py", "change-delivery-codex"),
 )
 

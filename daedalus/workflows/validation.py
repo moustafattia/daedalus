@@ -1,4 +1,4 @@
-"""Workflow contract validation used by operator commands and service setup."""
+"""Workflow contract validation used by operator commands."""
 from __future__ import annotations
 
 import inspect
@@ -12,9 +12,6 @@ from . import load_workflow
 from .contract import WorkflowContract, WorkflowContractError, load_workflow_contract
 from .readiness import build_readiness_recommendations
 from .runtime_presets import runtime_binding_checks, runtime_capability_checks, runtime_stage_checks
-
-
-SERVICE_MODES = frozenset({"active", "shadow"})
 
 
 def _check(name: str, status: str, detail: str, **extra: Any) -> dict[str, Any]:
@@ -82,24 +79,6 @@ def _instance_name_check(*, workflow_root: Path, config: dict[str, Any]) -> dict
     return _check("instance-name", "pass", name)
 
 
-def _service_mode_check(*, workflow_name: str | None, service_mode: str | None) -> dict[str, Any] | None:
-    if not service_mode:
-        return None
-    if service_mode not in SERVICE_MODES:
-        return _check(
-            "service-mode",
-            "fail",
-            f"unknown service mode {service_mode!r}; expected one of {sorted(SERVICE_MODES)}",
-        )
-    if workflow_name == "issue-runner" and service_mode != "active":
-        return _check(
-            "service-mode",
-            "fail",
-            "issue-runner supports only active supervised mode; use --service-mode active",
-        )
-    return _check("service-mode", "pass", f"{workflow_name}:{service_mode}")
-
-
 def _contract_kind_check(contract: WorkflowContract) -> dict[str, Any]:
     if contract.source_path.suffix.lower() == ".md":
         return _check("contract-format", "pass", "repo-owned Markdown workflow contract")
@@ -113,7 +92,6 @@ def _contract_kind_check(contract: WorkflowContract) -> dict[str, Any]:
 def validate_workflow_contract(
     workflow_root: Path,
     *,
-    service_mode: str | None = None,
     run_preflight: bool = True,
 ) -> dict[str, Any]:
     root = Path(workflow_root).expanduser().resolve()
@@ -197,10 +175,6 @@ def validate_workflow_contract(
                 checks.append(_check("schema-version", "pass", str(schema_version)))
         except Exception as exc:
             checks.append(_check("schema-version", "fail", str(exc)))
-
-    service_check = _service_mode_check(workflow_name=workflow_name, service_mode=service_mode)
-    if service_check is not None:
-        checks.append(service_check)
 
     checks.append(_instance_name_check(workflow_root=root, config=config))
     checks.append(_repository_path_check(workflow_root=root, config=config))

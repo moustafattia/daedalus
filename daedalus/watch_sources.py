@@ -225,7 +225,7 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
     except sqlite3.OperationalError:
         return []
     try:
-        # Real columns per runtime.py lanes schema:
+        # Real columns per lane schema:
         #   lane_id (PK), issue_number, workflow_state, lane_status, ...
         # An earlier draft queried generic display aliases instead of the
         # real lanes schema, which

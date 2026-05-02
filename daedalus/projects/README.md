@@ -33,4 +33,4 @@ The public setup flow is:
 1. clone or open the real target repo
 2. run `hermes daedalus bootstrap` from that checkout
 3. edit the generated `WORKFLOW.md`
-4. run `hermes daedalus service-up`
+4. run the workflow with `/workflow issue-runner run` or the workflow-specific loop command

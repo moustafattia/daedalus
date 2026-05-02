@@ -50,11 +50,6 @@ def build_readiness_recommendations(
                 recommendations,
                 "Set `schema-version` to a version supported by this plugin, or update the installed Daedalus plugin.",
             )
-        elif name == "service-mode":
-            _append_once(
-                recommendations,
-                _service_mode_recommendation(workflow=workflow, detail=detail),
-            )
         elif name == "instance-name":
             _append_once(
                 recommendations,
@@ -101,21 +96,6 @@ def build_readiness_recommendations(
                 recommendations,
                 "Create the configured workspace root or fix filesystem permissions for the workflow user.",
             )
-        elif name == "service_supervision":
-            _append_once(
-                recommendations,
-                "Run `hermes daedalus service-up` to install, enable, and start the supervised user service.",
-            )
-        elif name == "stuck_dispatched_actions":
-            _append_once(
-                recommendations,
-                "Run `hermes daedalus doctor --format json` and inspect stuck dispatched actions before restarting active execution.",
-            )
-        elif name == "active_execution_failures":
-            _append_once(
-                recommendations,
-                "Inspect recent failures with `hermes daedalus doctor --format json`; retry or repair the recorded recovery action.",
-            )
         elif name in {"engine_event_retention", "engine-event-retention"}:
             _append_once(
                 recommendations,
@@ -139,19 +119,13 @@ def _append_once(items: list[str], value: str) -> None:
         items.append(value)
 
 
-def _service_mode_recommendation(*, workflow: str | None, detail: str) -> str:
-    if workflow == "issue-runner" or "issue-runner" in detail:
-        return "Use `hermes daedalus service-up --service-mode active`; `issue-runner` does not support shadow mode."
-    return "Use `--service-mode active` for execution or `--service-mode shadow` only for change-delivery parity checks."
-
-
 def _preflight_recommendation(*, check: dict[str, Any], workflow: str | None) -> str:
     detail = str(check.get("error_detail") or check.get("detail") or "")
     lowered = detail.lower()
     if "agent.runtime" in lowered or "runtime" in lowered:
         return _runtime_binding_recommendation(workflow=workflow)
     if "tracker.path" in lowered or "issues.json" in lowered:
-        return "Create the configured local-json tracker file, or rerun `hermes daedalus bootstrap` to seed `config/issues.json`."
+        return "Remove the legacy tracker path config and use a supported tracker kind."
     if "github" in lowered or "gh " in lowered:
         return "Run `gh auth status`, verify `tracker.github_slug`, then rerun `hermes daedalus validate`."
     return "Fix the workflow preflight detail shown above, then rerun `hermes daedalus validate`."

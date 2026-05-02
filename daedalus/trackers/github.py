@@ -6,14 +6,20 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
-from . import TrackerConfigError, issue_priority_sort_key, normalize_issue, register
+from . import (
+    CodeHostConfigError,
+    TrackerConfigError,
+    issue_priority_sort_key,
+    normalize_issue,
+    register,
+    register_code_host,
+)
 
 
 _GITHUB_SLUG_RE = re.compile(
     r"^(?:(?P<host>[A-Za-z0-9.-]+(?::[0-9]+)?)/)?"
     r"(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+)$"
 )
-_MARKER_VALUE_RE = re.compile(r"[^A-Za-z0-9_.:/-]+")
 
 
 def _github_slug_match(raw: str) -> re.Match[str] | None:
@@ -44,27 +50,6 @@ def github_name_with_owner_from_slug(slug: str | None) -> str | None:
     if not match:
         raise _github_slug_config_error()
     return f"{match.group('owner')}/{match.group('repo')}"
-
-
-def _github_repo_parts_from_slug(slug: str | None) -> tuple[str, str, str] | None:
-    raw = str(slug or "").strip()
-    if not raw:
-        return None
-    match = _github_slug_match(raw)
-    if not match:
-        raise _github_slug_config_error()
-    return (
-        match.group("host") or "github.com",
-        match.group("owner"),
-        match.group("repo"),
-    )
-
-
-def _feedback_marker(*, event: str, metadata: dict[str, Any] | None) -> str:
-    workflow = str((metadata or {}).get("workflow") or "daedalus").strip() or "daedalus"
-    workflow = _MARKER_VALUE_RE.sub("_", workflow)
-    event_key = _MARKER_VALUE_RE.sub("_", str(event or "").strip() or "event")
-    return f"<!-- daedalus-feedback:{workflow}:{event_key} -->"
 
 
 def github_auth_success_accounts(
@@ -265,6 +250,25 @@ def _coerce_issue_number(issue_id: str | int | None) -> str | None:
     return text or None
 
 
+def _coerce_number(value: int | str | None, *, field_name: str) -> str:
+    if value in (None, ""):
+        raise CodeHostConfigError(f"{field_name} is required")
+    text = str(value).strip()
+    if text.startswith("#"):
+        text = text[1:].strip()
+    if not text:
+        raise CodeHostConfigError(f"{field_name} is required")
+    return text
+
+
+def code_host_github_slug_from_config(code_host_cfg: dict[str, Any]) -> str:
+    slug = str(code_host_cfg.get("github_slug") or "").strip()
+    if not slug:
+        raise CodeHostConfigError("code-host.kind='github' requires code-host.github_slug")
+    github_name_with_owner_from_slug(slug)
+    return slug
+
+
 @register("github")
 class GithubTrackerClient:
     kind = "github"
@@ -302,92 +306,6 @@ class GithubTrackerClient:
         if not self._repo_slug:
             return command
         return [*command, "--repo", self._repo_slug]
-
-    def _repo_api_parts(self) -> tuple[str, str, str]:
-        parts = _github_repo_parts_from_slug(self._repo_slug)
-        if parts is not None:
-            return parts
-        payload = self.repo_view_payload()
-        name_with_owner = str(payload.get("nameWithOwner") or "").strip()
-        fallback = _github_repo_parts_from_slug(name_with_owner)
-        if fallback is None:
-            raise TrackerConfigError("unable to resolve GitHub repository for feedback upsert")
-        return fallback
-
-    def _api_command(self, endpoint: str, *args: str) -> list[str]:
-        host, _owner, _repo = self._repo_api_parts()
-        command = ["gh", "api", endpoint, *args]
-        if host:
-            command.extend(["--hostname", host])
-        return command
-
-    def _issue_comments(self, issue_number: str) -> list[dict[str, Any]]:
-        _host, owner, repo = self._repo_api_parts()
-        payload = self._run_json(
-            self._api_command(
-                f"repos/{owner}/{repo}/issues/{issue_number}/comments",
-                "--paginate",
-                "--slurp",
-            ),
-            cwd=self._repo_path,
-        )
-        if not isinstance(payload, list):
-            raise RuntimeError("expected GitHub issue comments JSON list payload")
-        comments: list[dict[str, Any]] = []
-        for item in payload:
-            if isinstance(item, list):
-                comments.extend(comment for comment in item if isinstance(comment, dict))
-            elif isinstance(item, dict):
-                comments.append(item)
-        return comments
-
-    def _post_issue_comment(self, issue_number: str, body: str) -> str | None:
-        completed = self._run(
-            self._with_repo(["gh", "issue", "comment", issue_number, "--body", body]),
-            cwd=self._repo_path,
-        )
-        return (completed.stdout or "").strip() or None
-
-    def _upsert_issue_comment(self, issue_number: str, *, event: str, body: str, metadata: dict[str, Any] | None) -> dict[str, Any]:
-        marker = _feedback_marker(event=event, metadata=metadata)
-        body_with_marker = body if marker in body else body.rstrip() + "\n\n" + marker + "\n"
-        existing = next(
-            (
-                comment
-                for comment in self._issue_comments(issue_number)
-                if marker in str(comment.get("body") or "")
-            ),
-            None,
-        )
-        if existing is None:
-            return {
-                "action": "created",
-                "url": self._post_issue_comment(issue_number, body_with_marker),
-            }
-
-        comment_id = str(existing.get("id") or "").strip()
-        if not comment_id:
-            return {
-                "action": "created",
-                "url": self._post_issue_comment(issue_number, body_with_marker),
-            }
-        _host, owner, repo = self._repo_api_parts()
-        completed = self._run(
-            self._api_command(
-                f"repos/{owner}/{repo}/issues/comments/{comment_id}",
-                "--method",
-                "PATCH",
-                "-f",
-                f"body={body_with_marker}",
-                "--jq",
-                ".html_url",
-            ),
-            cwd=self._repo_path,
-        )
-        return {
-            "action": "updated",
-            "url": (completed.stdout or "").strip() or existing.get("html_url") or existing.get("url"),
-        }
 
     def list_issue_payloads(
         self,
@@ -533,59 +451,173 @@ class GithubTrackerClient:
         ]
         return sorted(issues, key=issue_priority_sort_key)
 
-    def post_feedback(
+
+@register_code_host("github")
+class GithubCodeHostClient:
+    kind = "github"
+
+    def __init__(
         self,
         *,
-        issue_id: str,
-        event: str,
-        body: str,
-        summary: str,
-        state: str | None = None,
-        metadata: dict[str, Any] | None = None,
-        comment_mode: str | None = None,
-    ) -> dict[str, Any]:
-        issue_number = _coerce_issue_number(issue_id)
-        if issue_number is None:
-            raise TrackerConfigError("issue_id is required when posting GitHub feedback")
-        mode = str(comment_mode or "append").strip().lower()
-        if mode == "upsert":
-            comment_result = self._upsert_issue_comment(
-                issue_number,
-                event=event,
-                body=body,
-                metadata=metadata,
+        code_host_cfg: dict[str, Any],
+        repo_path: Path | None = None,
+        run: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+        run_json: Callable[..., Any] | None = None,
+    ):
+        self._code_host_cfg = dict(code_host_cfg or {})
+        self._repo_path = repo_path
+        self._repo_slug = code_host_github_slug_from_config(self._code_host_cfg)
+        self._name_with_owner = github_name_with_owner_from_slug(self._repo_slug)
+        self._auth_host = github_auth_host_from_slug(self._repo_slug)
+        if self._name_with_owner is None:
+            raise CodeHostConfigError("code-host.github_slug is required")
+        self._run = run or _subprocess_run
+        self._run_json = run_json or _subprocess_run_json
+
+    @property
+    def repo_path(self) -> Path | None:
+        return self._repo_path
+
+    @property
+    def repo_slug(self) -> str:
+        return self._repo_slug
+
+    @property
+    def name_with_owner(self) -> str:
+        return self._name_with_owner
+
+    def _with_repo(self, command: list[str]) -> list[str]:
+        return [*command, "--repo", self._repo_slug]
+
+    def _with_api_hostname(self, command: list[str]) -> list[str]:
+        if self._repo_slug.count("/") < 2:
+            return command
+        return [*command, "--hostname", str(self._auth_host)]
+
+    def list_open_pull_requests(
+        self,
+        *,
+        limit: int = 50,
+        fields: str | None = None,
+    ) -> list[dict[str, Any]]:
+        payload = self._run_json(
+            self._with_repo([
+                "gh",
+                "pr",
+                "list",
+                "--state",
+                "open",
+                "--limit",
+                str(limit),
+                "--json",
+                fields or "number,title,url,headRefName,headRefOid,isDraft,updatedAt",
+            ]),
+            cwd=self._repo_path,
+        )
+        if not isinstance(payload, list):
+            raise RuntimeError("expected gh pr list JSON array payload")
+        return [item for item in payload if isinstance(item, dict)]
+
+    def create_pull_request(self, *, head: str, title: str, body: str) -> str:
+        completed = self._run(
+            self._with_repo(
+                [
+                    "gh",
+                    "pr",
+                    "create",
+                    "--head",
+                    head,
+                    "--title",
+                    title,
+                    "--body",
+                    body,
+                ]
+            ),
+            cwd=self._repo_path,
+        )
+        return (getattr(completed, "stdout", "") or "").strip()
+
+    def mark_pull_request_ready(self, pr_number: int | str | None) -> bool:
+        if pr_number is None:
+            return False
+        try:
+            self._run(
+                self._with_repo(["gh", "pr", "ready", _coerce_number(pr_number, field_name="pr_number")]),
+                cwd=self._repo_path,
             )
-        else:
-            comment_result = {
-                "action": "created",
-                "url": self._post_issue_comment(issue_number, body),
-            }
-        applied_state = None
-        requested_state = str(state or "").strip().lower()
-        if requested_state:
-            if requested_state == "closed":
-                self._run(
-                    self._with_repo(["gh", "issue", "close", issue_number]),
-                    cwd=self._repo_path,
-                )
-                applied_state = "closed"
-            elif requested_state == "open":
-                self._run(
-                    self._with_repo(["gh", "issue", "reopen", issue_number]),
-                    cwd=self._repo_path,
-                )
-                applied_state = "open"
-            else:
-                applied_state = None
+        except Exception:
+            return False
+        return True
+
+    def merge_pull_request(
+        self,
+        pr_number: int | str | None,
+        *,
+        squash: bool = True,
+        delete_branch: bool = True,
+    ) -> dict[str, Any]:
+        command = ["gh", "pr", "merge", _coerce_number(pr_number, field_name="pr_number")]
+        if squash:
+            command.append("--squash")
+        if delete_branch:
+            command.append("--delete-branch")
+        completed = self._run(self._with_repo(command), cwd=self._repo_path)
         return {
             "ok": True,
-            "kind": self.kind,
-            "issue_id": issue_number,
-            "event": event,
-            "state": applied_state,
-            "requested_state": state,
-            "unsupported_state": requested_state if requested_state and applied_state is None else None,
-            "comment_mode": "upsert" if mode == "upsert" else "append",
-            "comment_action": comment_result["action"],
-            "url": comment_result["url"],
+            "pr_number": pr_number,
+            "stdout": (getattr(completed, "stdout", "") or "").strip(),
         }
+
+    def resolve_review_thread(self, thread_id: str) -> bool:
+        thread_id = str(thread_id or "").strip()
+        if not thread_id:
+            return False
+        try:
+            result = self._run_json(
+                self._with_api_hostname([
+                    "gh",
+                    "api",
+                    "graphql",
+                    "-f",
+                    "query=mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } } }",
+                    "-f",
+                    f"threadId={thread_id}",
+                ]),
+                cwd=self._repo_path,
+            )
+        except Exception:
+            return False
+        return bool((((result or {}).get("data") or {}).get("resolveReviewThread") or {}).get("thread", {}).get("isResolved"))
+
+    def fetch_issue_reactions(self, issue_number: int | str | None) -> list[dict[str, Any]]:
+        number = _coerce_number(issue_number, field_name="issue_number")
+        payload = self._run_json(
+            self._with_api_hostname([
+                "gh",
+                "api",
+                f"repos/{self._name_with_owner}/issues/{number}/reactions",
+                "-H",
+                "Accept: application/vnd.github+json",
+            ]),
+            cwd=self._repo_path,
+        )
+        if not isinstance(payload, list):
+            return []
+        return [item for item in payload if isinstance(item, dict)]
+
+    def fetch_pull_request_review_threads(self, pr_number: int | str | None) -> dict[str, Any]:
+        number = int(_coerce_number(pr_number, field_name="pr_number"))
+        owner, name = self._name_with_owner.split("/", 1)
+        data = self._run_json(
+            self._with_api_hostname([
+                "gh",
+                "api",
+                "graphql",
+                "-f",
+                "query=query { repository(owner:\"%s\", name:\"%s\") { pullRequest(number: %d) { state headRefOid reviewThreads(first: 100) { nodes { id isResolved isOutdated path line comments(first: 20) { nodes { author { login } body url createdAt } } } } } } }"
+                % (owner, name, number),
+            ]),
+            cwd=self._repo_path,
+        )
+        return (((data or {}).get("data") or {}).get("repository") or {}).get("pullRequest") or {}
+

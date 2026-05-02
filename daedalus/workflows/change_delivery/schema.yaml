@@ -71,9 +71,6 @@ properties:
         enum: [github]
       github_slug: {type: string}
 
-  tracker-feedback:
-    $ref: "#/definitions/tracker-feedback"
-
   runtimes:
     type: object
     minProperties: 1
@@ -271,26 +268,6 @@ properties:
         description: "Worker terminated if its runtime has shown no activity for this long. 0 = disabled."
 
 definitions:
-  tracker-feedback:
-    type: object
-    additionalProperties: false
-    properties:
-      enabled: {type: boolean}
-      comment-mode:
-        type: string
-        enum: [append, upsert]
-      include:
-        type: array
-        items: {type: string}
-      state-updates:
-        type: object
-        additionalProperties: false
-        properties:
-          enabled: {type: boolean}
-        patternProperties:
-          "^on[-_.A-Za-z0-9]+$":
-            type: string
-
   actor:
     type: object
     additionalProperties: false

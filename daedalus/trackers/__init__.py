@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -31,20 +32,31 @@ class TrackerClient(Protocol):
 
     def list_terminal(self) -> list[dict[str, Any]]: ...
 
-    def post_feedback(
-        self,
-        *,
-        issue_id: str,
-        event: str,
-        body: str,
-        summary: str,
-        state: str | None = None,
-        metadata: dict[str, Any] | None = None,
-        comment_mode: str | None = None,
-    ) -> dict[str, Any]: ...
+
+class CodeHostConfigError(RuntimeError):
+    """Raised when the code-host section is missing or invalid."""
+
+
+class CodeHostClient(Protocol):
+    kind: str
+
+    def list_open_pull_requests(self, *, limit: int = 50, fields: str | None = None) -> list[dict[str, Any]]: ...
+
+    def create_pull_request(self, *, head: str, title: str, body: str) -> str: ...
+
+    def mark_pull_request_ready(self, pr_number: int | str | None) -> bool: ...
+
+    def merge_pull_request(self, pr_number: int | str | None, *, squash: bool = True, delete_branch: bool = True) -> dict[str, Any]: ...
+
+    def resolve_review_thread(self, thread_id: str) -> bool: ...
+
+    def fetch_issue_reactions(self, issue_number: int | str | None) -> list[dict[str, Any]]: ...
+
+    def fetch_pull_request_review_threads(self, pr_number: int | str | None) -> dict[str, Any]: ...
 
 
 _TRACKER_KINDS: dict[str, type] = {}
+_CODE_HOST_KINDS: dict[str, type] = {}
 
 
 def register(kind: str):
@@ -55,21 +67,59 @@ def register(kind: str):
     return _register
 
 
+def register_code_host(kind: str):
+    def _register(cls):
+        _CODE_HOST_KINDS[kind] = cls
+        return cls
+
+    return _register
+
+
 def _ensure_builtin_tracker_kinds() -> None:
     """Register built-ins even if submodules were imported before this package reloaded.
 
     Hermes plugin tests load repo and installed-plugin copies in the same Python
     process. In that situation ``trackers`` can be re-execed while
-    ``trackers.local_json`` remains cached, so decorators do not run again.
-    Explicitly binding the built-in classes keeps the registry deterministic.
+    submodules remain cached, so decorators do not run again. Explicitly
+    binding the built-in classes keeps the registry deterministic.
     """
     from .github import GithubTrackerClient
     from .linear import LinearTrackerClient
-    from .local_json import LocalJsonTrackerClient
 
     _TRACKER_KINDS.setdefault("github", GithubTrackerClient)
     _TRACKER_KINDS.setdefault("linear", LinearTrackerClient)
-    _TRACKER_KINDS.setdefault("local-json", LocalJsonTrackerClient)
+
+
+def _ensure_builtin_code_host_kinds() -> None:
+    from .github import GithubCodeHostClient
+
+    _CODE_HOST_KINDS.setdefault("github", GithubCodeHostClient)
+
+
+def code_host_kind(code_host_cfg: dict[str, Any]) -> str:
+    kind = str(code_host_cfg.get("kind") or "").strip()
+    if not kind:
+        raise CodeHostConfigError("code-host.kind is required")
+    return kind
+
+
+def build_code_host_client(
+    *,
+    workflow_root: Path,
+    code_host_cfg: dict[str, Any],
+    repo_path: Path | None = None,
+    run: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+    run_json: Callable[..., Any] | None = None,
+) -> CodeHostClient:
+    del workflow_root
+    kind = code_host_kind(code_host_cfg)
+    _ensure_builtin_code_host_kinds()
+    if kind not in _CODE_HOST_KINDS:
+        raise CodeHostConfigError(
+            f"unsupported code-host.kind={kind!r}; supported kinds: {sorted(_CODE_HOST_KINDS)}"
+        )
+    cls = _CODE_HOST_KINDS[kind]
+    return cls(code_host_cfg=code_host_cfg, repo_path=repo_path, run=run, run_json=run_json)
 
 
 def resolve_tracker_path(*, workflow_root: Path, tracker_cfg: dict[str, Any]) -> Path:
@@ -84,8 +134,6 @@ def resolve_tracker_path(*, workflow_root: Path, tracker_cfg: dict[str, Any]) ->
 
 def describe_tracker_source(*, workflow_root: Path, tracker_cfg: dict[str, Any]) -> str:
     kind = tracker_kind(tracker_cfg)
-    if kind == "local-json":
-        return str(resolve_tracker_path(workflow_root=workflow_root, tracker_cfg=tracker_cfg))
     if kind == "github":
         slug = tracker_cfg.get("github_slug")
         if slug:

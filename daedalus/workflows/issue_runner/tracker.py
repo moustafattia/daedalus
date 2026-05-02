@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from integrations.trackers import (
+from trackers import (
     DEFAULT_ACTIVE_STATES,
     DEFAULT_TERMINAL_STATES,
     TrackerClient,

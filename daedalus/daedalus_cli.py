@@ -52,7 +52,6 @@ from workflows.runtime_matrix import build_runtime_matrix_report
 from workflows.change_delivery.storage import ensure_change_delivery_state_files
 from workflows.paths import (
     derive_workflow_instance_name,
-    plugin_runtime_path,
     project_key_for_workflow_root,
     repo_local_workflow_pointer_path,
     resolve_default_workflow_root as resolve_workflow_root_default,
@@ -72,33 +71,9 @@ def resolve_default_workflow_root() -> Path:
 DEFAULT_WORKFLOW_ROOT = resolve_default_workflow_root()
 DEFAULT_INSTANCE_ID = "daedalus-plugin"
 
-DAEDALUS_TEMPLATE_UNIT_FILENAMES = {
-    "active": "daedalus-active@.service",
-    "shadow": "daedalus-shadow@.service",
-}
-
-DAEDALUS_INSTANCE_ID_FORMAT = "daedalus-{mode}-{workspace}"
 CODEX_APP_SERVER_SERVICE_PREFIX = "daedalus-codex-app-server"
 DEFAULT_CODEX_APP_SERVER_LISTEN = "ws://127.0.0.1:4500"
 DEFAULT_CODEX_APP_SERVER_HEALTHCHECK_PATH = "/readyz"
-
-
-def _instance_id_for(*, service_mode: str, workspace: str) -> str:
-    return DAEDALUS_INSTANCE_ID_FORMAT.format(mode=service_mode, workspace=workspace)
-
-
-SERVICE_PROFILES = {
-    "shadow": {
-        "template_unit": DAEDALUS_TEMPLATE_UNIT_FILENAMES["shadow"],
-        "description": "Daedalus shadow orchestrator",
-        "runtime_command": "run-shadow",
-    },
-    "active": {
-        "template_unit": DAEDALUS_TEMPLATE_UNIT_FILENAMES["active"],
-        "description": "Daedalus active orchestrator",
-        "runtime_command": "run-active",
-    },
-}
 
 
 class DaedalusCommandError(Exception):
@@ -108,16 +83,6 @@ class DaedalusCommandError(Exception):
 class DaedalusArgumentParser(argparse.ArgumentParser):
     def error(self, message):
         raise DaedalusCommandError(f"{message}\n\n{self.format_usage().strip()}")
-
-
-def _load_daedalus_module(workflow_root: Path):
-    module_path = PLUGIN_DIR / "runtime.py"
-    spec = importlib.util.spec_from_file_location("daedalus_runtime", module_path)
-    if spec is None or spec.loader is None:
-        raise DaedalusCommandError(f"unable to load Daedalus runtime from plugin package: {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _build_project_status(workflow_root: Path) -> dict[str, Any]:
@@ -204,100 +169,6 @@ def _systemd_user_dir() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return (Path.home() / ".config" / "systemd" / "user").resolve()
-
-
-def _service_profile(service_mode: str) -> dict[str, str]:
-    profile = SERVICE_PROFILES.get(service_mode)
-    if profile is None:
-        raise DaedalusCommandError(f"unknown service mode: {service_mode}")
-    return profile
-
-
-def _resolve_service_name(
-    *, service_name: str | None = None, service_mode: str = "shadow", workspace: str
-) -> str:
-    return service_name or _instance_unit_name(service_mode, workspace)
-
-
-def _resolve_service_instance_id(
-    *, instance_id: str | None = None, service_mode: str = "shadow", workspace: str
-) -> str:
-    return instance_id or _instance_id_for(service_mode=service_mode, workspace=workspace)
-
-
-def _service_template_path(*, service_mode: str = "shadow") -> Path:
-    return _systemd_user_dir() / _template_unit_filename(service_mode)
-
-
-def _service_instance_name(*, service_mode: str = "shadow", workspace: str) -> str:
-    return _instance_unit_name(service_mode, workspace)
-
-
-def _expected_plugin_runtime_path(workflow_root: Path) -> Path:
-    del workflow_root
-    return plugin_runtime_path(plugin_dir=PLUGIN_DIR)
-
-
-
-def _render_service_unit(
-    *,
-    workflow_root: Path,
-    project_key: str,
-    instance_id: str,
-    interval_seconds: int,
-    service_mode: str = "shadow",
-) -> str:
-    return _render_template_unit(mode=service_mode)
-
-
-def _template_unit_filename(mode: str) -> str:
-    if mode not in DAEDALUS_TEMPLATE_UNIT_FILENAMES:
-        raise DaedalusCommandError(f"unknown service mode: {mode}")
-    return DAEDALUS_TEMPLATE_UNIT_FILENAMES[mode]
-
-
-def _instance_unit_name(mode: str, workspace: str) -> str:
-    template = _template_unit_filename(mode)
-    # daedalus-active@.service -> daedalus-active@<workspace>.service
-    return template.replace("@.service", f"@{workspace}.service")
-
-
-def _render_template_unit(*, mode: str) -> str:
-    if mode not in DAEDALUS_TEMPLATE_UNIT_FILENAMES:
-        raise DaedalusCommandError(f"unknown service mode: {mode}")
-    description = f"Daedalus {mode} orchestrator (workspace=%i)"
-    # PATH is captured at unit-render time and embedded so the runtime can
-    # find user-installed CLIs (gh, codex, claude, etc.) under ~/.local/bin.
-    # systemd's default user PATH is minimal (/usr/bin:/bin) and would
-    # cause FileNotFoundError on those tools at first subprocess call.
-    service_path = os.environ.get("PATH") or "/usr/local/bin:/usr/bin:/bin"
-    return "\n".join([
-        "[Unit]",
-        f"Description={description}",
-        "After=default.target",
-        "",
-        "[Service]",
-        "Type=simple",
-        "WorkingDirectory=%h/.hermes/workflows/%i",
-        f"Environment=PATH={service_path}",
-        "Environment=PYTHONUNBUFFERED=1",
-        (
-            # Use absolute /usr/bin/python3 (system Python 3.11) so we get the
-            # pyyaml/jsonschema deps the installer's _check_runtime_deps verified
-            # against. /usr/bin/env python3 with a non-empty PATH may resolve
-            # to homebrew python or a node-managed python that lacks pyyaml.
-            f"ExecStart=/usr/bin/python3 %h/.hermes/plugins/daedalus/daedalus_cli.py "
-            f"service-loop --workflow-root %h/.hermes/workflows/%i "
-            f"--project-key %i --instance-id daedalus-{mode}-%i "
-            f"--interval-seconds 30 --service-mode {mode} --json"
-        ),
-        "Restart=always",
-        "RestartSec=5",
-        "",
-        "[Install]",
-        "WantedBy=default.target",
-        "",
-    ])
 
 
 def _codex_app_server_service_name(*, workflow_root: Path, service_name: str | None = None) -> str:
@@ -427,110 +298,8 @@ def _run_systemctl(*args: str) -> dict[str, Any]:
     }
 
 
-def install_supervised_service(
-    *,
-    workflow_root: Path,
-    project_key: str,
-    instance_id: str | None,
-    interval_seconds: int,
-    service_name: str | None = None,
-    service_mode: str = "shadow",
-    validate_contract: bool = True,
-) -> dict[str, Any]:
-    plugin_runtime_path = _expected_plugin_runtime_path(workflow_root)
-    if not plugin_runtime_path.exists():
-        raise DaedalusCommandError(
-            f"Daedalus plugin runtime not found at {plugin_runtime_path}; install the plugin into ~/.hermes/plugins/daedalus before installing the service"
-        )
-    if validate_contract:
-        preflight_result = _validate_workflow_contract_preflight_for_service(
-            workflow_root=workflow_root,
-            service_mode=service_mode,
-        )
-        workflow_name = str(preflight_result.get("workflow") or "")
-    else:
-        workflow_name = _assert_service_mode_supported(workflow_root=workflow_root, service_mode=service_mode)
-    workspace = workflow_root.name
-    resolved_service_name = _resolve_service_name(
-        service_name=service_name, service_mode=service_mode, workspace=workspace
-    )
-    resolved_instance_id = _resolve_service_instance_id(
-        instance_id=instance_id, service_mode=service_mode, workspace=workspace
-    )
-    template_path = _service_template_path(service_mode=service_mode)
-    template_path.parent.mkdir(parents=True, exist_ok=True)
-    unit_text = _render_service_unit(
-        workflow_root=workflow_root,
-        project_key=project_key,
-        instance_id=resolved_instance_id,
-        interval_seconds=interval_seconds,
-        service_mode=service_mode,
-    )
-    template_path.write_text(unit_text, encoding="utf-8")
-    reload_result = _run_systemctl("daemon-reload")
-    return {
-        "installed": reload_result.get("ok", False),
-        "workflow": workflow_name,
-        "service_mode": service_mode,
-        "service_name": resolved_service_name,
-        "instance_id": resolved_instance_id,
-        "unit_path": str(template_path),
-        "daemon_reload": reload_result,
-    }
-
-
-def _validate_workflow_contract_preflight(workflow_root: Path) -> dict[str, Any]:
-    return _validate_workflow_contract_preflight_for_service(
-        workflow_root=workflow_root,
-        service_mode=None,
-    )
-
-
-def build_validate_report(*, workflow_root: Path, service_mode: str | None = None) -> dict[str, Any]:
-    return validate_workflow_contract(workflow_root, service_mode=service_mode)
-
-
-def _validation_failure_summary(report: dict[str, Any]) -> str:
-    failures = report.get("failures") or []
-    if not failures:
-        return "workflow contract validation failed"
-    lines = ["workflow contract validation failed:"]
-    for check in failures[:8]:
-        lines.append(f"- {check.get('name')}: {check.get('detail')}")
-        for item in (check.get("items") or [])[:5]:
-            path = item.get("path") or "<root>"
-            message = item.get("message") or item
-            lines.append(f"  {path}: {message}")
-    if len(failures) > 8:
-        lines.append(f"- ... {len(failures) - 8} more failing checks")
-    recommendations = report.get("recommendations") or []
-    if recommendations:
-        lines.append("next steps:")
-        lines.extend(f"- {item}" for item in recommendations[:5])
-    return "\n".join(lines)
-
-
-def _assert_workflow_validation_ok(report: dict[str, Any]) -> None:
-    if not report.get("ok"):
-        raise DaedalusCommandError(_validation_failure_summary(report))
-
-
-def _validate_workflow_contract_preflight_for_service(
-    *,
-    workflow_root: Path,
-    service_mode: str | None,
-) -> dict[str, Any]:
-    report = build_validate_report(workflow_root=workflow_root, service_mode=service_mode)
-    _assert_workflow_validation_ok(report)
-    return {
-        "ok": True,
-        "workflow": report.get("workflow"),
-        "schema_version": report.get("schema_version"),
-        "source_path": report.get("source_path"),
-        "checks": report.get("checks") or [],
-        "warnings": report.get("warnings") or [],
-        "recommendations": report.get("recommendations") or [],
-    }
+def build_validate_report(*, workflow_root: Path) -> dict[str, Any]:
+    return validate_workflow_contract(workflow_root)
 
 
 def _workflow_name_for_root(workflow_root: Path) -> str:
@@ -551,18 +320,6 @@ def _load_workflow_module_for_root(workflow_root: Path):
         return load_workflow(workflow_name)
     except Exception as exc:
         raise DaedalusCommandError(f"unable to load workflow {workflow_name!r}: {exc}") from exc
-
-
-def _assert_service_mode_supported(*, workflow_root: Path, service_mode: str) -> str:
-    workflow_name = _workflow_name_for_root(workflow_root)
-    module = _load_workflow_module_for_root(workflow_root)
-    supported_modes = getattr(module, "SERVICE_MODES", None)
-    if supported_modes is not None and service_mode not in set(supported_modes):
-        raise DaedalusCommandError(
-            f"{workflow_name} does not support service mode {service_mode!r}; "
-            f"supported: {sorted(supported_modes)}"
-        )
-    return workflow_name
 
 
 def _load_issue_runner_workspace(workflow_root: Path):
@@ -817,124 +574,6 @@ def build_events_report(
         "filters": {key: value for key, value in filters.items() if value not in (None, "")},
         "counts": {"shown": len(events)},
         "events": events,
-    }
-
-
-def service_loop(
-    *,
-    workflow_root: Path,
-    project_key: str | None,
-    instance_id: str | None,
-    interval_seconds: int,
-    max_iterations: int | None,
-    service_mode: str,
-) -> dict[str, Any]:
-    workflow_name = _assert_service_mode_supported(workflow_root=workflow_root, service_mode=service_mode)
-    module = _load_workflow_module_for_root(workflow_root)
-    loop_fn = getattr(module, "service_loop", None)
-    if not callable(loop_fn):
-        raise DaedalusCommandError(f"workflow {workflow_name!r} does not expose service_loop")
-    return loop_fn(
-        workflow_root=workflow_root,
-        project_key=project_key,
-        instance_id=instance_id,
-        interval_seconds=interval_seconds,
-        max_iterations=max_iterations,
-        service_mode=service_mode,
-    )
-
-
-def service_up(
-    *,
-    workflow_root: Path,
-    project_key: str,
-    instance_id: str | None,
-    interval_seconds: int,
-    service_name: str | None = None,
-    service_mode: str = "active",
-) -> dict[str, Any]:
-    preflight_result = _validate_workflow_contract_preflight_for_service(
-        workflow_root=workflow_root,
-        service_mode=service_mode,
-    )
-    workflow_name = preflight_result.get("workflow")
-
-    install_result = install_supervised_service(
-        workflow_root=workflow_root,
-        project_key=project_key,
-        instance_id=instance_id,
-        interval_seconds=interval_seconds,
-        service_name=service_name,
-        service_mode=service_mode,
-        validate_contract=False,
-    )
-    if not install_result.get("installed"):
-        daemon_reload = install_result.get("daemon_reload") or {}
-        raise DaedalusCommandError(
-            "unable to install systemd service: "
-            f"{daemon_reload.get('stderr') or daemon_reload.get('stdout') or 'daemon-reload failed'}"
-        )
-
-    enable_result = service_control(
-        "enable",
-        workflow_root=workflow_root,
-        service_name=service_name,
-        service_mode=service_mode,
-    )
-    if not enable_result.get("ok"):
-        raise DaedalusCommandError(
-            "unable to enable systemd service: "
-            f"{enable_result.get('stderr') or enable_result.get('stdout') or enable_result.get('returncode')}"
-        )
-
-    module = _load_workflow_module_for_root(workflow_root)
-    prepare_fn = getattr(module, "service_prepare", None)
-    if callable(prepare_fn):
-        prepare_result = prepare_fn(
-            workflow_root=workflow_root,
-            project_key=project_key,
-            service_mode=service_mode,
-        )
-        init_result = prepare_result.get("init") or prepare_result
-        lane_selection_result = prepare_result.get("lane_selection")
-    else:
-        init_result = {
-            "ok": True,
-            "workflow": workflow_name,
-            "skipped": True,
-            "reason": "workflow does not expose service_prepare",
-        }
-        lane_selection_result = None
-
-    start_result = service_control(
-        "start",
-        workflow_root=workflow_root,
-        service_name=service_name,
-        service_mode=service_mode,
-    )
-    if not start_result.get("ok"):
-        raise DaedalusCommandError(
-            "unable to start systemd service: "
-            f"{start_result.get('stderr') or start_result.get('stdout') or start_result.get('returncode')}"
-        )
-
-    service_status_result = service_status(
-        workflow_root=workflow_root,
-        service_name=service_name,
-        service_mode=service_mode,
-    )
-    return {
-        "ok": True,
-        "workflow_root": str(workflow_root),
-        "project_key": project_key,
-        "service_mode": service_mode,
-        "init": init_result,
-        "lane_selection": lane_selection_result,
-        "preflight": preflight_result,
-        "service_install": install_result,
-        "service_enable": enable_result,
-        "service_start": start_result,
-        "service_status": service_status_result,
     }
 
 
@@ -1616,683 +1255,6 @@ def codex_app_server_doctor(
     }
 
 
-def uninstall_supervised_service(
-    *,
-    workflow_root: Path,
-    service_name: str | None = None,
-    service_mode: str = "shadow",
-) -> dict[str, Any]:
-    workspace = workflow_root.name
-    resolved_service_name = _resolve_service_name(
-        service_name=service_name, service_mode=service_mode, workspace=workspace
-    )
-    template_path = _service_template_path(service_mode=service_mode)
-    stop_result = _run_systemctl("stop", resolved_service_name)
-    disable_result = _run_systemctl("disable", resolved_service_name)
-    removed = False
-    if template_path.exists():
-        template_path.unlink()
-        removed = True
-    reload_result = _run_systemctl("daemon-reload")
-    return {
-        "uninstalled": removed or stop_result.get("ok") or disable_result.get("ok"),
-        "service_mode": service_mode,
-        "service_name": resolved_service_name,
-        "unit_path": str(template_path),
-        "removed_unit_file": removed,
-        "stop": stop_result,
-        "disable": disable_result,
-        "daemon_reload": reload_result,
-    }
-
-
-def service_control(
-    action: str,
-    *,
-    workflow_root: Path,
-    service_name: str | None = None,
-    service_mode: str = "shadow",
-    extra_args: list[str] | None = None,
-) -> dict[str, Any]:
-    extra_args = extra_args or []
-    workflow_name = _assert_service_mode_supported(workflow_root=workflow_root, service_mode=service_mode)
-    workspace = workflow_root.name
-    resolved_service_name = _resolve_service_name(
-        service_name=service_name, service_mode=service_mode, workspace=workspace
-    )
-    result = _run_systemctl(action, *extra_args, resolved_service_name)
-    return {
-        "action": action,
-        "workflow": workflow_name,
-        "service_mode": service_mode,
-        "service_name": resolved_service_name,
-        **result,
-    }
-
-
-def service_status(
-    *,
-    workflow_root: Path,
-    service_name: str | None = None,
-    service_mode: str = "shadow",
-) -> dict[str, Any]:
-    workflow_name = _assert_service_mode_supported(workflow_root=workflow_root, service_mode=service_mode)
-    workspace = workflow_root.name
-    resolved_service_name = _resolve_service_name(
-        service_name=service_name, service_mode=service_mode, workspace=workspace
-    )
-    template_path = _service_template_path(service_mode=service_mode)
-    active = _run_systemctl("is-active", resolved_service_name)
-    enabled = _run_systemctl("is-enabled", resolved_service_name)
-    show = _run_systemctl(
-        "show",
-        "--property=Id,Names,LoadState,ActiveState,SubState,UnitFileState,FragmentPath,ExecMainPID,ExecMainStatus,Result",
-        resolved_service_name,
-    )
-    props: dict[str, Any] = {}
-    if show.get("ok") and show.get("stdout"):
-        for line in show["stdout"].splitlines():
-            if "=" in line:
-                key, value = line.split("=", 1)
-                props[key] = value
-    return {
-        "workflow": workflow_name,
-        "service_mode": service_mode,
-        "service_name": resolved_service_name,
-        "active": active.get("stdout") or ("active" if active.get("ok") else "unknown"),
-        "enabled": enabled.get("stdout") or ("enabled" if enabled.get("ok") else "unknown"),
-        "properties": props,
-        "active_check": active,
-        "enabled_check": enabled,
-        "show": show,
-        "unit_path": str(template_path),
-        "installed": template_path.exists(),
-    }
-
-
-def _expected_supervised_service_mode(
-    runtime_status: dict[str, Any], *, workspace: str
-) -> str | None:
-    current_mode = runtime_status.get("current_mode")
-    owner_instance_id = runtime_status.get("active_orchestrator_instance_id")
-    for service_mode in SERVICE_PROFILES:
-        expected_instance_id = _instance_id_for(service_mode=service_mode, workspace=workspace)
-        if current_mode == service_mode and owner_instance_id == expected_instance_id:
-            return service_mode
-    return None
-
-
-def _evaluate_service_supervision(
-    *,
-    runtime_status: dict[str, Any],
-    service_info: dict[str, Any] | None,
-    workflow_root: Path,
-) -> dict[str, Any]:
-    workspace = workflow_root.name
-    expected_service_mode = _expected_supervised_service_mode(runtime_status, workspace=workspace)
-    if not expected_service_mode:
-        return {
-            "expected_service_mode": None,
-            "healthy": True,
-            "reasons": [],
-            "summary": "Runtime is not using a supervised service profile",
-        }
-    service_info = service_info or service_status(
-        workflow_root=workflow_root, service_mode=expected_service_mode
-    )
-    reasons = []
-    if not service_info.get("installed"):
-        reasons.append("service-missing")
-    if service_info.get("active") != "active":
-        reasons.append("service-inactive")
-    if service_info.get("enabled") != "enabled":
-        reasons.append("service-disabled")
-    healthy = not reasons
-    return {
-        "expected_service_mode": expected_service_mode,
-        "healthy": healthy,
-        "reasons": reasons,
-        "summary": (
-            f"{expected_service_mode} Daedalus service supervision healthy"
-            if healthy
-            else f"{expected_service_mode} Daedalus service supervision unhealthy"
-        ),
-    }
-
-
-def service_logs(
-    *,
-    workflow_root: Path,
-    service_name: str | None = None,
-    service_mode: str = "shadow",
-    lines: int = 50,
-) -> dict[str, Any]:
-    workflow_name = _assert_service_mode_supported(workflow_root=workflow_root, service_mode=service_mode)
-    workspace = workflow_root.name
-    resolved_service_name = _resolve_service_name(
-        service_name=service_name, service_mode=service_mode, workspace=workspace
-    )
-    completed = subprocess.run(
-        ["journalctl", "--user", "-u", resolved_service_name, "-n", str(lines), "--no-pager", "-o", "cat"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return {
-        "workflow": workflow_name,
-        "service_mode": service_mode,
-        "service_name": resolved_service_name,
-        "ok": completed.returncode == 0,
-        "returncode": completed.returncode,
-        "stdout": completed.stdout.strip(),
-        "stderr": completed.stderr.strip(),
-        "lines": lines,
-    }
-
-
-def build_shadow_report(*, workflow_root: Path, recent_actions_limit: int = 5) -> dict[str, Any]:
-    daedalus = _load_daedalus_module(workflow_root)
-    runtime_status = daedalus.get_runtime_status(workflow_root=workflow_root)
-    if runtime_status.get("runtime_status") == "missing":
-        raise DaedalusCommandError("Daedalus runtime is not initialized; run `daedalus start` first")
-
-    legacy_status = _build_project_status(workflow_root)
-    now_iso = daedalus._now_iso()
-    now_epoch = daedalus._iso_to_epoch(now_iso)
-    ingest = daedalus.ingest_legacy_status(
-        workflow_root=workflow_root,
-        legacy_status=legacy_status,
-        now_iso=now_iso,
-    )
-    lane_id = ingest.get("lane_id")
-    legacy_lane = _active_lane_from_legacy_status(legacy_status)
-    legacy_action = legacy_status.get("nextAction") or {}
-    derived_action = None
-    active_lane = None
-    lease_info = None
-    warnings = []
-    service_info = None
-    service_health = None
-    gate = daedalus.evaluate_active_execution_gate(
-        workflow_root=workflow_root,
-        legacy_status=legacy_status,
-    )
-    owner_summary = {
-        "primary_owner": gate.get("primary_owner"),
-        "relay_primary": gate.get("primary_owner") == daedalus.RELAY_OWNER,
-        "active_execution_enabled": (gate.get("execution") or {}).get("active_execution_enabled"),
-        "gate_allowed": gate.get("allowed"),
-        "gate_reasons": gate.get("reasons") or [],
-    }
-
-    expected_service_mode = _expected_supervised_service_mode(
-        runtime_status, workspace=workflow_root.name
-    )
-    if expected_service_mode:
-        service_info = service_status(
-            workflow_root=workflow_root, service_mode=expected_service_mode
-        )
-        service_health = _evaluate_service_supervision(
-            runtime_status=runtime_status,
-            service_info=service_info,
-            workflow_root=workflow_root,
-        )
-        owner_summary["service_healthy"] = service_health.get("healthy")
-        if not service_health.get("healthy"):
-            warnings.append(
-                f"{expected_service_mode} Daedalus service unhealthy: " + ", ".join(service_health.get("reasons") or [])
-            )
-    else:
-        owner_summary["service_healthy"] = None
-
-    paths = daedalus._runtime_paths(workflow_root)
-    engine_store = EngineStore(
-        db_path=paths["db_path"],
-        workflow="change-delivery",
-        now_iso=lambda: now_iso,
-        now_epoch=lambda: float(now_epoch or time.time()),
-    )
-    lease_info = engine_store.lease_status(
-        lease_scope=daedalus.RUNTIME_LEASE_SCOPE,
-        lease_key=daedalus.RUNTIME_LEASE_KEY,
-        heartbeat_at=runtime_status.get("latest_heartbeat_at"),
-        active_owner_instance_id=runtime_status.get("active_orchestrator_instance_id"),
-    )
-    if lease_info.get("stale"):
-        warnings.append(
-            "stale runtime heartbeat/lease: " + ", ".join(lease_info.get("stale_reasons") or [])
-        )
-
-    conn = sqlite3.connect(paths["db_path"])
-    conn.row_factory = sqlite3.Row
-    try:
-        if lane_id:
-            lane_row = conn.execute("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)).fetchone()
-            if lane_row:
-                lane = dict(lane_row)
-                actor_row = conn.execute(
-                    "SELECT * FROM lane_actors WHERE actor_id=?",
-                    (lane.get("active_actor_id"),),
-                ).fetchone()
-                actor = dict(actor_row) if actor_row else {}
-                reviews = [
-                    dict(row)
-                    for row in conn.execute(
-                        "SELECT * FROM lane_reviews WHERE lane_id=? ORDER BY reviewer_scope, updated_at DESC",
-                        (lane_id,),
-                    ).fetchall()
-                ]
-                derived_actions = daedalus.derive_shadow_actions_for_lane(
-                    lane_row=lane,
-                    reviews=reviews,
-                    actor_row=actor,
-                )
-                derived_action = derived_actions[0] if derived_actions else None
-                active_lane = {
-                    "lane_id": lane.get("lane_id"),
-                    "issue_number": lane.get("issue_number"),
-                    "issue_title": lane.get("issue_title") or legacy_lane.get("issue_title"),
-                    "issue_url": lane.get("issue_url") or legacy_lane.get("issue_url"),
-                    "workflow_state": lane.get("workflow_state"),
-                    "review_state": lane.get("review_state"),
-                    "merge_state": lane.get("merge_state"),
-                    "branch_name": lane.get("branch_name"),
-                    "current_head_sha": lane.get("current_head_sha"),
-                    "active_pr_number": lane.get("active_pr_number"),
-                    "worktree_path": lane.get("worktree_path"),
-                    "actor_backend": lane.get("actor_backend"),
-                }
-
-        recent_shadow_actions = [
-            dict(row)
-            for row in conn.execute(
-                """
-                SELECT a.lane_id,
-                       l.issue_number,
-                       a.action_type,
-                       a.action_reason,
-                       a.target_head_sha,
-                       a.status,
-                       a.requested_at
-                FROM lane_actions a
-                LEFT JOIN lanes l ON l.lane_id = a.lane_id
-                WHERE a.action_mode='shadow'
-                ORDER BY a.requested_at DESC
-                LIMIT ?
-                """,
-                (recent_actions_limit,),
-            ).fetchall()
-        ]
-        recent_failures = daedalus.query_recent_failures(
-            workflow_root=workflow_root,
-            limit=recent_actions_limit,
-            unresolved_only=True,
-            now_iso=now_iso,
-        )
-    finally:
-        conn.close()
-
-    urgency_rank = {"info": 0, "warning": 1, "critical": 2}
-    highest_failure = max(
-        recent_failures,
-        key=lambda failure: urgency_rank.get(failure.get("urgency") or "info", 0),
-        default=None,
-    )
-    active_failure_summary = {
-        "failure_count": len(recent_failures),
-        "highest_urgency": (highest_failure or {}).get("urgency"),
-        "oldest_failure_age_seconds": max(
-            (failure.get("failure_age_seconds") or 0) for failure in recent_failures
-        ) if recent_failures else 0,
-    }
-
-    relay_action_type = derived_action.get("action_type") if derived_action else None
-    compatible = (legacy_action.get("type"), relay_action_type) in _compatibility_pairs()
-    if recent_failures:
-        warnings.append(
-            f"unresolved active failures present [{active_failure_summary.get('highest_urgency')}]: "
-            + ", ".join(failure.get("failure_class") or "unknown" for failure in recent_failures[:3])
-        )
-
-    return {
-        "report_generated_at": now_iso,
-        "runtime": runtime_status,
-        "heartbeat": lease_info,
-        "service": service_info,
-        "service_health": service_health,
-        "owner_summary": owner_summary,
-        "warnings": warnings,
-        "active_failure_summary": active_failure_summary,
-        "active_lane": active_lane or {
-            "lane_id": lane_id,
-            "issue_number": legacy_lane.get("issue_number"),
-            "issue_title": legacy_lane.get("issue_title"),
-            "issue_url": legacy_lane.get("issue_url"),
-        },
-        "legacy": {
-            "status_updated_at": legacy_status.get("updatedAt"),
-            "next_action_type": legacy_action.get("type"),
-            "reason": legacy_action.get("reason"),
-            "head_sha": legacy_action.get("headSha"),
-        },
-        "relay": {
-            "derived_action_type": relay_action_type,
-            "reason": derived_action.get("reason") if derived_action else None,
-            "target_head_sha": derived_action.get("target_head_sha") if derived_action else None,
-            "compatible": compatible,
-        },
-        "recent_shadow_actions": recent_shadow_actions,
-        "recent_failures": recent_failures,
-    }
-
-
-def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -> dict[str, Any]:
-    shadow_report = build_shadow_report(
-        workflow_root=workflow_root,
-        recent_actions_limit=recent_actions_limit,
-    )
-    daedalus = _load_daedalus_module(workflow_root)
-    legacy_status = _build_project_status(workflow_root)
-    runtime = shadow_report.get("runtime") or {}
-    heartbeat = shadow_report.get("heartbeat") or {}
-    active_lane = shadow_report.get("active_lane") or {}
-    relay_decision = shadow_report.get("relay") or {}
-    stale_reasons = heartbeat.get("stale_reasons") or []
-    legacy_refs = _legacy_issue_refs(legacy_status)
-    recent_failures = shadow_report.get("recent_failures") or []
-    failure_summary = shadow_report.get("active_failure_summary") or {}
-    service = shadow_report.get("service") or {}
-    service_health = shadow_report.get("service_health") or {}
-    checks = []
-
-    checks.append(
-        _make_check(
-            code="missing_lease",
-            status="fail" if "lease-missing" in stale_reasons else "pass",
-            severity="critical",
-            summary=(
-                "Runtime lease row missing"
-                if "lease-missing" in stale_reasons
-                else "Runtime lease row present"
-            ),
-            details={
-                "lease_owner": heartbeat.get("owner_instance_id"),
-                "expires_at": heartbeat.get("expires_at"),
-            },
-        )
-    )
-
-    stale_status = "pass"
-    stale_severity = "info"
-    stale_summary = "Runtime heartbeat and lease look fresh"
-    if stale_reasons:
-        stale_status = "fail" if any(
-            reason in {"lease-expired", "lease-released", "lease-missing"}
-            for reason in stale_reasons
-        ) else "warn"
-        stale_severity = "critical" if stale_status == "fail" else "warning"
-        stale_summary = "Runtime heartbeat/lease is stale"
-    checks.append(
-        _make_check(
-            code="stale_runtime",
-            status=stale_status,
-            severity=stale_severity,
-            summary=stale_summary,
-            details={
-                "latest_heartbeat_at": runtime.get("latest_heartbeat_at"),
-                "heartbeat_age_seconds": heartbeat.get("heartbeat_age_seconds"),
-                "expires_at": heartbeat.get("expires_at"),
-                "stale_reasons": stale_reasons,
-            },
-        )
-    )
-
-    split_brain_reasons = []
-    runtime_owner = runtime.get("active_orchestrator_instance_id")
-    lease_owner = heartbeat.get("owner_instance_id")
-    if runtime_owner and lease_owner and runtime_owner != lease_owner:
-        split_brain_reasons.append("runtime-owner-differs-from-lease-owner")
-    if runtime.get("runtime_status") == "running" and any(
-        reason in {"lease-expired", "lease-released", "lease-missing"}
-        for reason in stale_reasons
-    ):
-        split_brain_reasons.append("running-without-valid-lease")
-    split_status = "warn" if split_brain_reasons else "pass"
-    split_severity = "critical" if split_brain_reasons and runtime.get("current_mode") == "active" else "warning"
-    checks.append(
-        _make_check(
-            code="split_brain_risk",
-            status=split_status,
-            severity=split_severity if split_brain_reasons else "info",
-            summary=(
-                "Split-brain risk detected"
-                if split_brain_reasons
-                else "No split-brain risk detected from runtime/lease ownership"
-            ),
-            details={
-                "runtime_owner": runtime_owner,
-                "lease_owner": lease_owner,
-                "reasons": split_brain_reasons,
-                "mode": runtime.get("current_mode"),
-            },
-        )
-    )
-
-    consistency_values = {k: v for k, v in legacy_refs.items() if v is not None}
-    unique_issue_numbers = sorted(set(consistency_values.values()))
-    inconsistency_reasons = []
-    if len(unique_issue_numbers) > 1:
-        inconsistency_reasons.append("legacy-status-issue-number-mismatch")
-    relay_issue_number = active_lane.get("issue_number")
-    active_issue_number = legacy_refs.get("active_lane")
-    if relay_issue_number is not None and active_issue_number is not None and relay_issue_number != active_issue_number:
-        inconsistency_reasons.append("relay-vs-legacy-active-lane-mismatch")
-    checks.append(
-        _make_check(
-            code="active_lane_consistency",
-            status="warn" if inconsistency_reasons else "pass",
-            severity="warning" if inconsistency_reasons else "info",
-            summary=(
-                "Active lane references are inconsistent"
-                if inconsistency_reasons
-                else "Active lane references are internally consistent"
-            ),
-            details={
-                "references": legacy_refs,
-                "unique_issue_numbers": unique_issue_numbers,
-                "relay_issue_number": relay_issue_number,
-                "reasons": inconsistency_reasons,
-            },
-        )
-    )
-
-    checks.append(
-        _make_check(
-            code="shadow_parity",
-            status="pass" if relay_decision.get("compatible") else "warn",
-            severity="warning" if not relay_decision.get("compatible") else "info",
-            summary=(
-                "Daedalus shadow decision matches legacy semantics"
-                if relay_decision.get("compatible")
-                else "Daedalus shadow decision disagrees with legacy next action"
-            ),
-            details={
-                "legacy_next_action": shadow_report.get("legacy", {}).get("next_action_type"),
-                "relay_next_action": relay_decision.get("derived_action_type"),
-                "legacy_reason": shadow_report.get("legacy", {}).get("reason"),
-                "relay_reason": relay_decision.get("reason"),
-            },
-        )
-    )
-
-    service_check_status = "pass"
-    service_check_severity = "info"
-    service_check_summary = service_health.get("summary") or "Runtime is not using a supervised service profile"
-    if service_health.get("expected_service_mode") and not service_health.get("healthy"):
-        service_check_status = "fail"
-        service_check_severity = "critical"
-    checks.append(
-        _make_check(
-            code="service_supervision",
-            status=service_check_status,
-            severity=service_check_severity,
-            summary=service_check_summary,
-            details={
-                "expected_service_mode": service_health.get("expected_service_mode"),
-                "healthy": service_health.get("healthy"),
-                "reasons": service_health.get("reasons") or [],
-                "service_name": service.get("service_name"),
-                "installed": service.get("installed"),
-                "enabled": service.get("enabled"),
-                "active": service.get("active"),
-            },
-        )
-    )
-
-    event_retention = _workflow_event_retention(workflow_root)
-    event_stats = EngineStore(
-        db_path=runtime_paths(workflow_root)["db_path"],
-        workflow="change-delivery",
-    ).event_stats(event_retention)
-    retention = event_stats.get("retention") or {}
-    retention_reasons = []
-    if not retention.get("configured") and event_stats.get("total_events"):
-        retention_reasons.append("not-configured")
-    if retention.get("excess_rows"):
-        retention_reasons.append("row-limit-exceeded")
-    if retention.get("age_overdue"):
-        retention_reasons.append("age-limit-exceeded")
-    checks.append(
-        _make_check(
-            code="engine_event_retention",
-            status="warn" if retention_reasons else "pass",
-            severity="warning" if retention_reasons else "info",
-            summary=(
-                "Engine event retention needs attention"
-                if retention_reasons
-                else "No engine event retention issue detected"
-            ),
-            details={
-                "reasons": retention_reasons,
-                "total_events": event_stats.get("total_events"),
-                "oldest_event_at": event_stats.get("oldest_event_at"),
-                "oldest_age_seconds": event_stats.get("oldest_age_seconds"),
-                "retention": retention,
-            },
-        )
-    )
-    checks.extend(_runtime_doctor_checks(workflow_root))
-
-    active_lane_id = active_lane.get("lane_id")
-    stuck_dispatched_actions = daedalus.query_stuck_dispatched_actions(
-        workflow_root=workflow_root,
-        lane_id=active_lane_id,
-        now_iso=shadow_report.get("report_generated_at"),
-        limit=10,
-    ) if active_lane_id else []
-
-    checks.append(
-        _make_check(
-            code="stuck_dispatched_actions",
-            status="fail" if stuck_dispatched_actions else "pass",
-            severity="critical" if stuck_dispatched_actions else "info",
-            summary=(
-                "Stuck dispatched actions require the new dispatcher_lost reaper"
-                if stuck_dispatched_actions
-                else "No stuck dispatched actions detected"
-            ),
-            details={
-                "lane_id": active_lane_id,
-                "timeout_seconds": daedalus.DISPATCHED_ACTION_TIMEOUT_SECONDS,
-                "count": len(stuck_dispatched_actions),
-                "actions": [
-                    {
-                        "action_id": action.get("action_id"),
-                        "action_type": action.get("action_type"),
-                        "dispatched_at": action.get("dispatched_at"),
-                        "dispatched_age_seconds": action.get("dispatched_age_seconds"),
-                        "retry_count": action.get("retry_count"),
-                        "recovery_attempt_count": action.get("recovery_attempt_count"),
-                    }
-                    for action in stuck_dispatched_actions
-                ],
-            },
-        )
-    )
-
-    highest_failure_urgency = failure_summary.get("highest_urgency")
-    if not recent_failures:
-        failure_status = "pass"
-        failure_severity = "info"
-        failure_summary_text = "No unresolved active execution failures recorded"
-    elif highest_failure_urgency == "critical":
-        failure_status = "fail"
-        failure_severity = "critical"
-        failure_summary_text = "Critical unresolved active execution failures detected"
-    else:
-        failure_status = "warn"
-        failure_severity = "warning"
-        failure_summary_text = "Active execution failures exist but bounded recovery is still in progress"
-    checks.append(
-        _make_check(
-            code="active_execution_failures",
-            status=failure_status,
-            severity=failure_severity,
-            summary=failure_summary_text,
-            details={
-                "failure_count": len(recent_failures),
-                "highest_urgency": highest_failure_urgency,
-                "oldest_failure_age_seconds": failure_summary.get("oldest_failure_age_seconds"),
-                "failures": [
-                    {
-                        "failure_id": failure.get("failure_id"),
-                        "failure_class": failure.get("failure_class"),
-                        "lane_id": failure.get("lane_id"),
-                        "issue_number": failure.get("issue_number"),
-                        "detected_at": failure.get("detected_at"),
-                        "failure_age_seconds": failure.get("failure_age_seconds"),
-                        "urgency": failure.get("urgency"),
-                        "analyst_status": failure.get("analyst_status"),
-                        "recommended_action": failure.get("analyst_recommended_action"),
-                        "confidence": failure.get("analyst_confidence"),
-                        "root_cause": failure.get("root_cause"),
-                        "recovery_state": failure.get("recovery_state"),
-                        "recovery_action_type": failure.get("recovery_action_type"),
-                        "recovery_action_status": failure.get("recovery_action_status"),
-                        "summary": failure.get("analyst_summary"),
-                    }
-                    for failure in recent_failures
-                ],
-            },
-        )
-    )
-
-    overall_status = "healthy"
-    if any(check["status"] == "fail" and check["severity"] == "critical" for check in checks):
-        overall_status = "critical"
-    elif any(check["status"] != "pass" for check in checks):
-        overall_status = "warning"
-
-    return {
-        "report_generated_at": shadow_report.get("report_generated_at"),
-        "overall_status": overall_status,
-        "checks": checks,
-        "recommendations": build_readiness_recommendations(
-            checks,
-            workflow="change-delivery",
-            workflow_root=workflow_root,
-        ),
-        "runtime": runtime,
-        "heartbeat": heartbeat,
-        "owner_summary": shadow_report.get("owner_summary"),
-        "active_lane": active_lane,
-        "legacy": shadow_report.get("legacy"),
-        "relay": relay_decision,
-        "recent_shadow_actions": shadow_report.get("recent_shadow_actions"),
-        "recent_failures": recent_failures,
-    }
-
-
 def _runtime_doctor_checks(workflow_root: Path) -> list[dict[str, Any]]:
     try:
         config = load_workflow_contract(workflow_root).config
@@ -2638,7 +1600,7 @@ def bootstrap_workflow_root(
     pointer_path = repo_local_workflow_pointer_path(repo_root)
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
     pointer_path.write_text(str(resolved_workflow_root) + "\n", encoding="utf-8")
-    next_command = "hermes daedalus service-up"
+    next_command = "hermes workflow issue-runner run"
     commit_result = _commit_bootstrap_contract(
         repo_root=repo_root,
         workflow_name=workflow_name,
@@ -2767,10 +1729,6 @@ def scaffold_workflow_root(
     state_files_result: dict[str, Any] | None = None
     if workflow_name == "change-delivery":
         state_files_result = ensure_change_delivery_state_files(root, config)
-    if workflow_name == "issue-runner":
-        issues_template = PLUGIN_DIR / "workflows" / "issue_runner" / "issues.template.json"
-        issues_path = root / "config" / "issues.json"
-        issues_path.write_text(issues_template.read_text(encoding="utf-8"), encoding="utf-8")
     return {
         "ok": True,
         "workflow_root": str(root),
@@ -2887,83 +1845,13 @@ def cmd_migrate_filesystem(args, parser) -> str:
     return "\n".join(lines)
 
 
-def cmd_migrate_systemd(args, parser) -> str:
-    """Migrate relay-era systemd units to Daedalus template units.
-
-    Operator-explicit. Removes old workflow-specific relay unit files
-    (tolerant of missing units), installs new daedalus
-    template units, runs daemon-reload.
-    """
-    import subprocess
-
-    workflow_root = args.workflow_root.expanduser().resolve()
-    workspace = workflow_root.name
-    systemd_dir = _systemd_user_dir()
-    systemd_dir.mkdir(parents=True, exist_ok=True)
-
-    actions: list[str] = []
-
-    # 1. Stop + disable old units (tolerant of missing units)
-    for old_name in (
-        f"{workspace}-relay-active.service",
-        f"{workspace}-relay-shadow.service",
-    ):
-        old_path = systemd_dir / old_name
-        if old_path.exists():
-            subprocess.run(
-                ["systemctl", "--user", "stop", old_name],
-                check=False, capture_output=True,
-            )
-            subprocess.run(
-                ["systemctl", "--user", "disable", old_name],
-                check=False, capture_output=True,
-            )
-            old_path.unlink()
-            actions.append(f"removed old unit {old_name}")
-
-    # 2. Install new template units (overwrite if exists)
-    for mode in ("active", "shadow"):
-        template_filename = _template_unit_filename(mode)
-        template_path = systemd_dir / template_filename
-        template_path.write_text(_render_template_unit(mode=mode), encoding="utf-8")
-        actions.append(f"installed template unit {template_filename}")
-
-    # 3. systemctl daemon-reload
-    subprocess.run(
-        ["systemctl", "--user", "daemon-reload"],
-        check=False, capture_output=True,
-    )
-    actions.append("daemon-reload")
-
-    lines = [f"migrate-systemd complete (workspace={workspace}):"]
-    lines.extend(f"  - {a}" for a in actions)
-    lines.append(
-        f"to start active mode: systemctl --user start {_instance_unit_name('active', workspace)}"
-    )
-    return "\n".join(lines)
-
-
 def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="daedalus_command")
     sub.required = True
     default_workflow_root_str = str(resolve_default_workflow_root())
     default_workflow_root_path = resolve_default_workflow_root()
 
-    init_cmd = sub.add_parser("init", help="Initialize Daedalus DB and filesystem paths.")
-    init_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    init_cmd.add_argument("--project-key")
-    init_cmd.add_argument("--json", action="store_true")
-    init_cmd.set_defaults(func=run_cli_command)
-
-    start_cmd = sub.add_parser("start", help="Bootstrap Daedalus runtime and acquire runtime lease.")
-    start_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    start_cmd.add_argument("--project-key")
-    start_cmd.add_argument("--instance-id", default=DEFAULT_INSTANCE_ID)
-    start_cmd.add_argument("--mode", default="shadow", choices=["shadow", "active", "maintenance"])
-    start_cmd.add_argument("--json", action="store_true")
-    start_cmd.set_defaults(func=run_cli_command)
-
-    status_cmd = sub.add_parser("status", help="Show Daedalus runtime status.")
+    status_cmd = sub.add_parser("status", help="Show workflow status.")
     status_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     status_cmd.add_argument("--json", action="store_true")
     status_cmd.add_argument(
@@ -2974,21 +1862,8 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     status_cmd.set_defaults(func=run_cli_command)
 
-    report_cmd = sub.add_parser("shadow-report", help="Summarize the live legacy lane, Daedalus shadow decision, compatibility, and recent shadow actions.")
-    report_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    report_cmd.add_argument("--recent-actions-limit", type=int, default=5)
-    report_cmd.add_argument("--json", action="store_true")
-    report_cmd.add_argument(
-        "--format",
-        choices=["text", "json"],
-        default="text",
-        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
-    )
-    report_cmd.set_defaults(func=run_cli_command)
-
-    doctor_cmd = sub.add_parser("doctor", help="Diagnose Daedalus runtime freshness, lease ownership, shadow parity, and active-lane consistency.")
+    doctor_cmd = sub.add_parser("doctor", help="Run workflow diagnostics.")
     doctor_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    doctor_cmd.add_argument("--recent-actions-limit", type=int, default=5)
     doctor_cmd.add_argument("--json", action="store_true")
     doctor_cmd.add_argument(
         "--format",
@@ -3000,7 +1875,6 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
 
     validate_cmd = sub.add_parser("validate", help="Validate the repo-owned WORKFLOW.md contract and workflow preflight rules.")
     validate_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    validate_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES))
     validate_cmd.add_argument("--json", action="store_true")
     validate_cmd.add_argument(
         "--format",
@@ -3045,182 +1919,6 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     events_cmd.set_defaults(func=run_cli_command)
 
-    service_install_cmd = sub.add_parser("service-install", help="Install the supervised Daedalus systemd user service.")
-    service_install_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_install_cmd.add_argument("--project-key")
-    service_install_cmd.add_argument("--instance-id")
-    service_install_cmd.add_argument("--interval-seconds", type=int, default=30)
-    service_install_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
-    service_install_cmd.add_argument("--service-name")
-    service_install_cmd.add_argument("--json", action="store_true")
-    service_install_cmd.set_defaults(func=run_cli_command)
-
-    service_up_cmd = sub.add_parser(
-        "service-up",
-        help="Initialize, preflight, install, enable, and start the supervised Daedalus systemd user service.",
-    )
-    service_up_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_up_cmd.add_argument("--project-key")
-    service_up_cmd.add_argument("--instance-id")
-    service_up_cmd.add_argument("--interval-seconds", type=int, default=30)
-    service_up_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="active")
-    service_up_cmd.add_argument("--service-name")
-    service_up_cmd.add_argument("--json", action="store_true")
-    service_up_cmd.set_defaults(func=run_cli_command)
-
-    service_loop_cmd = sub.add_parser(
-        "service-loop",
-        help="Run the managed long-lived workflow loop used by the supervised systemd service.",
-    )
-    service_loop_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_loop_cmd.add_argument("--project-key")
-    service_loop_cmd.add_argument("--instance-id")
-    service_loop_cmd.add_argument("--interval-seconds", type=int, default=30)
-    service_loop_cmd.add_argument("--max-iterations", type=int)
-    service_loop_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="active")
-    service_loop_cmd.add_argument("--json", action="store_true")
-    service_loop_cmd.set_defaults(func=run_cli_command)
-
-    service_uninstall_cmd = sub.add_parser("service-uninstall", help="Remove the supervised Daedalus systemd user service.")
-    service_uninstall_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_uninstall_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
-    service_uninstall_cmd.add_argument("--service-name")
-    service_uninstall_cmd.add_argument("--json", action="store_true")
-    service_uninstall_cmd.set_defaults(func=run_cli_command)
-
-    service_start_cmd = sub.add_parser("service-start", help="Start the supervised Daedalus systemd user service.")
-    service_start_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_start_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
-    service_start_cmd.add_argument("--service-name")
-    service_start_cmd.add_argument("--json", action="store_true")
-    service_start_cmd.set_defaults(func=run_cli_command)
-
-    service_stop_cmd = sub.add_parser("service-stop", help="Stop the supervised Daedalus systemd user service.")
-    service_stop_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_stop_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
-    service_stop_cmd.add_argument("--service-name")
-    service_stop_cmd.add_argument("--json", action="store_true")
-    service_stop_cmd.set_defaults(func=run_cli_command)
-
-    service_restart_cmd = sub.add_parser("service-restart", help="Restart the supervised Daedalus systemd user service.")
-    service_restart_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_restart_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
-    service_restart_cmd.add_argument("--service-name")
-    service_restart_cmd.add_argument("--json", action="store_true")
-    service_restart_cmd.set_defaults(func=run_cli_command)
-
-    service_enable_cmd = sub.add_parser("service-enable", help="Enable the supervised Daedalus systemd user service.")
-    service_enable_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_enable_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
-    service_enable_cmd.add_argument("--service-name")
-    service_enable_cmd.add_argument("--json", action="store_true")
-    service_enable_cmd.set_defaults(func=run_cli_command)
-
-    service_disable_cmd = sub.add_parser("service-disable", help="Disable the supervised Daedalus systemd user service.")
-    service_disable_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_disable_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
-    service_disable_cmd.add_argument("--service-name")
-    service_disable_cmd.add_argument("--json", action="store_true")
-    service_disable_cmd.set_defaults(func=run_cli_command)
-
-    service_status_cmd = sub.add_parser("service-status", help="Show supervised Daedalus systemd user service status.")
-    service_status_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_status_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
-    service_status_cmd.add_argument("--service-name")
-    service_status_cmd.add_argument("--json", action="store_true")
-    service_status_cmd.add_argument(
-        "--format",
-        choices=["text", "json"],
-        default="text",
-        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
-    )
-    service_status_cmd.set_defaults(func=run_cli_command)
-
-    service_logs_cmd = sub.add_parser("service-logs", help="Show recent logs for the supervised Daedalus systemd user service.")
-    service_logs_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    service_logs_cmd.add_argument("--service-mode", choices=sorted(SERVICE_PROFILES), default="shadow")
-    service_logs_cmd.add_argument("--service-name")
-    service_logs_cmd.add_argument("--lines", type=int, default=50)
-    service_logs_cmd.add_argument("--json", action="store_true")
-    service_logs_cmd.set_defaults(func=run_cli_command)
-
-    ingest_cmd = sub.add_parser("ingest-live", help="Ingest current workflow status into Daedalus shadow state.")
-    ingest_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    ingest_cmd.add_argument("--json", action="store_true")
-    ingest_cmd.set_defaults(func=run_cli_command)
-
-    heartbeat_cmd = sub.add_parser("heartbeat", help="Refresh Daedalus runtime lease and heartbeat timestamp.")
-    heartbeat_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    heartbeat_cmd.add_argument("--instance-id", default=DEFAULT_INSTANCE_ID)
-    heartbeat_cmd.add_argument("--ttl-seconds", type=int, default=60)
-    heartbeat_cmd.add_argument("--json", action="store_true")
-    heartbeat_cmd.set_defaults(func=run_cli_command)
-
-    iterate_cmd = sub.add_parser("iterate-shadow", help="Run one shadow-mode loop iteration.")
-    iterate_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    iterate_cmd.add_argument("--instance-id", default=DEFAULT_INSTANCE_ID)
-    iterate_cmd.add_argument("--json", action="store_true")
-    iterate_cmd.set_defaults(func=run_cli_command)
-
-    run_cmd = sub.add_parser("run-shadow", help="Run the shadow-mode loop shell for one or more iterations.")
-    run_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    run_cmd.add_argument("--project-key")
-    run_cmd.add_argument("--instance-id", default=DEFAULT_INSTANCE_ID)
-    run_cmd.add_argument("--interval-seconds", type=int, default=30)
-    run_cmd.add_argument("--max-iterations", type=int)
-    run_cmd.add_argument("--json", action="store_true")
-    run_cmd.set_defaults(func=run_cli_command)
-
-    active_gate_status_cmd = sub.add_parser("active-gate-status", help="Show Daedalus active-execution gate state.")
-    active_gate_status_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    active_gate_status_cmd.add_argument("--json", action="store_true")
-    active_gate_status_cmd.add_argument(
-        "--format",
-        choices=["text", "json"],
-        default="text",
-        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
-    )
-    active_gate_status_cmd.set_defaults(func=run_cli_command)
-
-    set_active_execution_cmd = sub.add_parser("set-active-execution", help="Enable or disable Daedalus active execution.")
-    set_active_execution_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    set_active_execution_cmd.add_argument("--enabled", required=True, choices=["true", "false"])
-    set_active_execution_cmd.add_argument("--json", action="store_true")
-    set_active_execution_cmd.set_defaults(func=run_cli_command)
-
-    iterate_active_cmd = sub.add_parser("iterate-active", help="Run one guarded active-mode loop iteration.")
-    iterate_active_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    iterate_active_cmd.add_argument("--instance-id", default=DEFAULT_INSTANCE_ID)
-    iterate_active_cmd.add_argument("--json", action="store_true")
-    iterate_active_cmd.set_defaults(func=run_cli_command)
-
-    run_active_cmd = sub.add_parser("run-active", help="Run the guarded active-mode loop shell for one or more iterations.")
-    run_active_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    run_active_cmd.add_argument("--project-key")
-    run_active_cmd.add_argument("--instance-id", default=DEFAULT_INSTANCE_ID)
-    run_active_cmd.add_argument("--interval-seconds", type=int, default=30)
-    run_active_cmd.add_argument("--max-iterations", type=int)
-    run_active_cmd.add_argument("--json", action="store_true")
-    run_active_cmd.set_defaults(func=run_cli_command)
-
-    request_active_cmd = sub.add_parser("request-active-actions", help="Derive and persist active requested actions for one lane.")
-    request_active_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    request_active_cmd.add_argument("--lane-id", required=True)
-    request_active_cmd.add_argument("--json", action="store_true")
-    request_active_cmd.set_defaults(func=run_cli_command)
-
-    execute_action_cmd = sub.add_parser("execute-action", help="Execute one active requested action by action id.")
-    execute_action_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    execute_action_cmd.add_argument("--action-id", required=True)
-    execute_action_cmd.add_argument("--json", action="store_true")
-    execute_action_cmd.set_defaults(func=run_cli_command)
-
-    analyze_failure_cmd = sub.add_parser("analyze-failure", help="Run bounded failure analysis for a recorded failure id.")
-    analyze_failure_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    analyze_failure_cmd.add_argument("--failure-id", required=True)
-    analyze_failure_cmd.add_argument("--json", action="store_true")
-    analyze_failure_cmd.set_defaults(func=run_cli_command)
-
     migrate_fs_cmd = sub.add_parser(
         "migrate-filesystem",
         help="Migrate relay-era filesystem paths to daedalus paths.",
@@ -3232,17 +1930,6 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         help="Workflow root to migrate (default: %(default)s)",
     )
     migrate_fs_cmd.set_defaults(handler=cmd_migrate_filesystem, func=run_cli_command)
-
-    migrate_systemd_cmd = sub.add_parser(
-        "migrate-systemd",
-        help="Migrate relay-era systemd units to daedalus template units.",
-    )
-    migrate_systemd_cmd.add_argument(
-        "--workflow-root",
-        type=Path,
-        default=default_workflow_root_path,
-    )
-    migrate_systemd_cmd.set_defaults(handler=cmd_migrate_systemd, func=run_cli_command)
 
     watch_cmd = sub.add_parser(
         "watch",
@@ -3440,49 +2127,6 @@ def _run_wrapper_json_command(*, workflow_root: Path, command: str) -> dict[str,
     return json.loads(completed.stdout)
 
 
-def _record_operator_command_event(*, workflow_root: Path, args: argparse.Namespace, daedalus: Any) -> None:
-    now_iso = daedalus._now_iso()
-    arguments_json = {}
-    for key, value in vars(args).items():
-        # Skip non-serializable argparse plumbing. ``handler`` is a function
-        # reference set by string-returning subcommands such as watch.
-        if key in {"func", "handler", "json", "_command_source"}:
-            continue
-        if isinstance(value, Path):
-            arguments_json[key] = str(value)
-        else:
-            arguments_json[key] = value
-    daedalus.append_daedalus_event(
-        event_log_path=daedalus._runtime_paths(workflow_root)["event_log_path"],
-        event={
-            "event_id": f"evt:operator_command_received:{args.daedalus_command}:{now_iso}",
-            "event_type": "operator_command_received",
-            "event_version": 1,
-            "created_at": now_iso,
-            "producer": "Workflow_Orchestrator",
-            "project_key": daedalus._project_key_for(workflow_root),
-            "lane_id": None,
-            "issue_number": None,
-            "head_sha": None,
-            "causal_event_id": None,
-            "causal_action_id": None,
-            "dedupe_key": f"operator_command_received:{args.daedalus_command}:{now_iso}",
-            "payload": {
-                "command_name": args.daedalus_command,
-                "command_source": getattr(args, "_command_source", None) or "cli",
-                "operator_identity": os.environ.get("USER"),
-                "arguments_json": arguments_json,
-            },
-        },
-    )
-
-
-def _resolved_project_key(*, daedalus: Any, workflow_root: Path, project_key: str | None) -> str:
-    if project_key:
-        return project_key
-    return daedalus._project_key_for(workflow_root)
-
-
 def _resolve_format(format_arg: str | None, json_flag: bool | None) -> str:
     """Resolve the effective output format from ``--format`` and ``--json``.
 
@@ -3498,60 +2142,20 @@ def _resolve_format(format_arg: str | None, json_flag: bool | None) -> str:
 
 def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     workflow_root = Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
-    daedalus = _load_daedalus_module(workflow_root) if workflow_root is not None else None
-    eventless_commands = {"codex-app-server", "runs", "events", "validate", "configure-runtime", "runtime-matrix"}
-    if (
-        workflow_root is not None
-        and daedalus is not None
-        and getattr(args, "daedalus_command", None)
-        and args.daedalus_command not in eventless_commands
-    ):
-        _record_operator_command_event(workflow_root=workflow_root, args=args, daedalus=daedalus)
     command = getattr(args, "daedalus_command", None)
-    project_key_commands = {"init", "start", "service-install", "service-up", "service-loop", "run-shadow", "run-active"}
-    resolved_project_key = (
-        _resolved_project_key(
-            daedalus=daedalus,
-            workflow_root=workflow_root,
-            project_key=getattr(args, "project_key", None),
-        )
-        if workflow_root is not None and daedalus is not None and command in project_key_commands
-        else None
-    )
-    paths = daedalus._runtime_paths(workflow_root) if daedalus is not None else None
 
-    if args.daedalus_command == "init":
-        return daedalus.init_daedalus_db(workflow_root=workflow_root, project_key=resolved_project_key)
-    if args.daedalus_command == "start":
-        return daedalus.bootstrap_runtime(
-            workflow_root=workflow_root,
-            project_key=resolved_project_key,
-            instance_id=args.instance_id,
-            mode=args.mode,
-        )
     if args.daedalus_command == "status":
         workflow_name = _workflow_name_for_root(workflow_root)
         if workflow_name == "issue-runner":
             return _build_issue_runner_status(workflow_root)
-        return daedalus.get_runtime_status(workflow_root=workflow_root)
-    if args.daedalus_command == "shadow-report":
-        return build_shadow_report(
-            workflow_root=workflow_root,
-            recent_actions_limit=args.recent_actions_limit,
-        )
+        return _build_project_status(workflow_root)
     if args.daedalus_command == "doctor":
         workflow_name = _workflow_name_for_root(workflow_root)
         if workflow_name == "issue-runner":
             return _build_issue_runner_doctor(workflow_root)
-        return build_doctor_report(
-            workflow_root=workflow_root,
-            recent_actions_limit=args.recent_actions_limit,
-        )
+        return _run_wrapper_json_command(workflow_root=workflow_root, command="doctor --json")
     if args.daedalus_command == "validate":
-        return build_validate_report(
-            workflow_root=workflow_root,
-            service_mode=getattr(args, "service_mode", None),
-        )
+        return build_validate_report(workflow_root=workflow_root)
     if args.daedalus_command == "configure-runtime":
         return configure_runtime_preset(
             workflow_root=workflow_root,
@@ -3587,87 +2191,6 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
             order=args.order,
             max_age_days=args.max_age_days,
             max_rows=args.max_rows,
-        )
-    if args.daedalus_command == "service-install":
-        return install_supervised_service(
-            workflow_root=workflow_root,
-            project_key=resolved_project_key,
-            instance_id=args.instance_id,
-            interval_seconds=args.interval_seconds,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-up":
-        return service_up(
-            workflow_root=workflow_root,
-            project_key=resolved_project_key,
-            instance_id=args.instance_id,
-            interval_seconds=args.interval_seconds,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-loop":
-        return service_loop(
-            workflow_root=workflow_root,
-            project_key=resolved_project_key,
-            instance_id=args.instance_id,
-            interval_seconds=args.interval_seconds,
-            max_iterations=args.max_iterations,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-uninstall":
-        return uninstall_supervised_service(
-            workflow_root=workflow_root,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-start":
-        return service_control(
-            "start",
-            workflow_root=workflow_root,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-stop":
-        return service_control(
-            "stop",
-            workflow_root=workflow_root,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-restart":
-        return service_control(
-            "restart",
-            workflow_root=workflow_root,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-enable":
-        return service_control(
-            "enable",
-            workflow_root=workflow_root,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-disable":
-        return service_control(
-            "disable",
-            workflow_root=workflow_root,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-status":
-        return service_status(
-            workflow_root=workflow_root,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-        )
-    if args.daedalus_command == "service-logs":
-        return service_logs(
-            workflow_root=workflow_root,
-            service_name=args.service_name,
-            service_mode=args.service_mode,
-            lines=args.lines,
         )
     if args.daedalus_command == "codex-app-server":
         action = args.codex_app_server_command
@@ -3737,86 +2260,6 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
                 lines=args.lines,
             )
         raise DaedalusCommandError(f"unknown codex-app-server command: {action}")
-    if args.daedalus_command == "ingest-live":
-        return daedalus.ingest_live_legacy_status(workflow_root=workflow_root)
-    if args.daedalus_command == "heartbeat":
-        return daedalus.refresh_runtime_lease(
-            workflow_root=workflow_root,
-            instance_id=args.instance_id,
-            ttl_seconds=args.ttl_seconds,
-        )
-    if args.daedalus_command == "iterate-shadow":
-        return daedalus.run_shadow_iteration(
-            workflow_root=workflow_root,
-            instance_id=args.instance_id,
-        )
-    if args.daedalus_command == "run-shadow":
-        return daedalus.run_shadow_loop(
-            workflow_root=workflow_root,
-            project_key=resolved_project_key,
-            instance_id=args.instance_id,
-            interval_seconds=args.interval_seconds,
-            max_iterations=args.max_iterations,
-        )
-    if args.daedalus_command == "active-gate-status":
-        legacy_status = _run_wrapper_json_command(workflow_root=workflow_root, command="status --json")
-        return daedalus.evaluate_active_execution_gate(
-            workflow_root=workflow_root,
-            legacy_status=legacy_status,
-        )
-    if args.daedalus_command == "set-active-execution":
-        daedalus.set_execution_control(
-            workflow_root=workflow_root,
-            active_execution_enabled=(args.enabled == "true"),
-            metadata={"source": "relay-control", "enabled": args.enabled},
-        )
-        legacy_status = _run_wrapper_json_command(workflow_root=workflow_root, command="status --json")
-        return {
-            "requested_enabled": (args.enabled == "true"),
-            "gate": daedalus.evaluate_active_execution_gate(workflow_root=workflow_root, legacy_status=legacy_status),
-        }
-    if args.daedalus_command == "iterate-active":
-        lane_selection = (
-            _ensure_change_delivery_active_lane_for_start(workflow_root)
-            if _workflow_name_for_root(workflow_root) == "change-delivery"
-            else None
-        )
-        result = daedalus.run_active_iteration(
-            workflow_root=workflow_root,
-            instance_id=args.instance_id,
-        )
-        result["lane_selection"] = lane_selection
-        return result
-    if args.daedalus_command == "run-active":
-        lane_selection = (
-            _ensure_change_delivery_active_lane_for_start(workflow_root)
-            if _workflow_name_for_root(workflow_root) == "change-delivery"
-            else None
-        )
-        result = daedalus.run_active_loop(
-            workflow_root=workflow_root,
-            project_key=resolved_project_key,
-            instance_id=args.instance_id,
-            interval_seconds=args.interval_seconds,
-            max_iterations=args.max_iterations,
-        )
-        result["lane_selection"] = lane_selection
-        return result
-    if args.daedalus_command == "request-active-actions":
-        return daedalus.request_active_actions_for_lane(
-            workflow_root=workflow_root,
-            lane_id=args.lane_id,
-        )
-    if args.daedalus_command == "execute-action":
-        return daedalus.execute_requested_action(
-            workflow_root=workflow_root,
-            action_id=args.action_id,
-        )
-    if args.daedalus_command == "analyze-failure":
-        return daedalus.analyze_failure(
-            workflow_root=workflow_root,
-            failure_id=args.failure_id,
-        )
     raise DaedalusCommandError(f"unknown daedalus command: {args.daedalus_command}")
 
 
@@ -3832,13 +2275,6 @@ def render_result(
         output_format = "json" if json_output else "text"
     if output_format == "json":
         return json.dumps(result, indent=2, sort_keys=True)
-    if command == "init":
-        return f"initialized db={result.get('db_path')} project={result.get('project_key')}"
-    if command == "start":
-        return (
-            f"runtime={result.get('runtime_status')} instance={result.get('instance_id')} "
-            f"mode={result.get('mode')}"
-        )
     if command == "status":
         try:
             from formatters import format_status as _fmt_status
@@ -3850,17 +2286,6 @@ def render_result(
             spec.loader.exec_module(mod)
             _fmt_status = mod.format_status
         return _fmt_status(result)
-    if command == "shadow-report":
-        try:
-            from formatters import format_shadow_report as _fmt
-        except ImportError:
-            spec = importlib.util.spec_from_file_location(
-                "daedalus_formatters_for_shadow", PLUGIN_DIR / "formatters.py"
-            )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            _fmt = mod.format_shadow_report
-        return _fmt(result)
     if command == "doctor":
         try:
             from formatters import format_doctor as _fmt
@@ -4042,42 +2467,6 @@ def render_result(
                 f"run={event.get('run_id') or '-'} {detail}".strip()
             )
         return "\n".join(lines)
-    if command == "service-install":
-        return f"service installed mode={result.get('service_mode')} unit={result.get('unit_path')} ok={result.get('installed')}"
-    if command == "service-up":
-        status = result.get("service_status") or {}
-        preflight = result.get("preflight") or {}
-        return (
-            f"service up mode={result.get('service_mode')} "
-            f"workflow={preflight.get('workflow')} "
-            f"enabled={status.get('enabled')} active={status.get('active')} "
-            f"service={status.get('service_name')}"
-        )
-    if command == "service-loop":
-        last_result = result.get("last_result") or {}
-        return (
-            f"service-loop workflow={result.get('workflow')} mode={result.get('service_mode')} "
-            f"loop={result.get('loop_status')} iterations={result.get('iterations')} "
-            f"last_ok={last_result.get('ok')}"
-        )
-    if command == "service-uninstall":
-        return f"service uninstalled mode={result.get('service_mode')} unit={result.get('unit_path')} ok={result.get('uninstalled')}"
-    if command in {"service-start", "service-stop", "service-restart", "service-enable", "service-disable"}:
-        return f"{result.get('action')} mode={result.get('service_mode')} {result.get('service_name')} ok={result.get('ok')} stdout={result.get('stdout')} stderr={result.get('stderr')}".strip()
-    if command == "service-status":
-        try:
-            from formatters import format_service_status as _fmt
-        except ImportError:
-            spec = importlib.util.spec_from_file_location(
-                "daedalus_formatters_for_service_status", PLUGIN_DIR / "formatters.py"
-            )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            _fmt = mod.format_service_status
-        return _fmt(result)
-    if command == "service-logs":
-        output = result.get("stdout") or result.get("stderr") or ""
-        return output if output else f"no logs for {result.get('service_name')}"
     if command == "codex-app-server":
         action = result.get("action")
         if action == "install":
@@ -4127,66 +2516,6 @@ def render_result(
                 f"endpoint={result.get('endpoint')} failures={len(failed)} warnings={len(warned)}"
                 f"{suffix}"
             )
-    if command == "ingest-live":
-        return f"ingested lane={result.get('lane_id')} actor={result.get('actor_id')}"
-    if command == "heartbeat":
-        return f"heartbeat instance={result.get('instance_id')} at={result.get('heartbeat_at')}"
-    if command == "iterate-shadow":
-        comparison = result.get("comparison") or {}
-        return (
-            f"iteration={result.get('iteration_status')} lane={comparison.get('lane_id')} "
-            f"legacy={comparison.get('legacy_action_type')} relay={comparison.get('relay_action_type')} "
-            f"compatible={comparison.get('compatible')}"
-        )
-    if command == "run-shadow":
-        comparison = ((result.get("last_result") or {}).get("comparison") or {})
-        return (
-            f"loop={result.get('loop_status')} iterations={result.get('iterations')} "
-            f"lane={comparison.get('lane_id')} compatible={comparison.get('compatible')}"
-        )
-    if command == "active-gate-status":
-        try:
-            from formatters import format_active_gate_status as _fmt
-        except ImportError:
-            spec = importlib.util.spec_from_file_location(
-                "daedalus_formatters_for_active_gate", PLUGIN_DIR / "formatters.py"
-            )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            _fmt = mod.format_active_gate_status
-        return _fmt(result)
-    if command == "set-active-execution":
-        gate = result.get("gate") or {}
-        execution = gate.get("execution") or {}
-        return (
-            f"requested_enabled={result.get('requested_enabled')} allowed={gate.get('allowed')} "
-            f"active_execution_enabled={execution.get('active_execution_enabled')} reasons={','.join(gate.get('reasons') or [])}"
-        )
-    if command == "iterate-active":
-        executed = result.get("executed_action") or {}
-        return (
-            f"iteration={result.get('iteration_status')} action={executed.get('action_type')} "
-            f"executed={executed.get('executed')}"
-        )
-    if command == "run-active":
-        executed = ((result.get("last_result") or {}).get("executed_action") or {})
-        return (
-            f"loop={result.get('loop_status')} iterations={result.get('iterations')} "
-            f"action={executed.get('action_type')} executed={executed.get('executed')}"
-        )
-    if command == "request-active-actions":
-        if isinstance(result, list):
-            first = result[0] if result else {}
-            return f"requested={len(result)} action={first.get('action_type')} id={first.get('action_id')}"
-        return str(result)
-    if command == "execute-action":
-        return f"executed={result.get('executed')} action={result.get('action_id')} type={result.get('action_type')}"
-    if command == "analyze-failure":
-        analysis = result.get("analysis") or {}
-        return (
-            f"ok={result.get('ok')} failure={result.get('failure_id')} action={result.get('action_id')} "
-            f"recommended_action={analysis.get('recommended_action')} confidence={analysis.get('confidence')}"
-        )
     return json.dumps(result, sort_keys=True)
 
 
@@ -4239,10 +2568,7 @@ def execute_raw_args(raw_args: str) -> str:
         args._command_source = "plugin-command"
         if args.daedalus_command == "migrate-filesystem":
             return cmd_migrate_filesystem(args, parser)
-        if args.daedalus_command == "migrate-systemd":
-            return cmd_migrate_systemd(args, parser)
-        # String-returning commands bypass execute_namespace, which only knows
-        # about the legacy dict-returning branches.
+        # String-returning commands bypass execute_namespace.
         if args.daedalus_command == "watch":
             return _lazy_cmd_watch(args, parser)
         if args.daedalus_command == "scaffold-workflow":
@@ -4270,7 +2596,6 @@ def run_cli_command(args: argparse.Namespace) -> None:
     # in ``execute_raw_args`` for the slash-command path.
     string_returning = {
         "migrate-filesystem",
-        "migrate-systemd",
         "watch",
         "scaffold-workflow",
         "bootstrap",

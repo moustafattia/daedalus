@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from runtimes.capabilities import recognized_runtime_kinds
-from workflows.issue_runner.tracker import TrackerConfigError, build_tracker_client, resolve_tracker_path
+from workflows.issue_runner.tracker import TrackerConfigError, build_tracker_client
 from workflows.runtime_presets import runtime_capability_checks, runtime_stage_checks
 
 
@@ -92,10 +92,6 @@ def _validate_config(config: dict[str, Any], *, workflow_root: Path) -> None:
                 repository_cfg=repository_cfg,
                 repo_path=repo_path,
             )
-        if str(tracker_cfg.get("kind") or "").strip() == "local-json":
-            path = resolve_tracker_path(workflow_root=workflow_root, tracker_cfg=tracker_cfg)
-            if not path.exists():
-                raise TrackerConfigError(f"tracker.path does not exist: {path}")
         github_run_json = None
         if tracker_kind == "github":
             github_run_json = importlib.import_module("trackers.github")._subprocess_run_json

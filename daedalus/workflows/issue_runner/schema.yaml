@@ -39,8 +39,7 @@ properties:
     properties:
       kind:
         type: string
-        enum: [local-json, linear, github]
-      path: {type: string}
+        enum: [linear, github]
       github_slug: {type: string}
       endpoint: {type: string}
       api_key: {type: string}
@@ -69,9 +68,6 @@ properties:
       exclude-labels:
         type: array
         items: {type: string}
-
-  tracker-feedback:
-    $ref: "#/definitions/tracker-feedback"
 
   polling:
     type: object
@@ -193,26 +189,6 @@ properties:
     type: string
 
 definitions:
-  tracker-feedback:
-    type: object
-    additionalProperties: false
-    properties:
-      enabled: {type: boolean}
-      comment-mode:
-        type: string
-        enum: [append, upsert]
-      include:
-        type: array
-        items: {type: string}
-      state-updates:
-        type: object
-        additionalProperties: false
-        properties:
-          enabled: {type: boolean}
-        patternProperties:
-          "^on[-_.A-Za-z0-9]+$":
-            type: string
-
   runtime-capability-list:
     type: array
     items:

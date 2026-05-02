@@ -19,8 +19,7 @@ state, reconciles failures, and gives operators a live surface for the loop.
 During bootstrap, the Daedalus plugin generates a `WORKFLOW.md` file in the
 repository you want Daedalus to operate on. That file is your repo-local
 workflow contract: it defines policy and configuration, but it is not the
-scheduler. The scheduler is the plugin, service loop, workflow package, state
-store, leases, tracker clients, runtime adapters, and observability around it.
+scheduler. The scheduler is the plugin, workflow package, state store, leases, tracker clients, runtime adapters, and observability around it.
 
 ## What You Get
 
@@ -29,9 +28,9 @@ store, leases, tracker clients, runtime adapters, and observability around it.
 | Issue-based automation | Turns selected issues into supervised workflow runs with explicit lifecycle policy. |
 | Repo-owned workflow contracts | Generates `WORKFLOW.md` into your target repo so config and policy live beside the code being automated. |
 | Durable runtime state | Persists leases, running work, retries, thread mappings, audit history, status, and health in SQLite, JSON, and JSONL. |
-| Supervised service loop | Runs under `systemd --user`, survives restarts, reconciles stalled work, and resumes eligible runs. |
+| Workflow loop | Runs workflow ticks, reconciles stalled work, and resumes eligible runs. |
 | Runtime flexibility | Dispatches through runtime profiles for hosted agents, CLI agents, Codex app-server, or custom commands. |
-| Operator surface | Exposes `/daedalus`, `/workflow`, watch output, service controls, and optional HTTP status. |
+| Operator surface | Exposes `/daedalus`, `/workflow`, watch output, and optional HTTP status. |
 | Bundled workflow engine | Ships `issue-runner` and `change-delivery`, with shared tracker, runtime, config, and observability primitives. |
 
 ## Quick Start
@@ -45,7 +44,6 @@ hermes daedalus bootstrap
 $EDITOR WORKFLOW.md
 hermes daedalus codex-app-server up
 hermes daedalus validate
-hermes daedalus service-up
 hermes
 ```
 
@@ -62,7 +60,7 @@ For the opinionated change-delivery workflow:
 hermes daedalus bootstrap --workflow change-delivery
 ```
 
-For manual scaffold paths, service modes, pip installs, and every lower-level command,
+For manual scaffold paths, pip installs, and every lower-level command,
 use the full install guide:
 [docs/operator/installation.md](docs/operator/installation.md).
 
@@ -78,16 +76,16 @@ hermes
 Inside Hermes Agent:
 
 ```bash
-# Daedalus engine and service commands
-/daedalus status                            # show runtime state, workflow root, and important paths
-/daedalus doctor                            # run health checks across config, service, state, and integrations
-/daedalus validate                          # validate WORKFLOW.md, schema, service mode, and preflight
+# Daedalus engine commands
+/daedalus status                            # show workflow state, workflow root, and important paths
+/daedalus doctor                            # run health checks across config, state, and integrations
+/daedalus validate                          # validate WORKFLOW.md, schema, and preflight
 /daedalus watch                             # render a live operator view
 /daedalus events --limit 20                 # inspect the durable engine event ledger
-/daedalus service-status                    # show the systemd user service state
 
 # Workflow package commands
 /workflow issue-runner status               # show selected issues, runs, retries, and scheduler state
+/workflow issue-runner run                  # run the issue-runner loop
 /workflow change-delivery status            # show active issue/lane and next action
 /workflow change-delivery tick              # run one change-delivery workflow tick
 ```

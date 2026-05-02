@@ -110,19 +110,6 @@ lane-selection:
     - blocked
   tiebreak: oldest
 
-tracker-feedback:
-  enabled: true
-  comment-mode: append
-  include:
-    - dispatch-implementation-turn
-    - internal-review-completed
-    - publish-ready-pr
-    - push-pr-update
-    - merge-and-promote
-    - operator-attention-transition
-    - operator-attention-recovered
-  state-updates:
-    enabled: false
 ---
 
 # Workflow Policy

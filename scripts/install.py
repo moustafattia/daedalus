@@ -14,12 +14,9 @@ PLUGIN_NAME = "daedalus"
 PAYLOAD_ROOT = "daedalus"
 PAYLOAD_ITEMS = [
     "__init__.py",
-    "alerts.py",
-    "code_hosts",
     "formatters.py",
     "migration.py",
     "plugin.yaml",
-    "runtime.py",
     "engine",
     "runtimes",
     "schemas.py",
