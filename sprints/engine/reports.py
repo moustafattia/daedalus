@@ -1,4 +1,3 @@
-import json
 import time
 from pathlib import Path
 from typing import Any
@@ -11,7 +10,7 @@ from engine.state import (
     read_engine_runs,
 )
 from engine.store import EngineStore
-from workflows.loader import WorkflowContractError, load_workflow_contract
+from workflows.loader import load_workflow_contract
 from workflows.paths import runtime_paths
 
 
@@ -29,63 +28,13 @@ def _workflow_name_for_root(workflow_root: Path) -> str:
     return workflow_name
 
 
-def _run_event_id(event: dict[str, Any]) -> str | None:
-    value = event.get("run_id") or event.get("runId")
-    return str(value) if value not in (None, "") else None
-
-
-def _workflow_audit_path(workflow_root: Path, workflow_name: str) -> Path:
-    paths = runtime_paths(workflow_root)
-    return paths["event_log_path"].parent / "workflow-audit.jsonl"
-
-
-def _read_jsonl_events(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
-    events: list[dict[str, Any]] = []
-    for line in lines[-limit:]:
-        if not line.strip():
-            continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            events.append(payload)
-    return events
-
-
 def _run_timeline_for_cli(
     workflow_root: Path, workflow_name: str, run_id: str, *, limit: int = 100
 ) -> list[dict[str, Any]]:
     paths = runtime_paths(workflow_root)
-    engine_events = read_engine_events_for_run(
-        paths["db_path"],
-        workflow=workflow_name,
-        run_id=run_id,
-        limit=max(limit, 1),
+    return read_engine_events_for_run(
+        paths["db_path"], workflow=workflow_name, run_id=run_id, limit=max(limit, 1)
     )
-    if engine_events:
-        return [{**event, "source": "engine-events"} for event in engine_events]
-    source_paths = [
-        paths["event_log_path"],
-        _workflow_audit_path(workflow_root, workflow_name),
-    ]
-    timeline: list[dict[str, Any]] = []
-    for path in dict.fromkeys(source_paths):
-        for event in _read_jsonl_events(path, limit=max(limit * 5, limit)):
-            if _run_event_id(event) == run_id:
-                timeline.append({**event, "source_path": str(path)})
-    timeline.sort(
-        key=lambda item: str(
-            item.get("at") or item.get("created_at") or item.get("time") or ""
-        )
-    )
-    return timeline[-limit:]
 
 
 def build_runs_report(
@@ -154,10 +103,7 @@ def build_runs_report(
 
 
 def _workflow_event_retention(workflow_root: Path) -> dict[str, Any]:
-    try:
-        contract = load_workflow_contract(workflow_root)
-    except (FileNotFoundError, WorkflowContractError, OSError):
-        return {}
+    contract = load_workflow_contract(workflow_root)
     retention = contract.config.get("retention") or {}
     if not isinstance(retention, dict):
         return {}

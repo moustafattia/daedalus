@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Any
 
 from .db import (
     ENGINE_SCHEDULER_TABLES,
-    column_exists as _column_exists,
     connect_sprints_db,
     init_engine_state,
     table_exists as _table_exists,
@@ -338,14 +338,11 @@ def _scheduler_state_from_connection(
     now_epoch: float,
 ) -> dict[str, Any]:
     running_entries: dict[str, dict[str, Any]] = {}
-    running_run_id_expr = (
-        "r.run_id" if _column_exists(conn, "engine_running_work", "run_id") else "NULL"
-    )
     for row in conn.execute(
-        f"""
+        """
         SELECT r.work_id, w.identifier, w.state, r.worker_id, r.attempt, r.worker_status,
                r.started_at_epoch, r.heartbeat_at_epoch, r.cancel_requested, r.cancel_reason,
-               r.thread_id, r.turn_id, {running_run_id_expr}
+               r.thread_id, r.turn_id, r.run_id
         FROM engine_running_work r
         LEFT JOIN engine_work_items w ON w.workflow = r.workflow AND w.work_id = r.work_id
         WHERE r.workflow=?
@@ -386,12 +383,9 @@ def _scheduler_state_from_connection(
         }
 
     retry_entries: dict[str, dict[str, Any]] = {}
-    retry_run_id_expr = (
-        "q.run_id" if _column_exists(conn, "engine_retry_queue", "run_id") else "NULL"
-    )
     for row in conn.execute(
-        f"""
-        SELECT q.work_id, w.identifier, q.attempt, q.due_at_epoch, q.error, q.current_attempt, q.delay_type, {retry_run_id_expr}
+        """
+        SELECT q.work_id, w.identifier, q.attempt, q.due_at_epoch, q.error, q.current_attempt, q.delay_type, q.run_id
         FROM engine_retry_queue q
         LEFT JOIN engine_work_items w ON w.workflow = q.workflow AND w.work_id = q.work_id
         WHERE q.workflow=?
@@ -420,15 +414,10 @@ def _scheduler_state_from_connection(
         }
 
     runtime_sessions: dict[str, dict[str, Any]] = {}
-    session_run_id_expr = (
-        "s.run_id"
-        if _column_exists(conn, "engine_runtime_sessions", "run_id")
-        else "NULL"
-    )
     for row in conn.execute(
-        f"""
+        """
         SELECT s.work_id, w.identifier, s.session_name, s.runtime_name, s.runtime_kind, s.session_id,
-               s.thread_id, s.turn_id, s.status, s.cancel_requested, s.cancel_reason, {session_run_id_expr}, s.metadata_json, s.updated_at
+               s.thread_id, s.turn_id, s.status, s.cancel_requested, s.cancel_reason, s.run_id, s.metadata_json, s.updated_at
         FROM engine_runtime_sessions s
         LEFT JOIN engine_work_items w ON w.workflow = s.workflow AND w.work_id = s.work_id
         WHERE s.workflow=? AND s.thread_id IS NOT NULL AND s.thread_id != ''

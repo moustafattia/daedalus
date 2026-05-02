@@ -13,7 +13,7 @@ def iso_to_epoch(value: str | None) -> int | None:
     for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S.%fZ"):
         try:
             return int(calendar.timegm(time.strptime(value, fmt)))
-        except Exception:
+        except ValueError:
             continue
     return None
 
@@ -126,39 +126,6 @@ def acquire_engine_lease(
     ).fetchone()
     if row:
         current_owner, expires_at, released_at = row
-        expires_at_epoch = iso_to_epoch(expires_at)
-        if expires_at_epoch is None:
-            fallback = conn.execute(
-                """
-                UPDATE leases
-                SET owner_instance_id=?, owner_role=?, acquired_at=?, expires_at=?,
-                    released_at=NULL, release_reason=NULL, metadata_json=?
-                WHERE lease_scope=? AND lease_key=? AND owner_instance_id=? AND expires_at=?
-                """,
-                (
-                    owner_instance_id,
-                    owner_role,
-                    now_iso,
-                    expires_iso,
-                    metadata_json,
-                    lease_scope,
-                    lease_key,
-                    current_owner,
-                    expires_at,
-                ),
-            )
-            if fallback.rowcount == 1:
-                return {
-                    "acquired": True,
-                    "lease_id": lease_id,
-                    "owner_instance_id": owner_instance_id,
-                    "expires_at": expires_iso,
-                }
-            row = conn.execute(
-                "SELECT owner_instance_id FROM leases WHERE lease_scope=? AND lease_key=?",
-                (lease_scope, lease_key),
-            ).fetchone()
-            current_owner = row[0] if row else current_owner
         if not released_at and current_owner != owner_instance_id:
             return {
                 "acquired": False,

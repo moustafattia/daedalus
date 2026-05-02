@@ -82,7 +82,7 @@ def recover_running_as_retry(
     recovered_running: list[dict[str, Any]],
     *,
     now_epoch: float,
-    error: str = "scheduler restarted while issue was running",
+    error: str = "scheduler restarted while work item was running",
 ) -> dict[str, dict[str, Any]]:
     entries = dict(retry_entries)
     for running in recovered_running:

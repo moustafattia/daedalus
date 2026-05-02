@@ -328,8 +328,8 @@ class EngineStore:
         )
         resolved_work_id = (
             work_id
-            or _payload_value(event_payload, "work_id", "issue_id", "lane_id")
-            or _payload_value(nested_payload, "work_id", "issue_id", "lane_id")
+            or _payload_value(event_payload, "work_id", "issue_id")
+            or _payload_value(nested_payload, "work_id", "issue_id")
         )
         resolved_event_id = event_id or _payload_value(event_payload, "event_id")
         resolved_event_type = (
@@ -454,7 +454,7 @@ class EngineStore:
         checks: list[dict[str, Any]] = []
         try:
             conn = self.connect()
-        except Exception as exc:
+        except (OSError, sqlite3.Error) as exc:
             return [
                 {
                     "name": "engine-db",
@@ -646,7 +646,7 @@ class EngineStore:
                 }
             )
             return checks
-        except Exception as exc:
+        except sqlite3.Error as exc:
             checks.append(
                 {
                     "name": "engine-state",
