@@ -123,7 +123,7 @@ Every code change that affects operator-facing behavior must update docs:
 | New concept | `docs/concepts/<new-concept>.md`, `docs/architecture.md` |
 | Schema change | `docs/concepts/lanes.md`, `docs/concepts/actions.md` |
 | Config change | `daedalus/workflows/change_delivery/workflow.template.md`, `docs/examples/change-delivery.workflow.md`, `docs/concepts/hot-reload.md`, `docs/operator/cheat-sheet.md` |
-| Rename/refactor | All docs + ADR in `docs/adr/` |
+| Rename/refactor | Relevant docs that describe the current public structure |
 
 ---
 

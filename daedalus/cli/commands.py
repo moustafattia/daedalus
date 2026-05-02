@@ -1801,36 +1801,6 @@ def configure_runtime_preset(
         raise DaedalusCommandError(str(exc)) from exc
 
 
-def cmd_migrate_filesystem(args, parser) -> str:
-    """Run the filesystem migrator for the given workflow root.
-
-    Operator-explicit invocation. init_daedalus_db also calls the
-    migrator transparently on startup; this CLI is for manual
-    operator runs (e.g. during cutover or when investigating drift).
-    """
-    try:
-        from ..engine.migration import migrate_filesystem_state
-    except ImportError:
-        try:
-            from engine.migration import migrate_filesystem_state
-        except ImportError:
-            path = PLUGIN_DIR / "engine" / "migration.py"
-            spec = importlib.util.spec_from_file_location("daedalus_migration_for_cli", path)
-            if spec is None or spec.loader is None:
-                raise DaedalusCommandError(f"unable to load migration module from {path}")
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            migrate_filesystem_state = module.migrate_filesystem_state
-
-    workflow_root = args.workflow_root
-    descriptions = migrate_filesystem_state(workflow_root)
-    if not descriptions:
-        return f"no migration needed (workflow_root={workflow_root})"
-    lines = [f"migrated filesystem state under {workflow_root}:"]
-    lines.extend(f"  - {d}" for d in descriptions)
-    return "\n".join(lines)
-
-
 def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="daedalus_command")
     sub.required = True
@@ -1904,18 +1874,6 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         help="Output format (text|json). --json flag is a back-compat alias for --format json.",
     )
     events_cmd.set_defaults(func=run_cli_command)
-
-    migrate_fs_cmd = sub.add_parser(
-        "migrate-filesystem",
-        help="Migrate relay-era filesystem paths to daedalus paths.",
-    )
-    migrate_fs_cmd.add_argument(
-        "--workflow-root",
-        type=Path,
-        default=default_workflow_root_path,
-        help="Workflow root to migrate (default: %(default)s)",
-    )
-    migrate_fs_cmd.set_defaults(handler=cmd_migrate_filesystem, func=run_cli_command)
 
     watch_cmd = sub.add_parser(
         "watch",
@@ -2558,8 +2516,6 @@ def execute_raw_args(raw_args: str) -> str:
         with redirect_stderr(stderr_buffer):
             args = parser.parse_args(argv)
         args._command_source = "plugin-command"
-        if args.daedalus_command == "migrate-filesystem":
-            return cmd_migrate_filesystem(args, parser)
         # String-returning commands bypass execute_namespace.
         if args.daedalus_command == "watch":
             return _lazy_cmd_watch(args, parser)
@@ -2587,7 +2543,6 @@ def run_cli_command(args: argparse.Namespace) -> None:
     # through to ``unknown daedalus command``. This mirrors the special-cases
     # in ``execute_raw_args`` for the slash-command path.
     string_returning = {
-        "migrate-filesystem",
         "watch",
         "scaffold-workflow",
         "bootstrap",

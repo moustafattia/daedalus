@@ -110,18 +110,6 @@ How Daedalus talks to the outside world and lets operators see what's happening.
 
 **The narrative arc:** *Events* record → *Observability* surfaces → *Webhooks* notify → *Tracker Feedback* documents.
 
----
-
-## Operations
-
-The boring-but-critical stuff that keeps the lights on during transitions.
-
-| Concept | One-Liner | Read This If... |
-|:---|:---|:---|
-| [**Migration & Cutover**](./migration.md) | Moving from hermes-relay to Daedalus. Filesystem renames, config paths, and the cutover dance. | ...you are upgrading an existing installation. |
-
----
-
 ## How These Connect In `change-delivery`
 
 ```

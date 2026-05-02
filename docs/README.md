@@ -56,10 +56,6 @@ Day-2 commands and observability.
 - [examples/issue-runner.workflow.md](examples/issue-runner.workflow.md) — copyable default generic tracker-driven contract
 - [examples/change-delivery.workflow.md](examples/change-delivery.workflow.md) — copyable GitHub-first SDLC contract
 
-## History & decisions
-
-- [Architectural decision records](adr/) — the *why* behind structural choices
-
 ## How these docs are organized
 
 ```
@@ -76,7 +72,5 @@ docs/
 ├── concepts/                "what does X mean" — one file per abstraction
 ├── examples/                copyable config baselines
 ├── workflows/               bundled workflow-specific docs and templates
-├── operator/                install + day-2 surface — cheat sheets, commands, endpoints
-│
-└── adr/                     architectural decisions
+└── operator/                install + day-2 surface — cheat sheets, commands, endpoints
 ```

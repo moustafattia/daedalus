@@ -176,13 +176,6 @@ Daedalus service
 | `/daedalus codex-app-server logs` | Last N Codex app-server journal entries |
 | `/daedalus codex-app-server down` | Stop and disable Codex app-server |
 
-### Cutover / migration (one-shot operator commands)
-
-| Command | What it does |
-|---|---|
-| `/daedalus migrate-filesystem` | Rename relay-era state files to daedalus paths |
-| `/daedalus migrate-systemd` | Replace relay-era unit files with daedalus templates |
-
 ### Observability
 
 | Command | What it does |
