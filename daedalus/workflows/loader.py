@@ -15,7 +15,7 @@ from typing import Any, Callable, Protocol, runtime_checkable
 import jsonschema
 import yaml
 
-from runtimes.capabilities import recognized_runtime_kinds
+from runtimes import recognized_runtime_kinds
 from workflows.config import AgenticConfig
 
 DEFAULT_WORKFLOW_MARKDOWN_FILENAME = "WORKFLOW.md"

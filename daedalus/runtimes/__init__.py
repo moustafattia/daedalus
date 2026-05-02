@@ -11,6 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+BUILTIN_RUNTIME_KINDS = frozenset(
+    {
+        "acpx-codex",
+        "claude-cli",
+        "codex-app-server",
+        "hermes-agent",
+    }
+)
+
 
 @dataclass(frozen=True)
 class SessionHandle:
@@ -131,3 +140,7 @@ def build_runtimes(runtimes_cfg: dict, *, run=None, run_json=None) -> dict[str, 
         cls = _RUNTIME_KINDS[kind]
         out[profile_name] = cls(profile_cfg, run=run, run_json=run_json)
     return out
+
+
+def recognized_runtime_kinds() -> frozenset[str]:
+    return BUILTIN_RUNTIME_KINDS | frozenset(_RUNTIME_KINDS)
