@@ -708,7 +708,7 @@ def test_active_iteration_executes_queued_internal_review_recovery_after_failed_
             "worktree": "/tmp/issue-221",
             "branch": "codex/issue-221-test",
             "localHeadSha": "abc123",
-            "sessionRuntime": "codex-app-server",
+            "runtimeKind": "codex-app-server",
             "laneState": {"implementation": {}, "pr": {"lastPublishedHeadSha": None}},
             "activeSessionHealth": {"healthy": True, "lastUsedAt": "2026-04-22T00:00:00Z"},
             "sessionActionRecommendation": {"action": "continue-session"},
