@@ -19,6 +19,17 @@ schema-version: 1
 repository:
   local-path: /absolute/path/to/repo
 
+tracker:
+  kind: github
+  github_slug: owner/repo
+  active_states: [open]
+  required_labels: [active]
+  exclude_labels: [blocked, needs-human, done]
+
+code-host:
+  kind: github
+  github_slug: owner/repo
+
 orchestrator:
   actor: orchestrator
 
@@ -62,6 +73,20 @@ storage:
 `repository.local-path` must point to an existing checkout. Runtime turns use it
 as the worktree.
 
+### `tracker`
+
+Tracker config defines the external work-item source and the mechanical
+eligibility filter. For GitHub, `required_labels: [active]` means an issue
+may be considered by the orchestrator only after the operator labels it.
+
+Tracker state is not engine ownership state.
+
+### `code-host`
+
+Code-host config defines where branches, pull requests, reviews, and merge
+operations live. GitHub may be both tracker and code host, but they are separate
+roles in the contract.
+
 ### `runtimes`
 
 Named runtime profiles. Supported `kind` values:
@@ -89,6 +114,19 @@ type: orchestrator-evaluated
 ```
 
 The orchestrator decides whether the gate passes by returning a JSON decision.
+
+### `actions`
+
+Actions are deterministic mechanics run by the workflow runner. Current bundled
+action types include:
+
+- `noop`
+- `command`
+- `comment`
+- `code-host.create-pull-request`
+
+`code-host.create-pull-request` uses the `code-host` section and the
+implementation output or orchestrator inputs to create a pull request.
 
 ## Policy Sections
 
@@ -119,6 +157,11 @@ Allowed decisions:
 - `retry`
 - `complete`
 - `operator_attention`
+
+For `retry`, `stage` names the stage to retry and `target` names the actor or
+action to run again. The runner stores the retry request in workflow state and
+dispatches it on the next tick with `retry.reason`, `retry.attempt`, and any
+`inputs` from the decision.
 
 ### Actor
 

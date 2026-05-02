@@ -81,6 +81,8 @@ def render_prompt_template(
         template = default_template
     if "{%" in template or "%}" in template:
         raise RuntimeError("template_parse_error: control blocks are not supported")
+    if template.count("{{") != template.count("}}"):
+        raise RuntimeError("template_parse_error: unbalanced template delimiters")
 
     def replace(match: re.Match[str]) -> str:
         expr = match.group(1).strip()
@@ -94,8 +96,6 @@ def render_prompt_template(
         return str(value)
 
     rendered = re.sub(r"{{\s*([^{}]+?)\s*}}", replace, template)
-    if "{{" in rendered or "}}" in rendered:
-        raise RuntimeError("template_parse_error: unbalanced template delimiters")
     return rendered.strip() + "\n"
 
 

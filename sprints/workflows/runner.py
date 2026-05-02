@@ -37,6 +37,7 @@ class WorkflowState:
     actor_outputs: dict[str, Any] = field(default_factory=dict)
     action_results: dict[str, Any] = field(default_factory=dict)
     orchestrator_decisions: list[dict[str, Any]] = field(default_factory=list)
+    pending_retry: dict[str, Any] | None = None
     operator_attention: dict[str, Any] | None = None
 
     @classmethod
@@ -113,7 +114,40 @@ def append_audit(path: Path, event: dict[str, Any]) -> None:
 def actor_variables(
     *, config: WorkflowConfig, state: WorkflowState, inputs: dict[str, Any]
 ) -> dict[str, Any]:
-    return {"workflow": state.to_dict(), "config": config.raw, **inputs}
+    return {
+        "workflow": state.to_dict(),
+        "config": config.raw,
+        "implementation": state.actor_outputs.get("implementer") or {},
+        "review": state.actor_outputs.get("reviewer") or {},
+        "pull_request": _action_output(state, "pull-request.create"),
+        "retry": inputs.get("retry") or {},
+        **inputs,
+    }
+
+
+def action_variables(
+    *, config: WorkflowConfig, state: WorkflowState, inputs: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "workflow": state.to_dict(),
+        "workflow_root": str(config.workflow_root),
+        "config": config.raw,
+        "actor_outputs": state.actor_outputs,
+        "stage_outputs": state.stage_outputs,
+        "action_results": state.action_results,
+        "implementation": state.actor_outputs.get("implementer") or {},
+        "review": state.actor_outputs.get("reviewer") or {},
+        "pull_request": _action_output(state, "pull-request.create"),
+        **inputs,
+    }
+
+
+def _action_output(state: WorkflowState, action_name: str) -> dict[str, Any]:
+    result = state.action_results.get(action_name)
+    if not isinstance(result, dict):
+        return {}
+    output = result.get("output")
+    return output if isinstance(output, dict) else {}
 
 
 def run_stage_actor(
@@ -156,7 +190,10 @@ def apply_action_result(
     action_name: str,
     inputs: dict[str, Any],
 ) -> dict[str, Any]:
-    result = run_action(config.actions[action_name], inputs)
+    result = run_action(
+        config.actions[action_name],
+        action_variables(config=config, state=state, inputs=inputs),
+    )
     payload = {"ok": result.ok, "output": result.output}
     state.action_results[action_name] = payload
     state.stage_outputs[state.current_stage] = {
@@ -301,6 +338,21 @@ def _tick(config: WorkflowConfig, *, orchestrator_output: str) -> int:
         first_stage=config.first_stage,
     )
     validate_current_stage(config, state)
+    if state.pending_retry and not orchestrator_output:
+        retry_result = _dispatch_pending_retry(
+            config=config, policy=policy, state=state
+        )
+        save_state(config.storage.state_path, state)
+        append_audit(
+            config.storage.audit_log_path,
+            {
+                "event": f"{config.workflow_name}.retry",
+                "retry": retry_result,
+                "state": state.to_dict(),
+            },
+        )
+        print(json.dumps(state.to_dict(), indent=2, sort_keys=True))
+        return 0
     output = _read_output_arg(orchestrator_output) or _run_orchestrator(
         config=config,
         policy=policy,
@@ -348,13 +400,16 @@ def _apply_decision(
     state: WorkflowState,
     decision: OrchestratorDecision,
 ) -> None:
-    if decision.stage != state.current_stage:
+    if decision.decision != "retry" and decision.stage != state.current_stage:
         raise RuntimeError(
             f"orchestrator decision stage {decision.stage!r} does not match current stage {state.current_stage!r}"
         )
+    if decision.decision == "retry" and decision.stage not in config.stages:
+        raise RuntimeError(f"retry target stage does not exist: {decision.stage}")
     state.orchestrator_decisions.append(decision.to_dict())
     if decision.decision == "complete":
         state.status = "complete"
+        state.pending_retry = None
     elif decision.decision == "operator_attention":
         state.status = "operator_attention"
         state.operator_attention = {
@@ -363,9 +418,20 @@ def _apply_decision(
         }
     elif decision.decision == "retry":
         state.attempt += 1
+        state.status = "running"
+        state.current_stage = decision.stage
+        state.pending_retry = {
+            "stage": decision.stage,
+            "target": decision.target,
+            "reason": decision.reason,
+            "inputs": decision.inputs,
+            "attempt": state.attempt,
+        }
     elif decision.decision == "advance":
+        state.pending_retry = None
         _advance(config=config, state=state, target=decision.target)
     elif decision.decision == "run_actor":
+        state.pending_retry = None
         actor_name = _target_or_single(
             target=decision.target,
             values=config.stages[state.current_stage].actors,
@@ -379,6 +445,7 @@ def _apply_decision(
             inputs=decision.inputs,
         )
     elif decision.decision == "run_action":
+        state.pending_retry = None
         action_name = _target_or_single(
             target=decision.target,
             values=config.stages[state.current_stage].actions,
@@ -389,6 +456,55 @@ def _apply_decision(
         )
     else:
         raise RuntimeError(f"unhandled orchestrator decision {decision.decision}")
+
+
+def _dispatch_pending_retry(
+    *, config: WorkflowConfig, policy: WorkflowPolicy, state: WorkflowState
+) -> dict[str, Any]:
+    retry = state.pending_retry if isinstance(state.pending_retry, dict) else {}
+    stage_name = str(retry.get("stage") or state.current_stage)
+    if stage_name not in config.stages:
+        raise RuntimeError(f"pending retry stage does not exist: {stage_name}")
+    state.current_stage = stage_name
+    stage = config.stages[stage_name]
+    retry_inputs = retry.get("inputs") if isinstance(retry.get("inputs"), dict) else {}
+    inputs = {
+        **retry_inputs,
+        "attempt": int(retry.get("attempt") or state.attempt),
+        "retry": {
+            "stage": stage_name,
+            "target": retry.get("target"),
+            "reason": str(retry.get("reason") or ""),
+            "attempt": int(retry.get("attempt") or state.attempt),
+            "inputs": retry_inputs,
+        },
+    }
+    target = str(retry.get("target") or "").strip() or None
+    if target in stage.actors or (target is None and len(stage.actors) == 1):
+        actor_name = _target_or_single(
+            target=target, values=stage.actors, kind="actor"
+        )
+        result = run_stage_actor(
+            config=config,
+            policy=policy,
+            state=state,
+            actor_name=actor_name,
+            inputs=inputs,
+        )
+        state.pending_retry = None
+        return {"kind": "actor", "target": actor_name, "result": result}
+    if target in stage.actions or (target is None and len(stage.actions) == 1):
+        action_name = _target_or_single(
+            target=target, values=stage.actions, kind="action"
+        )
+        result = apply_action_result(
+            config=config, state=state, action_name=action_name, inputs=inputs
+        )
+        state.pending_retry = None
+        return {"kind": "action", "target": action_name, "result": result}
+    raise RuntimeError(
+        f"pending retry target {target!r} is not declared on stage {stage_name!r}"
+    )
 
 
 def _advance(

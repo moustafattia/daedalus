@@ -55,7 +55,7 @@ GITHUB_BLOCK = [
         (",", INK),
         ('  "label"', CYAN),
         (": ", INK),
-        ('"active-lane"', INK),
+        ('"active"', INK),
         (",", INK),
     ],
     [(' "state"', CYAN), (": ", INK), ('"awaiting_review"', CYAN_BRIGHT), ("}", INK)],

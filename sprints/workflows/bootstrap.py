@@ -394,6 +394,8 @@ def scaffold_workflow_root(
     instance_cfg["engine-owner"] = engine_owner
     repository_cfg["local-path"] = str(resolved_repo_path)
     repository_cfg["slug"] = resolved_repo_slug
+    _fill_repo_slug(config.get("tracker"), resolved_repo_slug)
+    _fill_repo_slug(config.get("code-host"), resolved_repo_slug)
 
     created_dirs = [
         root / "config",
@@ -435,3 +437,13 @@ def scaffold_workflow_root(
         "renamed_contract_paths": renamed_contract_paths,
         "renamed_contract_source_paths": renamed_contract_source_paths,
     }
+
+
+def _fill_repo_slug(section: Any, repo_slug: str) -> None:
+    if not isinstance(section, dict):
+        return
+    if str(section.get("kind") or "").strip() != "github":
+        return
+    current = str(section.get("github_slug") or "").strip()
+    if current in {"", "owner/repo"}:
+        section["github_slug"] = repo_slug

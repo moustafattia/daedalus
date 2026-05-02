@@ -28,7 +28,7 @@
   
   <rect x="200" y="115" width="140" height="55" rx="8" fill="rgba(30,41,59,0.6)" stroke="#94a3b8" stroke-width="1.5"/>
   <text x="270" y="138" fill="white" font-family="monospace" font-size="12" font-weight="600" text-anchor="middle">GitHub Issue</text>
-  <text x="270" y="155" fill="#94a3b8" font-family="monospace" font-size="9" text-anchor="middle">#42 · active-lane</text>
+  <text x="270" y="155" fill="#94a3b8" font-family="monospace" font-size="9" text-anchor="middle">#42 · active</text>
 
   <rect x="530" y="115" width="140" height="55" rx="8" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1.5"/>
   <text x="600" y="138" fill="white" font-family="monospace" font-size="12" font-weight="600" text-anchor="middle">Operator</text>

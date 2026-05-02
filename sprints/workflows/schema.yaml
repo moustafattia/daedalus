@@ -19,6 +19,34 @@ properties:
   repository:
     type: object
     additionalProperties: true
+  tracker:
+    type: object
+    properties:
+      kind:
+        type: string
+      github_slug:
+        type: string
+      active_states:
+        type: array
+        items:
+          type: string
+      required_labels:
+        type: array
+        items:
+          type: string
+      exclude_labels:
+        type: array
+        items:
+          type: string
+    additionalProperties: true
+  code-host:
+    type: object
+    properties:
+      kind:
+        type: string
+      github_slug:
+        type: string
+    additionalProperties: true
   orchestrator:
     type: object
     required: [actor]
