@@ -171,7 +171,7 @@ The shadow rows remain, so you can diff "what shadow would do" vs "what active d
 
 ## Where this lives in code
 
-- Filesystem migration: `daedalus/migration.py`
+- Filesystem migration: `daedalus/engine/migration.py`
 - Systemd templates: `daedalus/daedalus_cli.py` (service-install helpers)
 - Install helpers: `daedalus/daedalus_cli.py`
 - Active gate: `daedalus/runtime.py::active_gate_status`

@@ -62,4 +62,4 @@ sequenceDiagram
 - Mode selection: `daedalus/runtime.py` (look for `Mode`, `iterate_shadow`, `iterate_active`)
 - Active gate: `daedalus/runtime.py::active_gate_status`
 - Service supervision: `daedalus/daedalus_cli.py` (systemd helpers)
-- Shadow reporting: `daedalus/formatters.py::format_shadow_report`
+- Shadow reporting: `daedalus/cli/formatters.py`

@@ -120,11 +120,11 @@ def render_frame_to_string(snapshot: Mapping[str, Any]) -> str:
 
 # Sibling-import boilerplate for the aggregator.
 try:
-    from . import watch_sources as _watch_sources  # type: ignore[import-not-found]
+    from . import sources as _watch_sources  # type: ignore[import-not-found]
 except ImportError:
     import importlib.util as _ilu
     from pathlib import Path as _Path
-    _spec = _ilu.spec_from_file_location("daedalus_watch_sources_for_watch", _Path(__file__).resolve().parent / "watch_sources.py")
+    _spec = _ilu.spec_from_file_location("daedalus_watch_sources_for_watch", _Path(__file__).resolve().parent / "sources.py")
     _watch_sources = _ilu.module_from_spec(_spec)
     _spec.loader.exec_module(_watch_sources)
 

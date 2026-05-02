@@ -3,9 +3,9 @@ from pathlib import Path
 
 
 try:
-    from .daedalus_cli import configure_subcommands
+    from .cli.commands import configure_subcommands
 except ImportError:
-    module_path = Path(__file__).resolve().parent / "daedalus_cli.py"
+    module_path = Path(__file__).resolve().parent / "cli" / "commands.py"
     spec = spec_from_file_location("daedalus_cli_for_schemas", module_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"unable to load cli from {module_path}")

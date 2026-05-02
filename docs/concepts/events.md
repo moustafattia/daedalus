@@ -156,5 +156,5 @@ fall back to bounded JSONL tailing when the ledger is empty or unavailable.
 - Writer: `daedalus/runtime.py::append_daedalus_event`
 - Ledger: `daedalus/engine/state.py::engine_events_from_connection`
 - CLI: `hermes daedalus events`
-- Watch source aggregation: `daedalus/watch_sources.py`
+- Watch source aggregation: `daedalus/observe/sources.py`
 - AST regression test: `tests/test_event_taxonomy.py` ensures `daedalus/runtime.py` only emits known event types

@@ -240,7 +240,7 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
         for row in cur.fetchall():
             lane = {
                 "lane_id": row[0],
-                # `state` is the key the renderer (watch.py) consumes; we
+                # `state` is the key the renderer (observe/watch.py) consumes; we
                 # source it from workflow_state. Both names are exposed for
                 # consumers that care.
                 "state": row[1],

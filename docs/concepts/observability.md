@@ -62,8 +62,8 @@ selection rules.
 
 ## Where This Lives
 
-- TUI frame renderer: `daedalus/watch.py`
-- Watch source aggregation: `daedalus/watch_sources.py`
+- TUI frame renderer: `daedalus/observe/watch.py`
+- Watch source aggregation: `daedalus/observe/sources.py`
 - HTTP status server: `daedalus/workflows/change_delivery/server/`
 - Tracker clients and feedback helper: `daedalus/trackers/`
 - Event writer/indexer: `daedalus/engine/`

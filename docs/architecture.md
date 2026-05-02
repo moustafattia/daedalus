@@ -294,43 +294,18 @@ daedalus/
 ├── __init__.py              # Plugin registration
 ├── plugin.yaml              # Plugin manifest
 ├── schemas.py               # CLI/slash parser schema
-├── daedalus_cli.py          # Operator surface + systemd helpers
-├── runtime.py               # Durable engine (the heart)
-│   ├── database schema
-│   ├── leases + heartbeats
-│   ├── ingestion
-│   ├── action derivation
-│   ├── active execution
-│   ├── retries + failure tracking
-│   └── runtime loops
-├── alerts.py                # Outage alert logic
-├── watch.py                 # TUI frame renderer
-├── watch_sources.py         # Lane + alert + event aggregation
-├── formatters.py            # Human-readable inspection output
-├── migration.py             # historical filesystem migration helpers
-├── runtimes/                # Shared execution backends (Codex, Claude, Hermes)
-├── trackers/                # Shared tracker clients (GitHub, local-json, Linear experimental, ...)
-├── code_hosts/              # Shared PR/review/merge clients (GitHub)
+├── daedalus_cli.py          # Public CLI facade
+├── cli/                     # Command implementation + human renderers
+├── engine/                  # Stateful SQLite engine, leases, scheduler, events
+├── observe/                 # Watch frame rendering + read-only aggregation
+├── runtimes/                # Execution backends (Codex, Claude, Hermes)
+├── trackers/                # Tracker and code-host clients
 └── workflows/
-    ├── __init__.py          # Workflow loader + CLI dispatcher
-    ├── shared/              # Shared paths, config snapshots, stalls
-    ├── change_delivery/
-        ├── workflow.py      # Semantic policy engine
-        ├── dispatch.py      # Action dispatch
-        ├── actions.py       # Action primitives
-        ├── reviews.py       # Review policy + findings
-        ├── sessions.py      # Session protocol
-        ├── runtimes/        # Workflow-local compatibility re-exports
-        ├── reviewers/       # Reviewer implementations
-        ├── webhooks/        # Outbound webhook subscribers
-        ├── server/          # HTTP status surface
-        └── workspace.py     # Audit fanout + tracker feedback wiring
-    └── issue_runner/
-        ├── tracker.py       # Issue selection + workflow-specific tracker policy
-        ├── workspace.py     # Issue workspace lifecycle + hooks
-        ├── cli.py           # status / doctor / tick
-        ├── preflight.py     # Dispatch-gated config checks
-        └── schema.yaml      # Workflow contract shape
+    ├── loader.py            # WORKFLOW.md loader + typed contract
+    ├── orchestrator.py      # Gate decision mechanics
+    ├── runner.py            # Workflow execution mechanics
+    ├── actors.py            # Actor descriptors
+    └── actions.py           # Action descriptors
 ```
 
 ---
