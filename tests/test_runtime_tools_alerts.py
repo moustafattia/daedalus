@@ -162,6 +162,93 @@ def test_ingest_legacy_status_preserves_active_action_operator_attention(runtime
     assert reason == "active-action-failed:dispatch_implementation_turn"
 
 
+def test_ingest_legacy_status_accepts_current_review_keys(runtime_module, tmp_path):
+    workflow_root = tmp_path / "workflow"
+    paths = runtime_module._runtime_paths(workflow_root)
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+
+    legacy_status = {
+        "activeLane": {"number": 247, "url": "https://example.com/issues/247", "title": "Issue 247", "labels": []},
+        "repo": "/tmp/repo",
+        "implementation": {
+            "worktree": "/tmp/issue-247",
+            "branch": "codex/issue-247-contract",
+            "localHeadSha": "head247",
+            "codexModel": "gpt-5.5",
+            "sessionName": "lane-247",
+            "resumeSessionId": "thread-247",
+            "laneState": {
+                "implementation": {
+                    "lastMeaningfulProgressAt": "2026-05-01T05:49:14Z",
+                    "lastMeaningfulProgressKind": "implementing_local",
+                },
+                "pr": {"lastPublishedHeadSha": None},
+            },
+            "activeSessionHealth": {"healthy": False, "lastUsedAt": "2026-05-01T05:49:14Z"},
+            "sessionActionRecommendation": {"action": "restart-session"},
+        },
+        "reviews": {
+            "internalReview": {
+                "agentName": "Internal_Reviewer_Agent",
+                "model": "gpt-5.5",
+                "required": True,
+                "status": "pending",
+                "reviewScope": "local-prepublish",
+                "openFindingCount": 0,
+                "summary": "Pending local unpublished branch review before publication.",
+            },
+            "externalReview": {
+                "agentName": "External_Reviewer_Agent",
+                "required": False,
+                "status": "not_started",
+            },
+        },
+        "ledger": {"workflowState": "awaiting_claude_prepublish", "reviewState": "awaiting_reviews", "repairBrief": None},
+        "derivedReviewLoopState": "awaiting_reviews",
+        "derivedMergeBlocked": False,
+        "derivedMergeBlockers": [],
+        "openPr": None,
+        "activeLaneError": None,
+        "staleLaneReasons": [],
+        "nextAction": {"type": "run_internal_review", "reason": "prepublish-claude-required"},
+    }
+
+    comparison = runtime_module.compare_with_legacy_status(
+        workflow_root=workflow_root,
+        legacy_status=legacy_status,
+        now_iso="2026-05-01T05:50:00Z",
+    )
+
+    conn = sqlite3.connect(paths["db_path"])
+    try:
+        required_internal, required_external = conn.execute(
+            "SELECT required_internal_review, required_external_review FROM lanes WHERE lane_id=?",
+            ("lane:247",),
+        ).fetchone()
+        review_status, review_model, review_scope, backend_type = conn.execute(
+            """
+            SELECT status, model_name, review_scope, backend_type
+            FROM lane_reviews
+            WHERE lane_id=? AND reviewer_scope=?
+            """,
+            ("lane:247", "internal"),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert required_internal == 1
+    assert required_external == 0
+    assert (review_status, review_model, review_scope, backend_type) == (
+        "pending",
+        "gpt-5.5",
+        "local-prepublish",
+        "internalReview",
+    )
+    assert comparison["legacy_action_type"] == "run_internal_review"
+    assert comparison["relay_action_type"] == "request_internal_review"
+    assert comparison["compatible"] is True
+
+
 def test_request_active_actions_event_payload_uses_retry_count(runtime_module, tmp_path, monkeypatch):
     workflow_root = tmp_path / "workflow"
     paths = runtime_module._runtime_paths(workflow_root)

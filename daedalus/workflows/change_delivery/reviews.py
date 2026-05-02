@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from workflows.change_delivery.migrations import get_lane_state_review_field, get_review
@@ -1205,7 +1207,7 @@ def should_dispatch_claude_repair_handoff(
         return {"shouldDispatch": False, "reason": "published-pr-phase"}
     if workflow_state != "claude_prepublish_findings":
         return {"shouldDispatch": False, "reason": "workflow-not-awaiting-local-repair"}
-    if session_action.get("action") not in {"continue-session", "poke-session"}:
+    if session_action.get("action") not in {"continue-session", "poke-session", "restart-session"}:
         return {"shouldDispatch": False, "reason": "session-not-routable"}
     if not session_action.get("sessionName"):
         return {"shouldDispatch": False, "reason": "missing-session-name"}
@@ -1515,7 +1517,7 @@ def build_reviews_block(
             ),
             "externalReview": {
                 **codex_cloud,
-                "required": True,
+                "required": bool(codex_cloud.get("required", True)),
                 "reviewScope": "postpublish-pr",
                 "agentName": codex_cloud.get("agentName") or external_reviewer_agent_name,
                 "agentRole": codex_cloud.get("agentRole") or "external_reviewer_agent",
@@ -1628,7 +1630,7 @@ def run_inter_review_agent_review(
     inter_review_agent_max_turns: int,
     error_cls: type = subprocess.CalledProcessError,
 ) -> dict[str, Any]:
-    """Run the Claude inter-review agent CLI and return its parsed verdict.
+    """Run the configured inter-review agent CLI and return its parsed verdict.
 
     Callers inject the subprocess ``run_fn`` (wrapper's ``_run``), the
     CalledProcessError class raised by that runner, and the model/max-turns
@@ -1657,26 +1659,50 @@ def run_inter_review_agent_review(
         "required": ["verdict", "summary", "blockingFindings", "majorConcerns", "minorSuggestions", "requiredNextAction"],
         "additionalProperties": False,
     }, separators=(",", ":"))
-    command = [
-        'claude',
-        '--model',
-        inter_review_agent_model,
-        '--permission-mode',
-        'bypassPermissions',
-        '--output-format',
-        'json',
-        '--json-schema',
-        review_schema,
-        '--max-turns',
-        str(inter_review_agent_max_turns),
-        '--print',
-        prompt,
-    ]
+    codex_output_path: Path | None = None
+    if str(inter_review_agent_model).startswith("gpt-"):
+        with tempfile.NamedTemporaryFile(prefix="daedalus-review-", suffix=".txt", delete=False) as output_file:
+            codex_output_path = Path(output_file.name)
+        command = [
+            'codex',
+            'exec',
+            '--ephemeral',
+            '--dangerously-bypass-approvals-and-sandbox',
+            '-C',
+            str(worktree),
+            '-m',
+            inter_review_agent_model,
+            '-o',
+            str(codex_output_path),
+            prompt,
+        ]
+    else:
+        command = [
+            'claude',
+            '--model',
+            inter_review_agent_model,
+            '--permission-mode',
+            'bypassPermissions',
+            '--output-format',
+            'json',
+            '--json-schema',
+            review_schema,
+            '--max-turns',
+            str(inter_review_agent_max_turns),
+            '--print',
+            prompt,
+        ]
     try:
         completed = run_fn(command, cwd=worktree)
-        raw_output = (getattr(completed, "stdout", "") or "").strip()
+        if codex_output_path is not None and codex_output_path.exists():
+            raw_output = codex_output_path.read_text(encoding="utf-8").strip()
+        else:
+            raw_output = (getattr(completed, "stdout", "") or "").strip()
     except error_cls as exc:
-        raw_output = (getattr(exc, "stdout", "") or "").strip()
+        if codex_output_path is not None and codex_output_path.exists():
+            raw_output = codex_output_path.read_text(encoding="utf-8").strip()
+        else:
+            raw_output = (getattr(exc, "stdout", "") or "").strip()
         if raw_output:
             try:
                 payload = extract_inter_review_agent_payload(raw_output)
@@ -1698,6 +1724,12 @@ def run_inter_review_agent_review(
             inter_review_agent_failure_message(exc),
             failure_class=inter_review_agent_failure_class(exc),
         ) from exc
+    finally:
+        if codex_output_path is not None:
+            try:
+                codex_output_path.unlink(missing_ok=True)
+            except Exception:
+                pass
     try:
         payload = extract_inter_review_agent_payload(raw_output)
     except Exception as exc:

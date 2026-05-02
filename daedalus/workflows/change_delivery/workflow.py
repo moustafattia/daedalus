@@ -55,7 +55,7 @@ def derive_next_action(
     lane_state = implementation.get("laneState") or {}
     failure_state = lane_state.get("failure") or {}
     budget_state = lane_state.get("budget") or {}
-    repair_brief = status.get("repairBrief") or {}
+    repair_brief = status.get("repairBrief") or ((status.get("ledger") or {}).get("repairBrief")) or {}
     reviews = status.get("reviews") or {}
     external_review = get_review(reviews, "externalReview")
     current_postpublish_head = pr_head_sha or local_head_sha
@@ -79,6 +79,16 @@ def derive_next_action(
             "issueNumber": active_lane.get("number"),
             "headSha": pr_head_sha,
         }
+
+    claude_repair_handoff = should_dispatch_claude_repair_handoff(
+        lane_state=lane_state,
+        session_action=session_action,
+        internal_review=internal_review,
+        repair_brief=repair_brief,
+        workflow_state=workflow_state,
+        current_head_sha=local_head_sha,
+        has_open_pr=bool(open_pr),
+    )
 
     if health not in {"healthy", "stale-ledger"}:
         if (
@@ -106,6 +116,15 @@ def derive_next_action(
                 "headSha": claude_preflight.get("currentHeadSha"),
                 "issueNumber": active_lane.get("number"),
                 "sessionName": session_action.get("sessionName"),
+            }
+        if health == "stale-lane" and not operator_attention_reasons and claude_repair_handoff.get("shouldDispatch"):
+            return {
+                "type": "dispatch_codex_turn",
+                "mode": "claude_repair_handoff",
+                "reason": "claude-findings-need-repair",
+                "issueNumber": active_lane.get("number"),
+                "sessionName": session_action.get("sessionName"),
+                "headSha": local_head_sha,
             }
         if operator_attention_reasons:
             return {
@@ -172,15 +191,7 @@ def derive_next_action(
             "sessionName": session_action.get("sessionName"),
         }
 
-    if should_dispatch_claude_repair_handoff(
-        lane_state=lane_state,
-        session_action=session_action,
-        internal_review=get_review(reviews, "internalReview"),
-        repair_brief=repair_brief,
-        workflow_state=workflow_state,
-        current_head_sha=local_head_sha,
-        has_open_pr=bool(open_pr),
-    ).get("shouldDispatch"):
+    if claude_repair_handoff.get("shouldDispatch"):
         return {
             "type": "dispatch_codex_turn",
             "mode": "claude_repair_handoff",

@@ -214,6 +214,46 @@ def test_derive_next_action_dispatches_claude_repair_handoff_when_review_is_acti
     assert result["reason"] == "claude-findings-need-repair"
 
 
+def test_derive_next_action_dispatches_claude_repair_handoff_from_stale_lane_with_ledger_brief():
+    workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
+
+    result = workflow_module.derive_next_action(
+        {
+            "activeLane": {"number": 224},
+            "openPr": None,
+            "health": "stale-lane",
+            "implementation": {
+                "localHeadSha": "head123",
+                "sessionActionRecommendation": {"action": "restart-session", "sessionName": "lane-224"},
+                "laneState": {},
+            },
+            "reviews": {
+                "internalReview": {
+                    "reviewScope": "local-prepublish",
+                    "status": "completed",
+                    "verdict": "REWORK",
+                    "reviewedHeadSha": "head123",
+                    "updatedAt": "2026-04-22T01:00:00Z",
+                }
+            },
+            "repairBrief": None,
+            "preflight": {"claudeReview": {"shouldRun": False}},
+            "ledger": {
+                "workflowState": "claude_prepublish_findings",
+                "repairBrief": {"forHeadSha": "head123", "mustFix": [{"summary": "Fix it"}]},
+            },
+            "derivedReviewLoopState": "rework_required",
+            "derivedMergeBlocked": True,
+            "staleLaneReasons": ["active lane has no PR and implementation state is stale"],
+            "nextAction": {"type": "noop", "reason": "old-wrapper-value"},
+        }
+    )
+
+    assert result["type"] == "dispatch_codex_turn"
+    assert result["mode"] == "claude_repair_handoff"
+    assert result["reason"] == "claude-findings-need-repair"
+
+
 def test_derive_next_action_dispatches_codex_cloud_repair_handoff_when_review_is_actionable_and_session_is_routable():
     workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 

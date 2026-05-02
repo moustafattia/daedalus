@@ -1002,10 +1002,20 @@ def _merge_state_from_status(legacy_status: dict[str, Any]) -> str:
     return "not_ready"
 
 
+def _review_from_status(reviews: dict[str, Any], *keys: str) -> tuple[dict[str, Any], str | None]:
+    for key in keys:
+        review = reviews.get(key)
+        if isinstance(review, dict) and review:
+            return review, key
+    return {}, None
+
+
 def _required_review_flags(legacy_status: dict[str, Any]) -> tuple[int, int]:
     reviews = legacy_status.get("reviews") or {}
-    internal_required = 1 if (reviews.get("claudeCode") or {}).get("required") else 0
-    external_required = 1 if (reviews.get("codexCloud") or {}).get("required") else 0
+    internal_review, _ = _review_from_status(reviews, "internalReview", "claudeCode")
+    external_review, _ = _review_from_status(reviews, "externalReview", "codexCloud")
+    internal_required = 1 if internal_review.get("required") else 0
+    external_required = 1 if external_review.get("required") else 0
     return internal_required, external_required
 
 
@@ -1145,11 +1155,11 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
                 }, sort_keys=True), now_iso, now_iso,
             ),
         )
-        for reviewer_scope, legacy_key, reviewer_role in (
-            ("internal", "claudeCode", "Internal_Reviewer_Agent"),
-            ("external", "codexCloud", "External_Reviewer_Agent"),
+        for reviewer_scope, legacy_keys, reviewer_role in (
+            ("internal", ("internalReview", "claudeCode"), "Internal_Reviewer_Agent"),
+            ("external", ("externalReview", "codexCloud"), "External_Reviewer_Agent"),
         ):
-            review = reviews.get(legacy_key) or {}
+            review, review_key = _review_from_status(reviews, *legacy_keys)
             if not review:
                 continue
             review_id = f"review:{lane_id}:{reviewer_scope}"
@@ -1186,7 +1196,7 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
                     reviewer_scope,
                     reviewer_role,
                     review.get("agentName") or reviewer_role,
-                    legacy_key,
+                    review_key,
                     review.get("model"),
                     review.get("status") or "not_started",
                     review.get("verdict"),
@@ -1200,7 +1210,7 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
                     review.get("summary"),
                     review.get("requestedAt"),
                     review.get("updatedAt") if review.get("status") == "completed" else None,
-                    json.dumps({"source": "legacy-status-ingest", "legacyKey": legacy_key}, sort_keys=True),
+                    json.dumps({"source": "legacy-status-ingest", "legacyKey": review_key}, sort_keys=True),
                     now_iso,
                     now_iso,
                 ),

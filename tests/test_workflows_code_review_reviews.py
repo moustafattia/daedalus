@@ -37,6 +37,28 @@ def test_should_dispatch_claude_repair_handoff_when_local_review_is_actionable_a
     assert result == {"shouldDispatch": True, "reason": None}
 
 
+def test_should_dispatch_claude_repair_handoff_allows_restart_session():
+    reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
+
+    result = reviews_module.should_dispatch_claude_repair_handoff(
+        lane_state={},
+        session_action={"action": "restart-session", "sessionName": "lane-224"},
+        internal_review={
+            "reviewScope": "local-prepublish",
+            "status": "completed",
+            "verdict": "REWORK",
+            "reviewedHeadSha": "head123",
+            "updatedAt": "2026-04-22T01:00:00Z",
+        },
+        repair_brief={"forHeadSha": "head123", "mustFix": [{"summary": "Fix this"}]},
+        workflow_state="claude_prepublish_findings",
+        current_head_sha="head123",
+        has_open_pr=False,
+    )
+
+    assert result == {"shouldDispatch": True, "reason": None}
+
+
 def test_should_dispatch_claude_repair_handoff_rejects_duplicate_handoff_for_same_review():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
@@ -1094,6 +1116,44 @@ def test_run_inter_review_agent_review_returns_parsed_payload_on_success():
     assert "--model" in seen["command"]
 
 
+def test_run_inter_review_agent_review_uses_codex_for_gpt_models(tmp_path):
+    reviews_module = load_module("daedalus_workflows_change_delivery_reviews_riar_codex", "workflows/change_delivery/reviews.py")
+    ok_payload = (
+        '{"verdict":"PASS_CLEAN","summary":"fine","blockingFindings":[],'
+        '"majorConcerns":[],"minorSuggestions":[],"requiredNextAction":null}'
+    )
+
+    class _Completed:
+        stdout = "codex logs"
+
+    seen: dict = {}
+
+    def fake_run(command, cwd=None):
+        seen["command"] = command
+        seen["cwd"] = str(cwd) if cwd else None
+        output_path = Path(command[command.index("-o") + 1])
+        output_path.write_text(ok_payload, encoding="utf-8")
+        return _Completed()
+
+    result = reviews_module.run_inter_review_agent_review(
+        issue={"number": 1, "title": "T", "url": "https://example.test/1"},
+        worktree=tmp_path,
+        lane_memo_path=None,
+        lane_state_path=None,
+        head_sha="abc123",
+        run_fn=fake_run,
+        inter_review_agent_model="gpt-5.3-codex",
+        inter_review_agent_max_turns=10,
+        error_cls=_FakeCalledProcessError,
+    )
+
+    assert result["verdict"] == "PASS_CLEAN"
+    assert seen["command"][:2] == ["codex", "exec"]
+    assert "--dangerously-bypass-approvals-and-sandbox" in seen["command"]
+    assert seen["command"][seen["command"].index("-m") + 1] == "gpt-5.3-codex"
+    assert seen["cwd"] == str(tmp_path)
+
+
 def test_run_inter_review_agent_review_extracts_payload_from_stdout_on_cli_error():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_riar", "workflows/change_delivery/reviews.py")
     crashed_payload = (
@@ -1237,6 +1297,32 @@ def test_build_reviews_block_routes_postpublish_defaults_when_pr_is_ready_for_re
     assert reviews["externalReview"]["reviewScope"] == "postpublish-pr"
     assert reviews["externalReview"]["agentName"] == "External_Reviewer_Agent"
     assert reviews["rockClaw"]["required"] is False
+
+
+def test_build_reviews_block_respects_disabled_external_review_after_publish():
+    reviews_module = load_module("daedalus_workflows_change_delivery_reviews_brb_disabled", "workflows/change_delivery/reviews.py")
+
+    reviews = reviews_module.build_reviews_block(
+        existing_reviews={},
+        codex_cloud={
+            "required": False,
+            "status": "skipped",
+            "summary": "External review disabled.",
+            "reviewScope": "postpublish-pr",
+        },
+        publish_ready=True,
+        local_head_sha="prsha",
+        local_candidate_exists=False,
+        inter_review_agent_model="claude-sonnet-4-6",
+        internal_reviewer_agent_name="Internal_Reviewer_Agent",
+        external_reviewer_agent_name="External_Reviewer_Agent",
+        advisory_reviewer_agent_name="Advisory_Reviewer_Agent",
+        now_iso="2026-04-23T00:00:00Z",
+    )
+
+    assert reviews["externalReview"]["required"] is False
+    assert reviews["externalReview"]["status"] == "skipped"
+    assert reviews["externalReview"]["summary"] == "External review disabled."
 
 
 def test_build_reviews_block_seeds_local_prepublish_for_draft_pr_state():

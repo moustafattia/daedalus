@@ -139,8 +139,10 @@ def test_get_active_lane_from_repo_returns_single_matching_issue():
         "list",
         "--state",
         "open",
+        "--label",
+        "active-lane",
         "--limit",
-        "200",
+        "100",
         "--json",
         "number,title,url,labels,assignees,updatedAt",
     ]
