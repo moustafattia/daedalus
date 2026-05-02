@@ -1402,7 +1402,7 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
             "reason": "local-repair-head-ahead-of-published-pr",
         }]
     if (
-        workflow_state == "awaiting_pre_publish_review"
+        workflow_state in {"awaiting_pre_publish_review", "pre_publish_review_findings", "rework_required"}
         and not active_pr_number
         and internal_review_needs_request
     ):

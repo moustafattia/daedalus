@@ -357,6 +357,56 @@ def test_derive_shadow_actions_requests_internal_review_for_new_local_head(runti
     ]
 
 
+def test_derive_shadow_actions_reruns_internal_review_after_local_repair(runtime_module):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:250",
+            "issue_number": 250,
+            "workflow_state": "pre_publish_review_findings",
+            "required_internal_review": 1,
+            "active_pr_number": None,
+            "current_head_sha": "newhead",
+        },
+        reviews=[
+            {
+                "reviewer_scope": "internal",
+                "status": "completed",
+                "verdict": "REWORK",
+                "review_scope": "local-prepublish",
+                "reviewed_head_sha": "oldhead",
+                "requested_head_sha": "oldhead",
+                "completed_at": "2026-05-02T02:27:33Z",
+            }
+        ],
+        actor_row={
+            "backend_identity": "lane-250",
+            "runtime_status": "healthy",
+            "session_action_recommendation": "continue-session",
+            "metadata_json": json.dumps(
+                {
+                    "sessionControl": {
+                        "lastInternalReviewRepairHandoff": {
+                            "sessionName": "lane-250",
+                            "headSha": "oldhead",
+                            "reviewedAt": "2026-05-02T02:27:33Z",
+                        }
+                    }
+                }
+            ),
+        },
+    )
+
+    assert actions == [
+        {
+            "action_type": "request_internal_review",
+            "lane_id": "lane:250",
+            "issue_number": 250,
+            "target_head_sha": "newhead",
+            "reason": "internal-review-pending",
+        }
+    ]
+
+
 def test_derive_shadow_actions_dispatches_local_review_repair_handoff_when_session_routable(runtime_module):
     actions = runtime_module.derive_shadow_actions_for_lane(
         lane_row={
