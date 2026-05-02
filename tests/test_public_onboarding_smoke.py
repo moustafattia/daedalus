@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -58,6 +59,31 @@ def test_public_onboarding_path_install_bootstrap_defaults_to_issue_runner_and_s
     assert (repo / ".hermes" / "daedalus" / "workflow-root").read_text(encoding="utf-8").strip() == str(workflow_root)
     assert (repo / "WORKFLOW.md").exists()
     assert ["git", "checkout", "-b", "daedalus/bootstrap-issue-runner"] in captured_commands
+    from test_workflows_issue_runner_workspace import _write_fake_codex_app_server
+    from workflows.contract import load_workflow_contract_file, render_workflow_markdown
+
+    contract = load_workflow_contract_file(repo / "WORKFLOW.md")
+    assert contract.config["agent"]["runtime"] == "codex-app-server"
+    assert contract.config["runtimes"]["codex-app-server"]["kind"] == "codex-app-server"
+
+    fake_codex = tmp_path / "fake_codex_app_server.py"
+    _write_fake_codex_app_server(fake_codex, requests_path=tmp_path / "codex-requests.jsonl")
+    cfg = dict(contract.config)
+    cfg["runtimes"]["codex-app-server"] = {
+        "kind": "codex-app-server",
+        "command": [sys.executable, str(fake_codex)],
+        "ephemeral": False,
+        "approval_policy": "never",
+        "thread_sandbox": "workspace-write",
+        "turn_sandbox_policy": "workspace-write",
+        "turn_timeout_ms": 3600000,
+        "read_timeout_ms": 5000,
+        "stall_timeout_ms": 300000,
+    }
+    (repo / "WORKFLOW.md").write_text(
+        render_workflow_markdown(config=cfg, prompt_template=contract.prompt_template),
+        encoding="utf-8",
+    )
 
     service_up_out = tools.execute_raw_args("service-up --json")
     service_up_payload = json.loads(service_up_out)
@@ -116,7 +142,7 @@ def test_public_onboarding_path_install_bootstrap_defaults_to_issue_runner_and_s
     assert completed_status["selectedIssue"] is None
     assert completed_status["lastRun"]["ok"] is True
     assert completed_status["lastRun"]["issue"]["id"] == "ISSUE-1"
-    assert completed_status["lastRun"]["results"][0]["runtimeKind"] == "hermes-agent"
+    assert completed_status["lastRun"]["results"][0]["runtimeKind"] == "codex-app-server"
 
     runs_payload = json.loads(tools.execute_raw_args("runs --json"))
     assert runs_payload["workflow"] == "issue-runner"

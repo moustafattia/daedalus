@@ -54,16 +54,16 @@ the workflow owns prompts and gates, while the runtime profile owns execution.
 See the detailed [change-delivery contract spec](change-delivery-contract.md)
 for the actor/stage/gate mapping.
 
-## Codex Runtime Options
+## Runtime Options
 
-The default template uses `acpx-codex` for the implementer actor and
-`claude-cli` for the reviewer actor. To run either actor through Codex
-app-server instead, change only `runtimes` and the matching
-`actors.*.runtime` binding in `WORKFLOW.md`:
+The default template binds every runtime-backed actor to the shared
+`codex-app-server` profile. To run any stage through Hermes Agent instead,
+change only `runtimes` and the matching `actors.*.runtime` binding in
+`WORKFLOW.md`:
 
 ```yaml
 runtimes:
-  codex-runtime:
+  codex-app-server:
     kind: codex-app-server
     mode: external
     endpoint: ws://127.0.0.1:4500
@@ -73,15 +73,19 @@ runtimes:
     thread_sandbox: workspace-write
     turn_sandbox_policy: workspace-write
 
+  hermes-review:
+    kind: hermes-agent
+    mode: final
+
 actors:
   implementer:
     name: Change_Implementer
     model: gpt-5.5
-    runtime: codex-runtime
+    runtime: codex-app-server
   reviewer:
     name: Change_Reviewer
     model: gpt-5.5
-    runtime: codex-runtime
+    runtime: hermes-review
 ```
 
 When `codex-app-server` is selected, Daedalus stores
@@ -102,6 +106,8 @@ Onboarding:
 cd /path/to/repo
 hermes daedalus bootstrap --workflow change-delivery
 $EDITOR /path/to/repo/WORKFLOW.md
+hermes daedalus codex-app-server up
+hermes daedalus validate
 hermes daedalus service-up
 ```
 

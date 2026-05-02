@@ -15,6 +15,7 @@ from workflows.runtime_presets import (
     runtime_binding_checks,
     runtime_capability_checks,
     runtime_role_bindings,
+    runtime_stage_bindings,
     runtime_stage_checks,
 )
 
@@ -46,6 +47,7 @@ def build_runtime_matrix_report(
     runtime_filter = _normalized_filter(runtimes)
 
     binding_checks = runtime_binding_checks(config)
+    stage_bindings = runtime_stage_bindings(config)
     stage_checks = runtime_stage_checks(config)
     capability_checks = runtime_capability_checks(config)
     availability_checks = runtime_availability_checks(config)
@@ -129,6 +131,7 @@ def build_runtime_matrix_report(
             if isinstance(cfg, dict)
         },
         "bindings": bindings,
+        "stage_bindings": stage_bindings,
         "stage_checks": stage_checks,
         "binding_checks": binding_checks,
         "capability_checks": capability_checks,

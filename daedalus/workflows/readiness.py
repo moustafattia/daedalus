@@ -159,9 +159,9 @@ def _preflight_recommendation(*, check: dict[str, Any], workflow: str | None) ->
 
 def _runtime_binding_recommendation(*, workflow: str | None) -> str:
     if workflow == "issue-runner":
-        return "Run `hermes daedalus configure-runtime --runtime hermes-final --role agent`, or define the referenced runtime profile manually."
+        return "Run `hermes daedalus configure-runtime --runtime codex-app-server --role agent`, or define the referenced runtime profile manually."
     if workflow == "change-delivery":
-        return "Run `hermes daedalus configure-runtime --runtime hermes-final --role implementer`, or define the referenced runtime profile manually."
+        return "Run `hermes daedalus configure-runtime --runtime codex-app-server --role implementer`, or define the referenced runtime profile manually."
     return "Run `hermes daedalus configure-runtime` for the affected role, or define the referenced runtime profile manually."
 
 

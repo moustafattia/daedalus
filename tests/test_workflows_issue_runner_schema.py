@@ -22,29 +22,26 @@ def _config() -> dict:
         "workspace": {"root": "workspace/issues"},
         "agent": {
             "name": "runner",
-            "model": "claude-sonnet-4-6",
-            "runtime": "default",
+            "model": "gpt-5.4",
+            "runtime": "codex-app-server",
             "max_concurrent_agents": 1,
             "max_turns": 20,
             "max_retry_backoff_ms": 300000,
         },
-        "codex": {
-            "command": "codex app-server",
-            "ephemeral": False,
-            "approval_policy": "never",
-            "thread_sandbox": "workspace-write",
-            "turn_sandbox_policy": "workspace-write",
-            "turn_timeout_ms": 3600000,
-            "read_timeout_ms": 5000,
-            "stall_timeout_ms": 300000,
-        },
-        "daedalus": {
-            "runtimes": {
-                "default": {
-                    "kind": "claude-cli",
-                    "max-turns-per-invocation": 8,
-                    "timeout-seconds": 60,
-                }
+        "runtimes": {
+            "codex-app-server": {
+                "kind": "codex-app-server",
+                "mode": "external",
+                "endpoint": "ws://127.0.0.1:4500",
+                "healthcheck_path": "/readyz",
+                "ephemeral": False,
+                "keep_alive": True,
+                "approval_policy": "never",
+                "thread_sandbox": "workspace-write",
+                "turn_sandbox_policy": "workspace-write",
+                "turn_timeout_ms": 3600000,
+                "read_timeout_ms": 5000,
+                "stall_timeout_ms": 300000,
             }
         },
         "storage": {

@@ -23,8 +23,8 @@ overrides, and prompt overrides.
 actors:
   implementer:
     name: Change_Implementer
-    model: gpt-5.3-codex-spark/high
-    runtime: coder-runtime
+    model: gpt-5.4
+    runtime: codex-app-server
 ```
 
 `stages` are lifecycle steps. A stage either calls an actor or invokes an engine
@@ -74,9 +74,9 @@ or depend on that view.
 `hermes daedalus configure-runtime` binds runtime presets to actor names:
 
 ```bash
-hermes daedalus configure-runtime --runtime codex-service --role implementer
+hermes daedalus configure-runtime --runtime codex-app-server --role implementer
 hermes daedalus configure-runtime --runtime hermes-chat --role reviewer
-hermes daedalus configure-runtime --runtime codex-service --role all
+hermes daedalus configure-runtime --runtime codex-app-server --role all
 ```
 
 The runtime matrix reports the same actor names, so every configured actor can

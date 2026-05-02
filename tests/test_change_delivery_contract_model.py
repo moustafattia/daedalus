@@ -75,9 +75,9 @@ def test_change_delivery_actor_names_are_stage_order_then_remaining_actors():
 def test_bind_actor_runtime_updates_named_actor_and_rejects_unknown_role():
     contract = _contract()
 
-    changed = bind_actor_runtime(contract, role="reviewer", runtime_name="codex-service")
+    changed = bind_actor_runtime(contract, role="reviewer", runtime_name="codex-app-server")
 
     assert changed == ["reviewer"]
-    assert contract["actors"]["reviewer"]["runtime"] == "codex-service"
+    assert contract["actors"]["reviewer"]["runtime"] == "codex-app-server"
     with pytest.raises(ValueError, match="change-delivery supports"):
-        bind_actor_runtime(contract, role="coder.default", runtime_name="codex-service")
+        bind_actor_runtime(contract, role="coder.default", runtime_name="codex-app-server")

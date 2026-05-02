@@ -12,6 +12,9 @@ its own lifecycle, prompts, gates, and operator commands.
 | [`change-delivery`](change-delivery.md) | you want issue -> actor implementation -> gates -> PR -> merge delivery with GitHub as the first-class tracker/code-host path | [`docs/examples/change-delivery.workflow.md`](../examples/change-delivery.workflow.md) | yes — `bootstrap --workflow change-delivery` + `service-up` |
 
 For the contract file itself, see the [`WORKFLOW.md` guide](workflow-contract.md).
+Both bundled templates default runtime-backed stages to `codex-app-server`;
+bind individual roles to Hermes Agent or another runtime profile when that is a
+better fit for the stage.
 
 ## The boundary
 

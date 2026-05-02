@@ -43,6 +43,7 @@ hermes plugins install attmous/daedalus --enable
 cd /path/to/your/repo
 hermes daedalus bootstrap
 $EDITOR WORKFLOW.md
+hermes daedalus codex-app-server up
 hermes daedalus validate
 hermes daedalus service-up
 hermes
@@ -51,7 +52,9 @@ hermes
 `issue-runner` is the default public bootstrap path.
 Bootstrap creates the workflow root, writes the workflow contract into your
 repo, commits it on a bootstrap branch, and stores a repo-local pointer so later
-commands can resolve the workflow instance.
+commands can resolve the workflow instance. The bundled templates default
+runtime-backed actors to `codex-app-server`; use `configure-runtime` if you want
+a Hermes runtime profile for a role instead.
 
 For the opinionated change-delivery workflow:
 

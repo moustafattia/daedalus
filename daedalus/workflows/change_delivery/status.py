@@ -128,7 +128,7 @@ def normalize_implementation_for_active_lane(
     open_pr: dict[str, Any] | None,
     implementation_actor: dict[str, Any] | None,
     runtime_name: str | None = None,
-    runtime_kind: str = "acpx-codex",
+    runtime_kind: str = "codex-app-server",
     session_name: str | None = None,
     resume_session_id: str | None = None,
 ) -> dict[str, Any]:
@@ -146,7 +146,7 @@ def normalize_implementation_for_active_lane(
         if expected_branch:
             impl["branch"] = expected_branch
         impl["runtimeName"] = runtime_name or impl.get("runtimeName")
-        impl["runtimeKind"] = runtime_kind or impl.get("runtimeKind") or "acpx-codex"
+        impl["runtimeKind"] = runtime_kind or impl.get("runtimeKind") or "codex-app-server"
         impl["sessionName"] = expected_session_name
         impl["actorKey"] = actor.get("key")
         impl["actorName"] = actor.get("name")
@@ -163,7 +163,7 @@ def normalize_implementation_for_active_lane(
         "branch": expected_branch,
         "status": "implementing" if not open_pr else impl.get("status"),
         "runtimeName": runtime_name,
-        "runtimeKind": runtime_kind or "acpx-codex",
+        "runtimeKind": runtime_kind or "codex-app-server",
         "sessionName": expected_session_name,
         "actorKey": actor.get("key"),
         "actorName": actor.get("name"),

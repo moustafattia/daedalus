@@ -29,6 +29,13 @@ from runtimes.capabilities import (
 
 
 RUNTIME_PRESETS: dict[str, dict[str, Any]] = {
+    "codex-app-server": {
+        "kind": "codex-app-server",
+        "mode": "external",
+        "endpoint": "ws://127.0.0.1:4500",
+        "ephemeral": False,
+        "keep_alive": True,
+    },
     "hermes-final": {
         "kind": "hermes-agent",
         "mode": "final",
@@ -37,13 +44,6 @@ RUNTIME_PRESETS: dict[str, dict[str, Any]] = {
         "kind": "hermes-agent",
         "mode": "chat",
         "source": "daedalus",
-    },
-    "codex-service": {
-        "kind": "codex-app-server",
-        "mode": "external",
-        "endpoint": "ws://127.0.0.1:4500",
-        "ephemeral": False,
-        "keep_alive": True,
     },
 }
 
@@ -158,7 +158,15 @@ def runtime_role_bindings(config: dict[str, Any]) -> list[dict[str, Any]]:
     if workflow_name == "change-delivery":
         actors = config.get("actors") if isinstance(config.get("actors"), dict) else {}
         if actors:
+            actor_names = []
+            for stage_binding in runtime_stage_bindings(config):
+                role = str(stage_binding.get("role") or "").strip()
+                if role and role not in actor_names:
+                    actor_names.append(role)
             for actor_name in change_delivery_actor_names(config):
+                if actor_name not in actor_names:
+                    actor_names.append(actor_name)
+            for actor_name in actor_names:
                 actor = change_delivery_actor_config(config, actor_name)
                 if isinstance(actor, dict):
                     _append_binding(
@@ -169,6 +177,15 @@ def runtime_role_bindings(config: dict[str, Any]) -> list[dict[str, Any]]:
                     )
             return bindings
     return bindings
+
+
+def runtime_stage_bindings(config: dict[str, Any]) -> list[dict[str, Any]]:
+    workflow_name = str(config.get("workflow") or "").strip()
+    if workflow_name == "issue-runner":
+        return _issue_runner_stage_bindings(config)
+    if workflow_name == "change-delivery":
+        return _change_delivery_stage_bindings(config)
+    return []
 
 
 def runtime_binding_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -237,12 +254,47 @@ def runtime_binding_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def runtime_stage_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
-    workflow_name = str(config.get("workflow") or "").strip()
-    if workflow_name == "issue-runner":
-        return _issue_runner_stage_checks(config)
-    if workflow_name == "change-delivery":
-        return _change_delivery_stage_checks(config)
-    return []
+    checks: list[dict[str, Any]] = []
+    for binding in runtime_stage_bindings(config):
+        name = str(binding.get("name") or f"runtime-stage:{binding.get('path') or binding.get('stage')}")
+        role = str(binding.get("role") or "").strip()
+        runtime_name = str(binding.get("runtime") or "").strip()
+        if not binding.get("role_exists"):
+            checks.append(
+                {
+                    "name": name,
+                    "status": "fail",
+                    "detail": str(binding.get("missing_detail") or f"{binding.get('path')} references missing role"),
+                    "stage": binding.get("stage"),
+                    "path": binding.get("path"),
+                    "role": role or None,
+                }
+            )
+            continue
+        if not runtime_name:
+            checks.append(
+                {
+                    "name": name,
+                    "status": "fail",
+                    "detail": f"{binding.get('path')} role {role!r} has no runtime profile",
+                    "stage": binding.get("stage"),
+                    "path": binding.get("path"),
+                    "role": role or None,
+                }
+            )
+            continue
+        checks.append(
+            {
+                "name": name,
+                "status": "pass",
+                "detail": f"{binding.get('stage')} -> role {role} -> runtime {runtime_name}",
+                "stage": binding.get("stage"),
+                "path": binding.get("path"),
+                "role": role,
+                "runtime": runtime_name,
+            }
+        )
+    return checks
 
 
 def runtime_capability_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -448,78 +500,68 @@ def _runtime_capability_failures_for_roles(
     ]
 
 
-def _issue_runner_stage_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
+def _issue_runner_stage_bindings(config: dict[str, Any]) -> list[dict[str, Any]]:
     agent = config.get("agent")
     if not isinstance(agent, dict):
         return [
             {
                 "name": "runtime-stage:agent",
-                "status": "fail",
-                "detail": "issue-runner agent must be a mapping",
+                "workflow": "issue-runner",
+                "stage": "run",
+                "path": "agent",
                 "role": "agent",
+                "role_exists": False,
+                "runtime": None,
+                "missing_detail": "issue-runner agent must be a mapping",
             }
         ]
     runtime_name = str(agent.get("runtime") or "").strip()
-    if runtime_name:
-        return [
-            {
-                "name": "runtime-stage:agent",
-                "status": "pass",
-                "detail": f"agent dispatches through runtime profile {runtime_name!r}",
-                "role": "agent",
-                "runtime": runtime_name,
-            }
-        ]
     return [
         {
             "name": "runtime-stage:agent",
-            "status": "fail",
-            "detail": "issue-runner agent requires runtime",
+            "workflow": "issue-runner",
+            "stage": "run",
+            "path": "agent",
             "role": "agent",
+            "role_exists": True,
+            "runtime": runtime_name or None,
         }
     ]
 
 
-def _change_delivery_stage_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
+def _change_delivery_stage_bindings(config: dict[str, Any]) -> list[dict[str, Any]]:
     actors = config.get("actors") if isinstance(config.get("actors"), dict) else {}
-    checks: list[dict[str, Any]] = []
+    bindings: list[dict[str, Any]] = []
 
-    def append_actor_ref(path: str, actor_name: Any) -> None:
+    def append_actor_ref(stage: str, path: str, actor_name: Any) -> None:
         actor = str(actor_name or "").strip()
         if not actor:
             return
         actor_cfg = actors.get(actor) if isinstance(actors, dict) else None
         if not isinstance(actor_cfg, dict):
-            checks.append(
+            bindings.append(
                 {
                     "name": f"runtime-stage:{path}",
-                    "status": "fail",
-                    "detail": f"{path} references missing actor {actor!r}",
+                    "workflow": "change-delivery",
+                    "stage": stage,
                     "path": path,
                     "role": actor,
+                    "role_exists": False,
+                    "runtime": None,
+                    "missing_detail": f"{path} references missing actor {actor!r}",
                 }
             )
             return
         runtime_name = str(actor_cfg.get("runtime") or "").strip()
-        if not runtime_name:
-            checks.append(
-                {
-                    "name": f"runtime-stage:{path}",
-                    "status": "fail",
-                    "detail": f"{path} actor {actor!r} has no runtime profile",
-                    "path": path,
-                    "role": actor,
-                }
-            )
-            return
-        checks.append(
+        bindings.append(
             {
                 "name": f"runtime-stage:{path}",
-                "status": "pass",
-                "detail": f"{path} -> actor {actor} -> runtime {runtime_name}",
+                "workflow": "change-delivery",
+                "stage": stage,
                 "path": path,
                 "role": actor,
-                "runtime": runtime_name,
+                "role_exists": True,
+                "runtime": runtime_name or None,
             }
         )
 
@@ -527,19 +569,23 @@ def _change_delivery_stage_checks(config: dict[str, Any]) -> list[dict[str, Any]
     for stage_name, stage_cfg in stages.items():
         if not isinstance(stage_cfg, dict):
             continue
-        append_actor_ref(f"stages.{stage_name}.actor", stage_cfg.get("actor"))
+        append_actor_ref(str(stage_name), f"stages.{stage_name}.actor", stage_cfg.get("actor"))
         escalation = stage_cfg.get("escalation")
         if isinstance(escalation, dict):
-            append_actor_ref(f"stages.{stage_name}.escalation.actor", escalation.get("actor"))
+            append_actor_ref(
+                f"{stage_name}.escalation",
+                f"stages.{stage_name}.escalation.actor",
+                escalation.get("actor"),
+            )
 
     gates = config.get("gates") if isinstance(config.get("gates"), dict) else {}
     for gate_name, gate_cfg in gates.items():
         if not isinstance(gate_cfg, dict):
             continue
         if str(gate_cfg.get("type") or "").strip() == "agent-review":
-            append_actor_ref(f"gates.{gate_name}.actor", gate_cfg.get("actor"))
+            append_actor_ref(f"gate:{gate_name}", f"gates.{gate_name}.actor", gate_cfg.get("actor"))
 
-    return checks
+    return bindings
 
 
 def _runtime_availability_check(*, name: str, kind: str, runtime_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -627,5 +673,6 @@ __all__ = [
     "runtime_capability_checks",
     "runtime_preset_config",
     "runtime_role_bindings",
+    "runtime_stage_bindings",
     "runtime_stage_checks",
 ]

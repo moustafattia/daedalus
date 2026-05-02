@@ -51,30 +51,26 @@ hooks:
 
 agent:
   name: Issue_Runner_Agent
-  model: claude-sonnet-4-6
-  runtime: default
+  model: gpt-5.4
+  runtime: codex-app-server
   max_concurrent_agents: 1
   max_turns: 20
   max_retry_backoff_ms: 300000
 
-codex:
-  command: codex app-server
-  ephemeral: false
-  approval_policy: never
-  thread_sandbox: workspace-write
-  turn_sandbox_policy: workspace-write
-  turn_timeout_ms: 3600000
-  read_timeout_ms: 5000
-  stall_timeout_ms: 300000
-
 runtimes:
-  default:
-    kind: hermes-agent
-    command:
-      - python3
-      - -c
-      - "from pathlib import Path; import sys; prompt = Path(sys.argv[1]).read_text(encoding='utf-8'); print('Daedalus demo signoff: runtime received the issue prompt.'); print(prompt)"
-      - "{prompt_path}"
+  codex-app-server:
+    kind: codex-app-server
+    mode: external
+    endpoint: ws://127.0.0.1:4500
+    healthcheck_path: /readyz
+    ephemeral: false
+    keep_alive: true
+    approval_policy: never
+    thread_sandbox: workspace-write
+    turn_sandbox_policy: workspace-write
+    turn_timeout_ms: 3600000
+    read_timeout_ms: 5000
+    stall_timeout_ms: 300000
 
 storage:
   status: memory/workflow-status.json

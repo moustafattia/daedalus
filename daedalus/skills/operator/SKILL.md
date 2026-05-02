@@ -33,7 +33,7 @@ Inside Hermes sessions:
 /daedalus doctor
 /daedalus configure-runtime --runtime hermes-final --role agent
 /daedalus configure-runtime --runtime hermes-chat --role reviewer
-/daedalus configure-runtime --runtime codex-service --role implementer
+/daedalus configure-runtime --runtime codex-app-server --role implementer
 /daedalus active-gate-status
 /daedalus set-active-execution --enabled true
 /daedalus set-active-execution --enabled false
@@ -109,13 +109,15 @@ Each agent role chooses a runtime, optionally a `command:` array, and optionally
 
 ```yaml
 runtimes:
-  codex-acpx:
-    kind: acpx-codex
-    command: ["acpx", "--model", "{model}", "--cwd", "{worktree}",
-              "codex", "prompt", "-s", "{session_name}", "{prompt_path}"]
-    session-idle-freshness-seconds: 900
-    session-idle-grace-seconds: 1800
-    session-nudge-cooldown-seconds: 600
+  codex-app-server:
+    kind: codex-app-server
+    mode: external
+    endpoint: ws://127.0.0.1:4500
+    ephemeral: false
+    keep_alive: true
+  hermes-review:
+    kind: hermes-agent
+    mode: final
 ```
 
 **Actor** picks a runtime and optionally overrides `command:` (full replacement) and/or `prompt:` (template path):
@@ -123,16 +125,16 @@ runtimes:
 ```yaml
 actors:
   implementer:
-    runtime: codex-acpx
-    model: gpt-5
+    runtime: codex-app-server
+    model: gpt-5.4
     # prompt: implied as <workspace>/config/prompts/implement.md,
     #         falls back to bundled prompts/coder.md
   implementer-high-effort:
-    runtime: codex-acpx
-    model: gpt-5
-    command: ["acpx", "--model", "{model}", "--cwd", "{worktree}",
-              "codex", "prompt", "-s", "{session_name}",
-              "--reasoning", "high", "{prompt_path}"]
+    runtime: codex-app-server
+    model: gpt-5.4
+  reviewer:
+    runtime: hermes-review
+    model: gpt-5.4
 ```
 
 **Placeholders** filled by the dispatcher:
@@ -147,18 +149,17 @@ actors:
 3. Bundled `workflows/change_delivery/prompts/<stage-or-role>.md`
 
 **Runtime kinds:**
-- `acpx-codex` — persistent Codex sessions via `acpx`
-- `claude-cli` — one-shot Claude CLI invocations
 - `hermes-agent` — Hermes CLI runtime; built-in `final` mode uses `hermes -z`, `chat` mode uses `hermes chat --quiet -q`, and custom `command:` overrides are supported
 - `codex-app-server` — managed stdio or external WebSocket Codex app-server runtime with durable thread resume
+- `acpx-codex` and `claude-cli` remain adapter kinds, but bundled templates no longer default to them
 
-To swap the implementer from Codex to Claude, change one line:
+To swap the reviewer from Codex app-server to Hermes, change one line:
 
 ```yaml
 actors:
-  implementer:
-    runtime: claude-oneshot   # was: codex-acpx
-    model: claude-sonnet-4
+  reviewer:
+    runtime: hermes-review
+    model: gpt-5.4
 ```
 
 No code changes required.

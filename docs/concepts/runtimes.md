@@ -48,6 +48,21 @@ Important: for `codex-app-server`, `runtime.command` starts or connects the
 app-server transport. It is not treated as a per-stage command. Use
 `agent.command` only when a role should run a command-backed adapter.
 
+## Stage Contract
+
+Daedalus validates runtime wiring through a shared stage contract before the
+service starts:
+
+| Workflow | Runtime-backed stages |
+|---|---|
+| `issue-runner` | `run -> agent -> agent.runtime` |
+| `change-delivery` | `implement -> actors.implementer.runtime`, `implement.escalation -> actors.implementer-high-effort.runtime`, `gate:pre-publish-review -> actors.reviewer.runtime` |
+
+Action-only stages such as PR publish/merge are engine actions, not runtime
+turns. This is the boundary: workflows declare stages and actors, runtimes
+declare execution capabilities, and the engine rejects invalid wiring instead
+of choosing a fallback runtime.
+
 ## Adapter shape comparison
 
 | Runtime kind | Execution model | Session behavior | Strongest capabilities |
@@ -78,7 +93,7 @@ actors:
   implementer:
     name: Change_Implementer
     model: gpt-5.4
-    runtime: codex-service
+    runtime: codex-app-server
     required-capabilities:
       - persistent-session
       - resume
@@ -90,6 +105,26 @@ validate`, `doctor`, `runtime-matrix`, and `configure-runtime` fail instead of
 silently falling back.
 
 ## Selection in `WORKFLOW.md`
+
+The bundled templates default executable roles to `codex-app-server`:
+
+```yaml
+runtimes:
+  codex-app-server:
+    kind: codex-app-server
+    mode: external
+    endpoint: ws://127.0.0.1:4500
+    ephemeral: false
+    keep_alive: true
+
+agent:
+  name: Issue_Runner_Agent
+  model: gpt-5.4
+  runtime: codex-app-server
+```
+
+You can bind any role to another declared runtime profile when that runtime has
+the capabilities the stage requires:
 
 ```yaml
 runtimes:
@@ -124,7 +159,7 @@ For common choices, let Daedalus edit the repo-owned workflow contract:
 ```bash
 hermes daedalus configure-runtime --runtime hermes-final --role agent
 hermes daedalus configure-runtime --runtime hermes-chat --role reviewer
-hermes daedalus configure-runtime --runtime codex-service --role implementer
+hermes daedalus configure-runtime --runtime codex-app-server --role implementer
 ```
 
 The command writes a named profile under `runtimes:` and updates the selected
@@ -148,13 +183,13 @@ with a tiny prompt, run:
 ```bash
 hermes daedalus runtime-matrix --execute
 hermes daedalus runtime-matrix --role agent --execute
-hermes daedalus runtime-matrix --runtime codex-service --execute --format json
+hermes daedalus runtime-matrix --runtime codex-app-server --execute --format json
 ```
 
 `--execute` does not mutate trackers or code hosts. It only creates a temporary
 worktree under the workflow root and dispatches one minimal prompt through the
-configured runtime profile. For `codex-service`, start the shared Codex listener
-first with `hermes daedalus codex-app-server up`.
+configured runtime profile. For `codex-app-server`, start the shared Codex
+listener first with `hermes daedalus codex-app-server up`.
 
 ### `hermes-agent` runtime
 

@@ -377,7 +377,7 @@ def run_dispatch_lane_turn(
     audit_fn: Callable[..., Any],
     render_implementation_dispatch_prompt_fn: Callable[..., str],
     runtime_name: str,
-    runtime_kind: str = "acpx-codex",
+    runtime_kind: str = "codex-app-server",
     record_runtime_result_fn: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Adapter-owned implementation of ``_dispatch_lane_turn``.
@@ -500,7 +500,7 @@ def run_dispatch_lane_turn(
         "model": actor_model,
         "role": "implementation_actor",
         "runtimeName": runtime_name,
-        "runtimeKind": runtime_kind or "acpx-codex",
+        "runtimeKind": runtime_kind or "codex-app-server",
     }
     ledger = load_ledger_fn()
     ledger.setdefault('implementation', {})
@@ -511,7 +511,7 @@ def run_dispatch_lane_turn(
         'session': session_record_id,
         'previousSession': ledger.get('implementation', {}).get('previousSession'),
         'runtimeName': runtime_name,
-        'runtimeKind': runtime_kind or 'acpx-codex',
+        'runtimeKind': runtime_kind or 'codex-app-server',
         'sessionName': session_name,
         'actorKey': actor_key,
         'actorName': actor_display_name,
@@ -539,7 +539,7 @@ def run_dispatch_lane_turn(
         'action': action,
         'issueNumber': issue.get('number'),
         'runtimeName': runtime_name,
-        'runtimeKind': runtime_kind or 'acpx-codex',
+        'runtimeKind': runtime_kind or 'codex-app-server',
         'sessionName': session_name,
         'actorKey': actor_key,
         'actorName': actor_display_name,
@@ -559,7 +559,7 @@ def run_dispatch_lane_turn(
         result['runtimeError'] = str(prompt_error)
     audit_fn(
         audit_action,
-        f"Dispatched implementation actor turn via {runtime_kind or 'acpx-codex'} session {session_name}",
+        f"Dispatched implementation actor turn via {runtime_kind or 'codex-app-server'} session {session_name}",
         issueNumber=issue.get('number'),
         sessionName=session_name,
         sessionRecordId=result.get('sessionRecordId'),

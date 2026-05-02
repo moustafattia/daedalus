@@ -82,7 +82,7 @@ def test_runtime_matrix_reports_change_delivery_role_bindings(tmp_path):
             "code-host": {"kind": "github", "github_slug": "attmous/daedalus"},
             "runtimes": {
                 "hermes-final": {"kind": "hermes-agent", "mode": "final"},
-                "codex-service": {
+                "codex-app-server": {
                     "kind": "codex-app-server",
                     "mode": "external",
                     "endpoint": "ws://127.0.0.1:4500",
@@ -91,9 +91,9 @@ def test_runtime_matrix_reports_change_delivery_role_bindings(tmp_path):
                 },
             },
             "actors": {
-                "implementer": {"name": "coder", "model": "gpt-5", "runtime": "codex-service"},
+                "implementer": {"name": "coder", "model": "gpt-5", "runtime": "codex-app-server"},
                 "implementer-high-effort": {"name": "coder-hi", "model": "gpt-5.5", "runtime": "hermes-final"},
-                "reviewer": {"name": "reviewer", "model": "gpt-5", "runtime": "codex-service"},
+                "reviewer": {"name": "reviewer", "model": "gpt-5", "runtime": "codex-app-server"},
             },
             "stages": {
                 "implement": {
@@ -118,7 +118,7 @@ def test_runtime_matrix_reports_change_delivery_role_bindings(tmp_path):
     assert set(roles) == {"implementer", "implementer-high-effort", "reviewer"}
     assert roles["implementer"]["kind"] == "codex-app-server"
     assert roles["implementer-high-effort"]["kind"] == "hermes-agent"
-    assert roles["reviewer"]["runtime"] == "codex-service"
+    assert roles["reviewer"]["runtime"] == "codex-app-server"
     assert all(check["status"] == "pass" for check in report["binding_checks"])
 
 
@@ -211,10 +211,10 @@ def test_runtime_matrix_real_codex_service_issue_runner_smoke(tmp_path):
             "agent": {
                 "name": "runner",
                 "model": os.environ.get("DAEDALUS_REAL_CODEX_MODEL", ""),
-                "runtime": "codex-service",
+                "runtime": "codex-app-server",
             },
             "runtimes": {
-                "codex-service": {
+                "codex-app-server": {
                     "kind": "codex-app-server",
                     "mode": "external",
                     "endpoint": os.environ.get("DAEDALUS_REAL_CODEX_ENDPOINT", "ws://127.0.0.1:4500"),

@@ -37,7 +37,6 @@ For each eligible tracker issue:
 - `workspace`: per-issue workspace root
 - `hooks`: `after_create`, `before_run`, `after_run`, `before_remove`
 - `agent`: model/runtime plus scheduler-facing limits
-- `codex`: spec-shaped Codex runner settings; set `mode: external` and `endpoint: ws://127.0.0.1:<port>` to connect to an already-running app-server, and keep `ephemeral: false` if you want Codex threads to remain inspectable
 - `runtimes`: shared runtime backend profiles; `agent.runtime` selects one profile for the issue execution stage
 
 The issue execution stage uses the shared runtime stage dispatcher. Hermes can
@@ -53,10 +52,10 @@ External Codex app-server example:
 ```yaml
 agent:
   model: gpt-5.5
-  runtime: codex
+  runtime: codex-app-server
 
 runtimes:
-  codex:
+  codex-app-server:
     kind: codex-app-server
     mode: external
     endpoint: ws://127.0.0.1:4500
@@ -158,6 +157,8 @@ Then edit:
 Then bring it up:
 
 ```bash
+hermes daedalus codex-app-server up
+hermes daedalus validate
 hermes daedalus service-up
 ```
 

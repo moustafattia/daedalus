@@ -748,22 +748,19 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     _review_policy = config.get("reviewPolicy", {}) or {}
 
     _default_runtimes_cfg = {
-        "acpx-codex": {
-            "kind": "acpx-codex",
-            "session-idle-freshness-seconds": int(
-                _session_policy.get("codexSessionFreshnessSeconds", 900)
-            ),
-            "session-idle-grace-seconds": int(
-                _session_policy.get("codexSessionPokeGraceSeconds", 1800)
-            ),
-            "session-nudge-cooldown-seconds": int(
-                _session_policy.get("codexSessionNudgeCooldownSeconds", 600)
-            ),
-        },
-        "claude-cli": {
-            "kind": "claude-cli",
-            "max-turns-per-invocation": int(_review_policy.get("internalReviewMaxTurns", 24)),
-            "timeout-seconds": int(_review_policy.get("internalReviewTimeoutSeconds", 1200)),
+        "codex-app-server": {
+            "kind": "codex-app-server",
+            "mode": "external",
+            "endpoint": "ws://127.0.0.1:4500",
+            "healthcheck_path": "/readyz",
+            "ephemeral": False,
+            "keep_alive": True,
+            "approval_policy": "never",
+            "thread_sandbox": "workspace-write",
+            "turn_sandbox_policy": "workspace-write",
+            "turn_timeout_ms": 3600000,
+            "read_timeout_ms": 5000,
+            "stall_timeout_ms": 300000,
         },
     }
     _runtimes_cfg = {
@@ -1450,7 +1447,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         default_tier = tiers.get("default") if isinstance(tiers, dict) else {}
         if isinstance(default_tier, dict) and default_tier.get("runtime"):
             return str(default_tier.get("runtime"))
-        return "acpx-codex"
+        return "codex-app-server"
 
     def _runtime_kind(runtime_name):
         return str(((getattr(ns, "RUNTIME_PROFILES", {}) or {}).get(runtime_name) or {}).get("kind") or runtime_name)
@@ -1722,12 +1719,12 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         agent_cfg = {
             "name": ns.INTERNAL_REVIEWER_AGENT_NAME,
             "model": ns.INTERNAL_REVIEW_MODEL,
-            "runtime": "claude-cli",
+            "runtime": "codex-app-server",
         }
         agent_cfg.update(
             (((getattr(ns, "WORKFLOW_YAML", {}) or {}).get("agents") or {}).get("internal-reviewer") or {})
         )
-        runtime_name = str(agent_cfg.get("runtime") or "claude-cli")
+        runtime_name = str(agent_cfg.get("runtime") or "codex-app-server")
         runtime_cfg = dict(((getattr(ns, "RUNTIME_PROFILES", {}) or {}).get(runtime_name) or {}))
         session_name = f"internal-review-{(issue or {}).get('number') or str(head_sha or '')[:12] or 'lane'}"
         try:

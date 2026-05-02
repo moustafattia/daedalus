@@ -9,7 +9,7 @@ from workflows.contract import (
     render_workflow_markdown,
     write_workflow_contract_pointer,
 )
-from workflows.runtime_presets import RuntimePresetError, configure_runtime_contract
+from workflows.runtime_presets import RuntimePresetError, configure_runtime_contract, runtime_stage_bindings
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
@@ -66,6 +66,26 @@ def test_configure_runtime_binds_issue_runner_agent_and_preserves_body(tmp_path)
     assert contract.prompt_template == "# Policy\n\nDo the work."
 
 
+def test_issue_runner_stage_contract_maps_run_stage_to_agent_runtime(tmp_path):
+    config = {
+        "workflow": "issue-runner",
+        "agent": {"name": "runner", "model": "gpt-5.4", "runtime": "codex-app-server"},
+        "runtimes": {"codex-app-server": {"kind": "codex-app-server"}},
+    }
+
+    assert runtime_stage_bindings(config) == [
+        {
+            "name": "runtime-stage:agent",
+            "workflow": "issue-runner",
+            "stage": "run",
+            "path": "agent",
+            "role": "agent",
+            "role_exists": True,
+            "runtime": "codex-app-server",
+        }
+    ]
+
+
 def test_configure_runtime_uses_workflow_root_pointer_for_change_delivery(tmp_path):
     workflow_root = tmp_path / "attmous-daedalus-change-delivery"
     repo_root = tmp_path / "repo"
@@ -110,7 +130,7 @@ def test_configure_runtime_uses_workflow_root_pointer_for_change_delivery(tmp_pa
 
     result = configure_runtime_contract(
         workflow_root=workflow_root,
-        preset_name="codex-service",
+        preset_name="codex-app-server",
         role="implementer",
         runtime_name="codex",
     )
@@ -126,6 +146,40 @@ def test_configure_runtime_uses_workflow_root_pointer_for_change_delivery(tmp_pa
         "ephemeral": False,
         "keep_alive": True,
     }
+
+
+def test_change_delivery_stage_contract_maps_stages_and_gates_to_actor_runtimes():
+    config = {
+        "workflow": "change-delivery",
+        "runtimes": {"codex-app-server": {"kind": "codex-app-server"}},
+        "actors": {
+            "implementer": {"name": "impl", "model": "gpt-5.4", "runtime": "codex-app-server"},
+            "implementer-high-effort": {"name": "impl-hi", "model": "gpt-5.4", "runtime": "codex-app-server"},
+            "reviewer": {"name": "review", "model": "gpt-5.4", "runtime": "codex-app-server"},
+        },
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval"},
+            "ci-green": {"type": "code-host-checks"},
+        },
+    }
+
+    assert [
+        (item["stage"], item["role"], item["runtime"])
+        for item in runtime_stage_bindings(config)
+    ] == [
+        ("implement", "implementer", "codex-app-server"),
+        ("implement.escalation", "implementer-high-effort", "codex-app-server"),
+        ("gate:pre-publish-review", "reviewer", "codex-app-server"),
+    ]
 
 
 def test_configure_runtime_rejects_unknown_role(tmp_path):
@@ -234,9 +288,9 @@ def test_issue_runner_preflight_accepts_external_codex_service_without_command(t
             "repository": {"local-path": str(repo), "slug": "attmous/daedalus"},
             "tracker": {"kind": "local-json", "path": "config/issues.json"},
             "workspace": {"root": "workspace/issues"},
-            "agent": {"name": "runner", "model": "gpt-5.4", "runtime": "codex-service"},
+            "agent": {"name": "runner", "model": "gpt-5.4", "runtime": "codex-app-server"},
             "runtimes": {
-                "codex-service": {
+                "codex-app-server": {
                     "kind": "codex-app-server",
                     "mode": "external",
                     "endpoint": "ws://127.0.0.1:4500",

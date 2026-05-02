@@ -15,7 +15,7 @@ def test_readiness_recommends_configure_runtime_for_issue_runner_binding_failure
     )
 
     assert recommendations == [
-        "Run `hermes daedalus configure-runtime --runtime hermes-final --role agent`, or define the referenced runtime profile manually."
+        "Run `hermes daedalus configure-runtime --runtime codex-app-server --role agent`, or define the referenced runtime profile manually."
     ]
 
 
@@ -23,7 +23,7 @@ def test_readiness_recommends_codex_service_doctor_for_external_listener_warning
     recommendations = build_readiness_recommendations(
         [
             {
-                "name": "runtime-availability:codex-service",
+                "name": "runtime-availability:codex-app-server",
                 "status": "warn",
                 "detail": "ws://127.0.0.1:4500 is not reachable yet: connection refused",
             }

@@ -192,8 +192,8 @@ Recommended roles:
 
 Semantics:
 - `Workflow_Orchestrator` is the sole owner of workflow policy and canonical state transitions
-- `Internal_Coder_Agent` should usually be a persistent session per lane
-- `Internal_Reviewer_Agent` should be a bounded review run, not the main coding session
+- `implementer` should usually use a resumable runtime when the stage spans multiple ticks
+- `reviewer` should be a bounded review run with a fresh context when possible
 - `External_Reviewer_Agent` is an external event source / review signal source
 - `Workflow_Error_Analyst` is bounded and only invoked when deterministic recovery is insufficient
 
@@ -202,12 +202,12 @@ Semantics:
 Strong rule:
 - persistent sessions for the main coding lane
 - stateless delegate_task children only for bounded analysis/research/review helpers
-- for Daedalus v1, keep the existing `acpx-codex` backend for the `Internal_Coder_Agent`
-- do not switch the primary coder backend during the same migration that replaces the watchdog architecture
+- bundled workflow templates default to `codex-app-server`
+- use `hermes-agent` selectively when a workflow stage benefits from Hermes skills/tooling
 
 Current practical finding:
-- Codex App Server is interesting for richer thread/turn/item streaming, but it introduces another conversation/runtime state model
-- that makes it a bad primary backend choice for the riskiest migration phase
+- Codex app-server is the primary resumable runtime path
+- Hermes Agent is the first-class local agent runtime path
 - treat Codex App Server as a future optional alternate backend only after Daedalus's canonical state, queue, leases, and action model are proven stable
 - even if adopted later, Codex App Server must remain only an execution substrate under Daedalus ownership, never the canonical owner of lane state
 

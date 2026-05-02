@@ -46,7 +46,13 @@ tracker:
 agent:
   name: Issue_Runner_Agent
   model: gpt-5.5
-  runtime: codex
+  runtime: codex-app-server
+
+runtimes:
+  codex-app-server:
+    kind: codex-app-server
+    mode: external
+    endpoint: ws://127.0.0.1:4500
 ---
 
 # Workflow Policy
@@ -63,7 +69,7 @@ The YAML front matter is structured operator configuration:
 - `repository` identifies the target checkout, `tracker` selects the issue source,
   and workflows that publish PRs use `code-host` for branch/PR/merge operations.
 - `tracker-feedback` controls tracker-facing comments and optional state updates.
-- `runtimes` and `agents` bind workflow roles to execution backends.
+- `runtimes` and `agent` / `actors` bind workflow roles to execution backends.
 - `hooks`, `gates`, `webhooks`, and `server` configure workflow-specific behavior.
 
 Each workflow validates this section against its own schema before dispatch.
@@ -96,10 +102,10 @@ for a known runtime shape instead of editing role bindings by hand:
 ```bash
 hermes daedalus configure-runtime --runtime hermes-final --role agent
 hermes daedalus configure-runtime --runtime hermes-chat --role reviewer
-hermes daedalus configure-runtime --runtime codex-service --role implementer
+hermes daedalus configure-runtime --runtime codex-app-server --role implementer
 ```
 
-Built-in presets are `hermes-final`, `hermes-chat`, and `codex-service`.
+Built-in presets are `codex-app-server`, `hermes-final`, and `hermes-chat`.
 `issue-runner` supports `agent`; `change-delivery` supports the actor names in
 `actors:` such as `implementer`, `implementer-high-effort`, `reviewer`, and
 `all`.

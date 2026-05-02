@@ -13,12 +13,10 @@ The default managed path is for the bundled `issue-runner` workflow. Use
 - `systemd --user` for supervised active/shadow mode
 - the host CLIs required by the runtimes named in `WORKFLOW.md`
 
-The bundled `change-delivery` template defaults to:
-
-- `acpx-codex` for the implementation actor runtime
-- `claude-cli` for the internal reviewer runtime
-
-If your host does not have those runtimes, edit `WORKFLOW.md` before starting the service.
+The bundled templates default runtime-backed stages to `codex-app-server`.
+Start the shared listener with `hermes daedalus codex-app-server up`, or edit
+`WORKFLOW.md` / run `configure-runtime` if a stage should use Hermes Agent
+instead.
 
 The bundled `issue-runner` template defaults to `tracker.kind: local-json` so
 it is runnable without an external tracker. For first-class tracker operation,
@@ -65,6 +63,10 @@ hermes plugins enable daedalus
 ```bash
 cd /path/to/your/repo
 hermes daedalus bootstrap
+$EDITOR WORKFLOW.md
+hermes daedalus codex-app-server up
+hermes daedalus validate
+hermes daedalus service-up
 ```
 
 This bootstraps the generic `issue-runner` workflow by default. To bootstrap
@@ -155,6 +157,11 @@ The YAML front matter is the structured config. The Markdown body below it is
 the workflow policy contract. `change-delivery` composes it into actor prompts;
 `issue-runner` renders it as the issue prompt template.
 
+The bundled workflow templates bind runtime-backed stages to
+`codex-app-server` by default. Start the shared Codex listener with
+`hermes daedalus codex-app-server up`, or use `configure-runtime` to bind a
+stage to Hermes Agent instead.
+
 For common runtime choices, use the preset command instead of hand-editing the
 runtime block:
 
@@ -163,7 +170,7 @@ runtime block:
 hermes daedalus configure-runtime --runtime hermes-final --role agent
 
 # change-delivery implementer actor backed by the shared Codex listener
-hermes daedalus configure-runtime --runtime codex-service --role implementer
+hermes daedalus configure-runtime --runtime codex-app-server --role implementer
 ```
 
 `configure-runtime` edits the repo-owned `WORKFLOW.md` contract, writes the

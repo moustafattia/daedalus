@@ -86,12 +86,12 @@
   <text x="1020" y="305" fill="#94a3b8" font-family="monospace" font-size="9" text-anchor="middle">publish · merge · promote rules</text>
 
   <rect x="650" y="350" width="140" height="55" rx="8" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-  <text x="720" y="372" fill="white" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">Internal Coder</text>
+  <text x="720" y="372" fill="white" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">Implementer</text>
   <text x="720" y="390" fill="#94a3b8" font-family="monospace" font-size="9" text-anchor="middle">Codex · acpx</text>
 
   <rect x="820" y="350" width="140" height="55" rx="8" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-  <text x="890" y="372" fill="white" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">Internal Reviewer</text>
-  <text x="890" y="390" fill="#94a3b8" font-family="monospace" font-size="9" text-anchor="middle">Claude · claude-cli</text>
+  <text x="890" y="372" fill="white" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">Reviewer</text>
+  <text x="890" y="390" fill="#94a3b8" font-family="monospace" font-size="9" text-anchor="middle">Runtime profile</text>
 
   <rect x="990" y="350" width="140" height="55" rx="8" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
   <text x="1060" y="372" fill="white" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">External Reviewer</text>
@@ -103,7 +103,7 @@
   <text x="890" y="492" fill="#94a3b8" font-family="monospace" font-size="9" text-anchor="middle">→ under_review → findings_open → approved → merged</text>
 
   <rect x="650" y="535" width="480" height="55" rx="8" fill="rgba(6,78,59,0.15)" stroke="#34d399" stroke-width="1" stroke-dasharray="4,4"/>
-  <text x="890" y="555" fill="#34d399" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">Handoffs: Orchestrator → Coder → Reviewer → Publish → Merge</text>
+  <text x="890" y="555" fill="#34d399" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">Handoffs: Orchestrator → Implementer → Reviewer → Publish → Merge</text>
   <text x="890" y="575" fill="#94a3b8" font-family="monospace" font-size="9" text-anchor="middle">Explicit role handoffs, not vibes. Every handoff survives restarts.</text>
 
   <rect x="50" y="650" width="520" height="120" rx="16" fill="rgba(136,19,55,0.06)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="8,4"/>

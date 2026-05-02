@@ -33,8 +33,16 @@ def _write_issue_runner_contract(root: Path, repo: Path, *, overrides: dict | No
         "repository": {"local-path": str(repo), "slug": "attmous/daedalus"},
         "tracker": {"kind": "local-json", "path": "config/issues.json"},
         "workspace": {"root": "workspace/issues"},
-        "agent": {"name": "Issue_Runner_Agent", "model": "gpt-5.4", "runtime": "default"},
-        "daedalus": {"runtimes": {"default": {"kind": "hermes-agent", "command": ["echo", "{prompt_path}"]}}},
+        "agent": {"name": "Issue_Runner_Agent", "model": "gpt-5.4", "runtime": "codex-app-server"},
+        "runtimes": {
+            "codex-app-server": {
+                "kind": "codex-app-server",
+                "mode": "external",
+                "endpoint": "ws://127.0.0.1:4500",
+                "ephemeral": False,
+                "keep_alive": True,
+            }
+        },
         "storage": {
             "status": "memory/workflow-status.json",
             "health": "memory/workflow-health.json",

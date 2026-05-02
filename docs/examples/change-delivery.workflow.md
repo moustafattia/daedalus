@@ -24,32 +24,35 @@ code-host:
   github_slug: your-org/your-repo
 
 runtimes:
-  coder-runtime:
-    kind: acpx-codex
-    session-idle-freshness-seconds: 900
-    session-idle-grace-seconds: 1800
-    session-nudge-cooldown-seconds: 600
-
-  reviewer-runtime:
-    kind: claude-cli
-    max-turns-per-invocation: 24
-    timeout-seconds: 1200
+  codex-app-server:
+    kind: codex-app-server
+    mode: external
+    endpoint: ws://127.0.0.1:4500
+    healthcheck_path: /readyz
+    ephemeral: false
+    keep_alive: true
+    approval_policy: never
+    thread_sandbox: workspace-write
+    turn_sandbox_policy: workspace-write
+    turn_timeout_ms: 3600000
+    read_timeout_ms: 5000
+    stall_timeout_ms: 300000
 
 actors:
   implementer:
     name: Change_Implementer
-    model: gpt-5.3-codex-spark/high
-    runtime: coder-runtime
+    model: gpt-5.4
+    runtime: codex-app-server
 
   implementer-high-effort:
     name: Change_Implementer_High_Effort
     model: gpt-5.4
-    runtime: coder-runtime
+    runtime: codex-app-server
 
   reviewer:
     name: Change_Reviewer
-    model: claude-sonnet-4-6
-    runtime: reviewer-runtime
+    model: gpt-5.4
+    runtime: codex-app-server
 
 stages:
   implement:

@@ -353,10 +353,8 @@ def test_workspace_lane_operator_attention_reasons(tmp_path):
 def test_workspace_exposes_runtime_accessor_with_named_profiles(tmp_path):
     """make_workspace instantiates runtimes from the (bridged) config.
 
-    In Phase 3 the runtime configs are derived from the old JSON shape's
-    sessionPolicy / reviewPolicy; Phase 4 will swap the source to YAML
-    runtimes: section. Either way, ws.runtime('acpx-codex') must return
-    an object implementing the Runtime protocol.
+    The private JSON-shape config still gets a runtime profile for tests and
+    local diagnostics. The hard default is now codex-app-server.
     """
     import importlib
     import sys
@@ -394,15 +392,13 @@ def test_workspace_exposes_runtime_accessor_with_named_profiles(tmp_path):
 
     assert hasattr(ws, "runtime"), "workspace must expose `runtime(name)` accessor"
 
-    acpx = ws.runtime("acpx-codex")
-    claude = ws.runtime("claude-cli")
+    codex = ws.runtime("codex-app-server")
 
-    # Duck-type: both respond to the protocol's four methods.
-    for r in (acpx, claude):
-        assert callable(getattr(r, "ensure_session", None))
-        assert callable(getattr(r, "run_prompt", None))
-        assert callable(getattr(r, "assess_health", None))
-        assert callable(getattr(r, "close_session", None))
+    # Duck-type: responds to the protocol's four core methods.
+    assert callable(getattr(codex, "ensure_session", None))
+    assert callable(getattr(codex, "run_prompt", None))
+    assert callable(getattr(codex, "assess_health", None))
+    assert callable(getattr(codex, "close_session", None))
 
 
 def test_workspace_runtime_accessor_errors_on_unknown_name(tmp_path):
@@ -438,7 +434,7 @@ def test_workspace_runtime_accessor_errors_on_unknown_name(tmp_path):
         ws.runtime("nonexistent-runtime")
     assert "nonexistent-runtime" in str(exc.value)
     # Error message names the known runtime profiles
-    assert "acpx-codex" in str(exc.value) or "claude-cli" in str(exc.value)
+    assert "codex-app-server" in str(exc.value)
 
 
 def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):

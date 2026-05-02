@@ -298,7 +298,7 @@ definitions:
     properties:
       name: {type: string}
       model: {type: string}
-      runtime: {type: string}
+      runtime: {type: string, default: codex-app-server}
       required-capabilities:
         $ref: "#/definitions/runtime-capability-list"
       command:

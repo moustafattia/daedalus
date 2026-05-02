@@ -58,7 +58,7 @@ def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
     # Codex P2 on PR #21: walk the actual schema field paths.
     # Change-delivery workflow contract shape:
     #   runtimes:
-    #     <name>: { kind: acpx-codex | claude-cli | hermes-agent, ... }
+    #     <name>: { kind: codex-app-server | hermes-agent | acpx-codex | claude-cli, ... }
     #     <name>: { ... }
     #   actors:
     #     <name>: { model: ..., runtime: <runtimes key> }
