@@ -1,4 +1,5 @@
 """Workflow loading, contracts, validation, and runtime binding helpers."""
+
 from __future__ import annotations
 
 import copy
@@ -200,7 +201,9 @@ def write_workflow_contract_pointer(workflow_root: Path, contract_path: Path) ->
     return pointer_path
 
 
-def find_repo_workflow_contract_path(repo_root: Path, *, workflow_name: str | None = None) -> Path | None:
+def find_repo_workflow_contract_path(
+    repo_root: Path, *, workflow_name: str | None = None
+) -> Path | None:
     root = repo_root.resolve()
     if workflow_name:
         named_path = workflow_named_markdown_path(root, workflow_name)
@@ -208,7 +211,11 @@ def find_repo_workflow_contract_path(repo_root: Path, *, workflow_name: str | No
             return named_path
     default_path = workflow_markdown_path(root)
     candidates = _repo_workflow_candidates(root)
-    if workflow_name and default_path.exists() and _workflow_name_for_contract_path(default_path) == workflow_name:
+    if (
+        workflow_name
+        and default_path.exists()
+        and _workflow_name_for_contract_path(default_path) == workflow_name
+    ):
         return default_path
     if default_path.exists() and not workflow_name:
         return default_path
@@ -217,7 +224,9 @@ def find_repo_workflow_contract_path(repo_root: Path, *, workflow_name: str | No
     return None
 
 
-def find_workflow_contract_path(workflow_root: Path, *, workflow_name: str | None = None) -> Path | None:
+def find_workflow_contract_path(
+    workflow_root: Path, *, workflow_name: str | None = None
+) -> Path | None:
     root = workflow_root.resolve()
     pointer_target = read_workflow_contract_pointer(root)
     if pointer_target is not None and pointer_target.exists():
@@ -242,18 +251,24 @@ def load_workflow_contract(workflow_root: Path) -> WorkflowContract:
 def load_workflow_contract_file(path: Path) -> WorkflowContract:
     resolved = Path(path).expanduser().resolve()
     if resolved.suffix.lower() != ".md":
-        raise WorkflowContractError(f"unsupported workflow contract format for {resolved}; expected Markdown (.md)")
+        raise WorkflowContractError(
+            f"unsupported workflow contract format for {resolved}; expected Markdown (.md)"
+        )
     text = resolved.read_text(encoding="utf-8")
     front_matter, prompt_template = _parse_markdown_contract(resolved, text)
     return WorkflowContract(
         source_path=resolved,
-        config=_project_markdown_front_matter(path=resolved, front_matter=front_matter, prompt_template=prompt_template),
+        config=_project_markdown_front_matter(
+            path=resolved, front_matter=front_matter, prompt_template=prompt_template
+        ),
         prompt_template=prompt_template,
         front_matter=front_matter,
     )
 
 
-def render_workflow_markdown(*, config: dict[str, Any], prompt_template: str | None = None) -> str:
+def render_workflow_markdown(
+    *, config: dict[str, Any], prompt_template: str | None = None
+) -> str:
     front_matter = deepcopy(config)
     body = prompt_template
     if body is None:
@@ -263,11 +278,15 @@ def render_workflow_markdown(*, config: dict[str, Any], prompt_template: str | N
         elif isinstance(policy, str):
             body = policy
         else:
-            raise WorkflowContractError(f"{WORKFLOW_POLICY_KEY} must be a string when rendering WORKFLOW.md")
+            raise WorkflowContractError(
+                f"{WORKFLOW_POLICY_KEY} must be a string when rendering WORKFLOW.md"
+            )
     else:
         front_matter.pop(WORKFLOW_POLICY_KEY, None)
     if not isinstance(front_matter, dict):
-        raise WorkflowContractError("workflow config must be a mapping when rendering WORKFLOW.md")
+        raise WorkflowContractError(
+            "workflow config must be a mapping when rendering WORKFLOW.md"
+        )
     front_matter_text = yaml.safe_dump(front_matter, sort_keys=False).strip()
     body_text = str(body or "").strip()
     if body_text:
@@ -304,7 +323,9 @@ def load_workflow(name: str) -> ModuleType:
     workflow = load_workflow_object(name)
     module = _import_workflow_module(name)
     if module.NAME != workflow.name:
-        raise WorkflowContractError(f"workflow module for {name!r} declares NAME={module.NAME!r}, expected {workflow.name!r}")
+        raise WorkflowContractError(
+            f"workflow module for {name!r} declares NAME={module.NAME!r}, expected {workflow.name!r}"
+        )
     return module
 
 
@@ -314,16 +335,22 @@ def load_workflow_object(name: str) -> Workflow:
     module = _import_workflow_module(name)
     workflow = getattr(module, "WORKFLOW", None) or ModuleWorkflow(module)
     if workflow.name != name:
-        raise WorkflowContractError(f"workflow module for {name!r} declares NAME={workflow.name!r}")
+        raise WorkflowContractError(
+            f"workflow module for {name!r} declares NAME={workflow.name!r}"
+        )
     return workflow
 
 
-def run_cli(workflow_root: Path, argv: list[str], *, require_workflow: str | None = None) -> int:
+def run_cli(
+    workflow_root: Path, argv: list[str], *, require_workflow: str | None = None
+) -> int:
     contract = load_workflow_contract(workflow_root)
     raw_config = contract.config
     workflow_name = raw_config.get("workflow")
     if not workflow_name:
-        raise WorkflowContractError(f"{contract.source_path} is missing top-level `workflow:` field")
+        raise WorkflowContractError(
+            f"{contract.source_path} is missing top-level `workflow:` field"
+        )
     if require_workflow and workflow_name != require_workflow:
         raise WorkflowContractError(
             f"{contract.source_path} declares workflow={workflow_name!r}, "
@@ -414,7 +441,9 @@ def configure_runtime_contract(
     )
     if not dry_run:
         contract.source_path.write_text(
-            render_workflow_markdown(config=config, prompt_template=contract.prompt_template),
+            render_workflow_markdown(
+                config=config, prompt_template=contract.prompt_template
+            ),
             encoding="utf-8",
         )
     return {
@@ -436,13 +465,17 @@ def configure_runtime_contract(
     }
 
 
-def bind_runtime_role(*, config: dict[str, Any], workflow_name: str, role: str, runtime_name: str) -> list[str]:
+def bind_runtime_role(
+    *, config: dict[str, Any], workflow_name: str, role: str, runtime_name: str
+) -> list[str]:
     del workflow_name
     actors = config.setdefault("actors", {})
     if not isinstance(actors, dict):
         raise RuntimePresetError("top-level actors must be a mapping")
     normalized = _normalize_role(role)
-    names = sorted(str(name) for name in actors) if normalized == "all" else [normalized]
+    names = (
+        sorted(str(name) for name in actors) if normalized == "all" else [normalized]
+    )
     for name in names:
         actor = actors.setdefault(name, {})
         if not isinstance(actor, dict):
@@ -457,7 +490,9 @@ def runtime_role_bindings(config: dict[str, Any]) -> list[dict[str, Any]]:
     bindings: list[dict[str, Any]] = []
     for role, actor in sorted(actors.items()):
         runtime_name = actor.get("runtime") if isinstance(actor, dict) else None
-        _append_binding(bindings, role=str(role), runtime_name=runtime_name, runtimes=runtimes)
+        _append_binding(
+            bindings, role=str(role), runtime_name=runtime_name, runtimes=runtimes
+        )
     return bindings
 
 
@@ -491,7 +526,14 @@ def runtime_binding_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
         role = str(binding.get("role") or "actor")
         runtime_name = binding.get("runtime")
         if not runtime_name:
-            checks.append(_check(f"runtime-binding:{role}", "fail", f"{role} has no runtime profile", role=role))
+            checks.append(
+                _check(
+                    f"runtime-binding:{role}",
+                    "fail",
+                    f"{role} has no runtime profile",
+                    role=role,
+                )
+            )
         elif not binding.get("profile_exists"):
             checks.append(
                 _check(
@@ -503,7 +545,15 @@ def runtime_binding_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
                 )
             )
         else:
-            checks.append(_check(f"runtime-binding:{role}", "pass", f"{role} -> {runtime_name}", role=role, runtime=runtime_name))
+            checks.append(
+                _check(
+                    f"runtime-binding:{role}",
+                    "pass",
+                    f"{role} -> {runtime_name}",
+                    role=role,
+                    runtime=runtime_name,
+                )
+            )
     return checks
 
 
@@ -512,17 +562,43 @@ def runtime_stage_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
     for binding in runtime_stage_bindings(config):
         name = str(binding.get("name") or "runtime-stage")
         if not binding.get("role_exists"):
-            checks.append(_check(name, "fail", f"missing actor {binding.get('role')!r}", role=binding.get("role")))
+            checks.append(
+                _check(
+                    name,
+                    "fail",
+                    f"missing actor {binding.get('role')!r}",
+                    role=binding.get("role"),
+                )
+            )
         elif not binding.get("runtime"):
-            checks.append(_check(name, "fail", f"actor {binding.get('role')!r} has no runtime", role=binding.get("role")))
+            checks.append(
+                _check(
+                    name,
+                    "fail",
+                    f"actor {binding.get('role')!r} has no runtime",
+                    role=binding.get("role"),
+                )
+            )
         else:
-            checks.append(_check(name, "pass", f"{binding.get('role')} -> {binding.get('runtime')}", role=binding.get("role")))
+            checks.append(
+                _check(
+                    name,
+                    "pass",
+                    f"{binding.get('role')} -> {binding.get('runtime')}",
+                    role=binding.get("role"),
+                )
+            )
     return checks
 
 
 def runtime_capability_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
     return [
-        _check(f"runtime-capability:{binding.get('role')}", "pass", "capability policy is runtime-owned", role=binding.get("role"))
+        _check(
+            f"runtime-capability:{binding.get('role')}",
+            "pass",
+            "capability policy is runtime-owned",
+            role=binding.get("role"),
+        )
         for binding in runtime_role_bindings(config)
         if binding.get("runtime")
     ]
@@ -532,17 +608,42 @@ def runtime_availability_checks(config: dict[str, Any]) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     for name, runtime_cfg in sorted(_runtime_profiles_from_config(config).items()):
         if not isinstance(runtime_cfg, dict):
-            checks.append(_check(f"runtime-availability:{name}", "fail", "runtime profile must be a mapping", runtime=name))
+            checks.append(
+                _check(
+                    f"runtime-availability:{name}",
+                    "fail",
+                    "runtime profile must be a mapping",
+                    runtime=name,
+                )
+            )
             continue
         kind = str(runtime_cfg.get("kind") or "").strip()
         if kind and kind not in recognized_runtime_kinds():
-            checks.append(_check(f"runtime-availability:{name}", "warn", f"unknown runtime kind {kind!r}", runtime=name))
+            checks.append(
+                _check(
+                    f"runtime-availability:{name}",
+                    "warn",
+                    f"unknown runtime kind {kind!r}",
+                    runtime=name,
+                )
+            )
             continue
         executable = runtime_cfg.get("executable")
         if executable and shutil.which(str(executable)) is None:
-            checks.append(_check(f"runtime-availability:{name}", "fail", f"executable not found: {executable}", runtime=name))
+            checks.append(
+                _check(
+                    f"runtime-availability:{name}",
+                    "fail",
+                    f"executable not found: {executable}",
+                    runtime=name,
+                )
+            )
             continue
-        checks.append(_check(f"runtime-availability:{name}", "pass", kind or "runtime", runtime=name))
+        checks.append(
+            _check(
+                f"runtime-availability:{name}", "pass", kind or "runtime", runtime=name
+            )
+        )
     return checks
 
 
@@ -586,7 +687,9 @@ def build_runtime_matrix_report(
         "execute": execute,
         "filters": {"roles": sorted(role_filter), "runtimes": sorted(runtime_filter)},
         "missing": {"roles": [], "runtimes": []},
-        "runtime_profiles": config.get("runtimes") if isinstance(config.get("runtimes"), dict) else {},
+        "runtime_profiles": config.get("runtimes")
+        if isinstance(config.get("runtimes"), dict)
+        else {},
         "bindings": bindings,
         "stage_bindings": runtime_stage_bindings(config),
         "stage_checks": runtime_stage_checks(config),
@@ -598,7 +701,9 @@ def build_runtime_matrix_report(
     }
 
 
-def validate_workflow_contract(workflow_root: Path, *, run_preflight: bool = True) -> dict[str, Any]:
+def validate_workflow_contract(
+    workflow_root: Path, *, run_preflight: bool = True
+) -> dict[str, Any]:
     root = Path(workflow_root).expanduser().resolve()
     checks: list[dict[str, Any]] = []
     contract: WorkflowContract | None = None
@@ -615,19 +720,31 @@ def validate_workflow_contract(workflow_root: Path, *, run_preflight: bool = Tru
     except (WorkflowContractError, OSError, UnicodeDecodeError) as exc:
         checks.append(_check("contract-file", "fail", str(exc)))
     if contract is None:
-        return _validation_report(root, source_path, workflow_name, schema_version, checks)
+        return _validation_report(
+            root, source_path, workflow_name, schema_version, checks
+        )
 
     config = contract.config
     workflow_name = str(config.get("workflow") or "").strip() or None
     if not workflow_name:
-        checks.append(_check("workflow-field", "fail", "top-level workflow field is required"))
-        return _validation_report(root, source_path, workflow_name, schema_version, checks)
+        checks.append(
+            _check("workflow-field", "fail", "top-level workflow field is required")
+        )
+        return _validation_report(
+            root, source_path, workflow_name, schema_version, checks
+        )
     checks.append(_check("workflow-field", "pass", workflow_name))
 
     workflow: Workflow | None = None
     try:
         workflow = load_workflow_object(workflow_name)
-        checks.append(_check("workflow-package", "pass", f"workflows.{workflow_name.replace('-', '_')}"))
+        checks.append(
+            _check(
+                "workflow-package",
+                "pass",
+                f"workflows.{workflow_name.replace('-', '_')}",
+            )
+        )
     except Exception as exc:
         checks.append(_check("workflow-package", "fail", str(exc)))
 
@@ -635,10 +752,14 @@ def validate_workflow_contract(workflow_root: Path, *, run_preflight: bool = Tru
         try:
             schema = yaml.safe_load(workflow.schema_path.read_text(encoding="utf-8"))
             if not isinstance(schema, dict):
-                raise WorkflowContractError(f"{workflow.schema_path} must decode to a mapping")
+                raise WorkflowContractError(
+                    f"{workflow.schema_path} must decode to a mapping"
+                )
             errors = _schema_errors(config=config, schema=schema)
             checks.append(
-                _check("schema", "fail", f"{len(errors)} schema violation(s)", items=errors)
+                _check(
+                    "schema", "fail", f"{len(errors)} schema violation(s)", items=errors
+                )
                 if errors
                 else _check("schema", "pass", str(workflow.schema_path))
             )
@@ -682,7 +803,9 @@ def validate_workflow_contract(workflow_root: Path, *, run_preflight: bool = Tru
                 )
             )
         except Exception as exc:
-            checks.append(_check("workflow-preflight", "fail", f"{type(exc).__name__}: {exc}"))
+            checks.append(
+                _check("workflow-preflight", "fail", f"{type(exc).__name__}: {exc}")
+            )
 
     return _validation_report(root, source_path, workflow_name, schema_version, checks)
 
@@ -704,43 +827,93 @@ def build_readiness_recommendations(
         name = _check_name(check)
         detail = str(check.get("detail") or check.get("summary") or "")
         if name == "contract-file":
-            _append_once(recommendations, "Run `hermes sprints bootstrap` from the target repo, or pass `--workflow-root` for an existing workflow instance.")
+            _append_once(
+                recommendations,
+                "Run `hermes sprints bootstrap` from the target repo, or pass `--workflow-root` for an existing workflow instance.",
+            )
         elif name == "contract-format":
-            _append_once(recommendations, "Use a repo-owned `WORKFLOW.md` / `WORKFLOW-<name>.md` contract before publishing the workflow.")
+            _append_once(
+                recommendations,
+                "Use a repo-owned `WORKFLOW.md` / `WORKFLOW-<name>.md` contract before publishing the workflow.",
+            )
         elif name == "workflow-field":
             _append_once(recommendations, f"Add top-level `workflow:` to {source}.")
         elif name == "workflow-package":
-            _append_once(recommendations, "Use `workflow: agentic` or reinstall the Sprints plugin.")
+            _append_once(
+                recommendations,
+                "Use `workflow: agentic` or reinstall the Sprints plugin.",
+            )
         elif name == "schema":
-            _append_once(recommendations, f"Edit the YAML front matter in {source} and fix the listed schema paths.")
+            _append_once(
+                recommendations,
+                f"Edit the YAML front matter in {source} and fix the listed schema paths.",
+            )
         elif name == "schema-version":
-            _append_once(recommendations, "Set `schema-version` to a version supported by this plugin, or update the installed Sprints plugin.")
+            _append_once(
+                recommendations,
+                "Set `schema-version` to a version supported by this plugin, or update the installed Sprints plugin.",
+            )
         elif name == "instance-name":
-            _append_once(recommendations, "Make `instance.name` match the workflow root directory name, or rerun `hermes sprints bootstrap`.")
+            _append_once(
+                recommendations,
+                "Make `instance.name` match the workflow root directory name, or rerun `hermes sprints bootstrap`.",
+            )
         elif name == "repository-path":
-            _append_once(recommendations, "Set `repository.local-path` to an existing local checkout path.")
+            _append_once(
+                recommendations,
+                "Set `repository.local-path` to an existing local checkout path.",
+            )
         elif name == "workflow-preflight":
-            _append_once(recommendations, _preflight_recommendation(check=check, workflow=workflow))
+            _append_once(
+                recommendations,
+                _preflight_recommendation(check=check, workflow=workflow),
+            )
         elif name.startswith("runtime-binding"):
-            _append_once(recommendations, _runtime_binding_recommendation(workflow=workflow))
+            _append_once(
+                recommendations, _runtime_binding_recommendation(workflow=workflow)
+            )
         elif name.startswith("runtime-stage"):
-            _append_once(recommendations, "Fix the actor/stage runtime references in `WORKFLOW.md`, then rerun `hermes sprints validate`.")
+            _append_once(
+                recommendations,
+                "Fix the actor/stage runtime references in `WORKFLOW.md`, then rerun `hermes sprints validate`.",
+            )
         elif name.startswith("runtime-capability"):
-            _append_once(recommendations, "Bind the role to a runtime with the required capabilities, or remove the explicit `required-capabilities` entry.")
+            _append_once(
+                recommendations,
+                "Bind the role to a runtime with the required capabilities, or remove the explicit `required-capabilities` entry.",
+            )
         elif name.startswith("runtime-availability"):
             _append_once(recommendations, _runtime_availability_recommendation(detail))
         elif name == "github-auth":
-            _append_once(recommendations, "Run `gh auth status` and `gh auth login` for the configured GitHub host.")
+            _append_once(
+                recommendations,
+                "Run `gh auth status` and `gh auth login` for the configured GitHub host.",
+            )
         elif name == "github-repo":
-            _append_once(recommendations, "Check `tracker.github_slug`, `code-host.github_slug`, and local GitHub access with `gh repo view`.")
+            _append_once(
+                recommendations,
+                "Check `tracker.github_slug`, `code-host.github_slug`, and local GitHub access with `gh repo view`.",
+            )
         elif name == "tracker":
-            _append_once(recommendations, "Run `hermes sprints validate --format json` and fix the tracker configuration before starting the service.")
+            _append_once(
+                recommendations,
+                "Run `hermes sprints validate --format json` and fix the tracker configuration before starting the service.",
+            )
         elif name == "workspace-root":
-            _append_once(recommendations, "Create the configured workspace root or fix filesystem permissions for the workflow user.")
+            _append_once(
+                recommendations,
+                "Create the configured workspace root or fix filesystem permissions for the workflow user.",
+            )
         elif name in {"engine_event_retention", "engine-event-retention"}:
-            _append_once(recommendations, "Configure or apply event retention with `hermes sprints events stats` and `hermes sprints events prune`.")
+            _append_once(
+                recommendations,
+                "Configure or apply event retention with `hermes sprints events stats` and `hermes sprints events prune`.",
+            )
         elif status == "fail":
-            _append_once(recommendations, f"Fix failing check `{name}`: {detail or 'see JSON output for details'}.")
+            _append_once(
+                recommendations,
+                f"Fix failing check `{name}`: {detail or 'see JSON output for details'}.",
+            )
     return recommendations
 
 
@@ -750,7 +923,11 @@ def _repo_workflow_candidates(repo_root: Path) -> list[Path]:
     default_path = workflow_markdown_path(root)
     if default_path.exists():
         candidates.append(default_path)
-    candidates.extend(path.resolve() for path in sorted(root.glob(f"{WORKFLOW_MARKDOWN_PREFIX}*.md")) if path.is_file())
+    candidates.extend(
+        path.resolve()
+        for path in sorted(root.glob(f"{WORKFLOW_MARKDOWN_PREFIX}*.md"))
+        if path.is_file()
+    )
     return candidates
 
 
@@ -775,25 +952,35 @@ def _parse_markdown_contract(path: Path, text: str) -> tuple[dict[str, Any], str
             closing_index = index
             break
     if closing_index is None:
-        raise WorkflowContractError(f"{path} starts with YAML front matter but is missing the closing --- delimiter")
+        raise WorkflowContractError(
+            f"{path} starts with YAML front matter but is missing the closing --- delimiter"
+        )
     front_matter_text = "\n".join(lines[1:closing_index])
     prompt_body = "\n".join(lines[closing_index + 1 :]).strip()
     try:
         parsed = yaml.safe_load(front_matter_text) if front_matter_text.strip() else {}
     except yaml.YAMLError as exc:
-        raise WorkflowContractError(f"YAML front-matter parse error in {path}: {exc}") from exc
+        raise WorkflowContractError(
+            f"YAML front-matter parse error in {path}: {exc}"
+        ) from exc
     if parsed is None:
         parsed = {}
     if not isinstance(parsed, dict):
-        raise WorkflowContractError(f"{path} front matter must decode to a YAML mapping at the top level")
+        raise WorkflowContractError(
+            f"{path} front matter must decode to a YAML mapping at the top level"
+        )
     return parsed, prompt_body
 
 
-def _project_markdown_front_matter(*, path: Path, front_matter: dict[str, Any], prompt_template: str) -> dict[str, Any]:
+def _project_markdown_front_matter(
+    *, path: Path, front_matter: dict[str, Any], prompt_template: str
+) -> dict[str, Any]:
     config = deepcopy(front_matter)
     existing_policy = config.get(WORKFLOW_POLICY_KEY)
     if existing_policy is not None and not isinstance(existing_policy, str):
-        raise WorkflowContractError(f"{path} {WORKFLOW_POLICY_KEY} must be a string when present")
+        raise WorkflowContractError(
+            f"{path} {WORKFLOW_POLICY_KEY} must be a string when present"
+        )
     if existing_policy and prompt_template:
         raise WorkflowContractError(
             f"{path} defines both front-matter {WORKFLOW_POLICY_KEY!r} and a Markdown body; use the body as the workflow policy source"
@@ -809,7 +996,13 @@ def _import_workflow_module(name: str) -> ModuleType:
     return importlib.import_module(f"workflows.{name.replace('-', '_')}")
 
 
-def _emit_dispatch_skipped_event(*, workflow_root: Path, workflow_name: str, error_code: str | None, error_detail: str | None) -> None:
+def _emit_dispatch_skipped_event(
+    *,
+    workflow_root: Path,
+    workflow_name: str,
+    error_code: str | None,
+    error_detail: str | None,
+) -> None:
     try:
         from workflows.paths import runtime_paths
         import runtime as _runtime
@@ -817,7 +1010,12 @@ def _emit_dispatch_skipped_event(*, workflow_root: Path, workflow_name: str, err
         paths = runtime_paths(workflow_root)
         _runtime.append_sprints_event(
             event_log_path=paths["event_log_path"],
-            event={"event": "sprints.dispatch_skipped", "workflow": workflow_name, "code": error_code, "detail": error_detail},
+            event={
+                "event": "sprints.dispatch_skipped",
+                "workflow": workflow_name,
+                "code": error_code,
+                "detail": error_detail,
+            },
         )
     except Exception:
         pass
@@ -843,7 +1041,13 @@ def _runtime_profiles_from_config(config: dict[str, Any]) -> dict[str, Any]:
     return runtimes if isinstance(runtimes, dict) else {}
 
 
-def _append_binding(bindings: list[dict[str, Any]], *, role: str, runtime_name: Any, runtimes: dict[str, Any]) -> None:
+def _append_binding(
+    bindings: list[dict[str, Any]],
+    *,
+    role: str,
+    runtime_name: Any,
+    runtimes: dict[str, Any],
+) -> None:
     normalized_runtime = str(runtime_name or "").strip() or None
     runtime_cfg = runtimes.get(normalized_runtime) if normalized_runtime else None
     profile_exists = isinstance(runtime_cfg, dict)
@@ -852,7 +1056,9 @@ def _append_binding(bindings: list[dict[str, Any]], *, role: str, runtime_name: 
             "role": role,
             "runtime": normalized_runtime,
             "profile_exists": profile_exists,
-            "kind": str(runtime_cfg.get("kind") or "").strip() if profile_exists else None,
+            "kind": str(runtime_cfg.get("kind") or "").strip()
+            if profile_exists
+            else None,
             "capabilities": [],
         }
     )
@@ -863,33 +1069,53 @@ def _json_path(parts: Any) -> str:
     return ".".join(values) if values else "<root>"
 
 
-def _schema_errors(*, config: dict[str, Any], schema: dict[str, Any]) -> list[dict[str, Any]]:
+def _schema_errors(
+    *, config: dict[str, Any], schema: dict[str, Any]
+) -> list[dict[str, Any]]:
     validator = jsonschema.Draft7Validator(schema)
-    errors = sorted(validator.iter_errors(config), key=lambda item: list(item.absolute_path))
+    errors = sorted(
+        validator.iter_errors(config), key=lambda item: list(item.absolute_path)
+    )
     return [
-        {"path": _json_path(error.absolute_path), "message": error.message, "validator": str(error.validator)}
+        {
+            "path": _json_path(error.absolute_path),
+            "message": error.message,
+            "validator": str(error.validator),
+        }
         for error in errors
     ]
 
 
-def _repository_path_check(*, workflow_root: Path, config: dict[str, Any]) -> dict[str, Any]:
+def _repository_path_check(
+    *, workflow_root: Path, config: dict[str, Any]
+) -> dict[str, Any]:
     repository = config.get("repository") or {}
     if not isinstance(repository, dict):
         return _check("repository-path", "fail", "repository must be a mapping")
-    raw = str(repository.get("local-path") or repository.get("local_path") or "").strip()
+    raw = str(
+        repository.get("local-path") or repository.get("local_path") or ""
+    ).strip()
     if not raw:
         return _check("repository-path", "fail", "repository.local-path is required")
     path = Path(raw).expanduser()
     if not path.is_absolute():
         path = (workflow_root / path).resolve()
     if not path.exists():
-        return _check("repository-path", "fail", f"repository.local-path does not exist: {path}")
+        return _check(
+            "repository-path", "fail", f"repository.local-path does not exist: {path}"
+        )
     if not path.is_dir():
-        return _check("repository-path", "fail", f"repository.local-path is not a directory: {path}")
+        return _check(
+            "repository-path",
+            "fail",
+            f"repository.local-path is not a directory: {path}",
+        )
     return _check("repository-path", "pass", str(path))
 
 
-def _instance_name_check(*, workflow_root: Path, config: dict[str, Any]) -> dict[str, Any]:
+def _instance_name_check(
+    *, workflow_root: Path, config: dict[str, Any]
+) -> dict[str, Any]:
     instance = config.get("instance") or {}
     if not isinstance(instance, dict):
         return _check("instance-name", "fail", "instance must be a mapping")
@@ -897,14 +1123,24 @@ def _instance_name_check(*, workflow_root: Path, config: dict[str, Any]) -> dict
     if not name:
         return _check("instance-name", "fail", "instance.name is required")
     if name != workflow_root.name:
-        return _check("instance-name", "fail", f"instance.name={name!r} must match workflow root directory {workflow_root.name!r}")
+        return _check(
+            "instance-name",
+            "fail",
+            f"instance.name={name!r} must match workflow root directory {workflow_root.name!r}",
+        )
     return _check("instance-name", "pass", name)
 
 
 def _contract_kind_check(contract: WorkflowContract) -> dict[str, Any]:
     if contract.source_path.suffix.lower() == ".md":
-        return _check("contract-format", "pass", "repo-owned Markdown workflow contract")
-    return _check("contract-format", "fail", f"unsupported workflow contract format: {contract.source_path}")
+        return _check(
+            "contract-format", "pass", "repo-owned Markdown workflow contract"
+        )
+    return _check(
+        "contract-format",
+        "fail",
+        f"unsupported workflow contract format: {contract.source_path}",
+    )
 
 
 def _validation_report(
@@ -966,10 +1202,16 @@ def _runtime_binding_recommendation(*, workflow: str | None) -> str:
 
 def _runtime_availability_recommendation(detail: str) -> str:
     lowered = detail.lower()
-    if "127.0.0.1:4500" in lowered or "codex-app-server" in lowered or "ws://" in lowered:
+    if (
+        "127.0.0.1:4500" in lowered
+        or "codex-app-server" in lowered
+        or "ws://" in lowered
+    ):
         return "Start or diagnose the shared Codex listener with `hermes sprints codex-app-server up` and `hermes sprints codex-app-server doctor`."
     if "hermes" in lowered:
         return "Install Hermes Agent on PATH, or set `runtimes.<name>.executable` / `command` to the correct Hermes binary."
     if "gh" in lowered:
         return "Install GitHub CLI and authenticate with `gh auth login`."
-    return "Install the required runtime CLI on PATH or edit the runtime profile command."
+    return (
+        "Install the required runtime CLI on PATH or edit the runtime profile command."
+    )

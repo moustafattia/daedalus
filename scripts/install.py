@@ -51,7 +51,9 @@ def _check_runtime_deps() -> None:
         )
 
 
-def resolve_destination(*, hermes_home: Path | None = None, destination: Path | None = None) -> Path:
+def resolve_destination(
+    *, hermes_home: Path | None = None, destination: Path | None = None
+) -> Path:
     # Intentionally avoid ``Path.resolve()`` on the final path because that
     # follows symlinks — callers passing a symlink destination expect the
     # symlink itself to be returned (and preserved across reinstall).
@@ -81,7 +83,9 @@ def _prepare_install_target(target: Path) -> Path:
     return target
 
 
-def install_plugin(*, repo_root: Path, hermes_home: Path | None = None, destination: Path | None = None) -> Path:
+def install_plugin(
+    *, repo_root: Path, hermes_home: Path | None = None, destination: Path | None = None
+) -> Path:
     _check_runtime_deps()
     repo_root = repo_root.expanduser().resolve()
     payload_root = repo_root / PAYLOAD_ROOT
@@ -104,10 +108,21 @@ def install_plugin(*, repo_root: Path, hermes_home: Path | None = None, destinat
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Install the sprints plugin into a Hermes plugins directory.")
-    parser.add_argument("--hermes-home", help="Hermes home directory. Default: ~/.hermes")
-    parser.add_argument("--destination", help="Explicit plugin destination directory. Overrides --hermes-home.")
-    parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[1]), help="Source repository root. Default: this repository root.")
+    parser = argparse.ArgumentParser(
+        description="Install the sprints plugin into a Hermes plugins directory."
+    )
+    parser.add_argument(
+        "--hermes-home", help="Hermes home directory. Default: ~/.hermes"
+    )
+    parser.add_argument(
+        "--destination",
+        help="Explicit plugin destination directory. Overrides --hermes-home.",
+    )
+    parser.add_argument(
+        "--repo-root",
+        default=str(Path(__file__).resolve().parents[1]),
+        help="Source repository root. Default: this repository root.",
+    )
     return parser
 
 

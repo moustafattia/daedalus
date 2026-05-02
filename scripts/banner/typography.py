@@ -1,4 +1,5 @@
 """Font loading. Single source of truth for sizes/styles."""
+
 from __future__ import annotations
 
 from pathlib import Path

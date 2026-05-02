@@ -31,7 +31,9 @@ class HermesAgentRuntime:
         resume_session_id: str | None = None,
     ) -> SessionHandle:
         self._resume_session_ids[session_name] = resume_session_id
-        return SessionHandle(record_id=None, session_id=resume_session_id, name=session_name)
+        return SessionHandle(
+            record_id=None, session_id=resume_session_id, name=session_name
+        )
 
     def run_prompt(
         self,
@@ -56,7 +58,9 @@ class HermesAgentRuntime:
         prompt: str,
         model: str,
     ) -> PromptRunResult:
-        command = self._prompt_command(session_name=session_name, prompt=prompt, model=model)
+        command = self._prompt_command(
+            session_name=session_name, prompt=prompt, model=model
+        )
         self._record_activity()
         completed = self._run(
             command,
@@ -102,11 +106,15 @@ class HermesAgentRuntime:
         env: dict | None = None,
     ) -> str:
         self._record_activity()
-        completed = self._run(command_argv, cwd=worktree, timeout=self._timeout(), env=env)
+        completed = self._run(
+            command_argv, cwd=worktree, timeout=self._timeout(), env=env
+        )
         self._record_activity()
         return getattr(completed, "stdout", "") or ""
 
-    def _prompt_command(self, *, session_name: str, prompt: str, model: str) -> list[str]:
+    def _prompt_command(
+        self, *, session_name: str, prompt: str, model: str
+    ) -> list[str]:
         mode = str(self._cfg.get("mode") or "final").strip().lower()
         if mode not in {"final", "chat"}:
             raise RuntimeError("hermes-agent mode must be 'final' or 'chat'")
@@ -142,14 +150,21 @@ class HermesAgentRuntime:
         command.extend(["-q", prompt])
         return command
 
-    def _append_common_overrides(self, command: list[str], *, model: str, include_chat_only: bool) -> None:
+    def _append_common_overrides(
+        self, command: list[str], *, model: str, include_chat_only: bool
+    ) -> None:
         provider = self._cfg.get("provider")
         if provider:
             command.extend(["--provider", str(provider)])
         if model:
             command.extend(["--model", str(model)])
         if not include_chat_only:
-            command.extend(str(arg) for arg in self._cfg.get("extra-args") or self._cfg.get("extra_args") or [])
+            command.extend(
+                str(arg)
+                for arg in self._cfg.get("extra-args")
+                or self._cfg.get("extra_args")
+                or []
+            )
             return
         source = self._cfg.get("source", "sprints")
         if source:
@@ -167,7 +182,10 @@ class HermesAgentRuntime:
             skills = [skills]
         for skill in skills:
             command.extend(["--skills", str(skill)])
-        command.extend(str(arg) for arg in self._cfg.get("extra-args") or self._cfg.get("extra_args") or [])
+        command.extend(
+            str(arg)
+            for arg in self._cfg.get("extra-args") or self._cfg.get("extra_args") or []
+        )
 
     def _env(self, *, model: str, session_name: str) -> dict[str, str]:
         env = {

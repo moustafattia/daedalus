@@ -1,4 +1,5 @@
 """Typed config for the generic agentic workflow."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -107,8 +108,12 @@ class AgenticConfig:
             for name, value in dict(raw.get("actions") or {}).items()
         }
         storage_raw = dict(raw.get("storage") or {})
-        state_path = _resolve(root, str(storage_raw.get("state", ".sprints/agentic-state.json")))
-        audit_log_path = _resolve(root, str(storage_raw.get("audit-log", ".sprints/agentic-audit.jsonl")))
+        state_path = _resolve(
+            root, str(storage_raw.get("state", ".sprints/agentic-state.json"))
+        )
+        audit_log_path = _resolve(
+            root, str(storage_raw.get("audit-log", ".sprints/agentic-audit.jsonl"))
+        )
         orchestrator_actor = str(dict(raw.get("orchestrator") or {}).get("actor", ""))
         config = cls(
             workflow_root=root,
@@ -129,26 +134,44 @@ class AgenticConfig:
         try:
             return next(iter(self.stages))
         except StopIteration as exc:
-            raise AgenticConfigError("agentic workflow requires at least one stage") from exc
+            raise AgenticConfigError(
+                "agentic workflow requires at least one stage"
+            ) from exc
 
     def validate_references(self) -> None:
         if self.orchestrator_actor not in self.actors:
-            raise AgenticConfigError(f"unknown orchestrator actor: {self.orchestrator_actor}")
+            raise AgenticConfigError(
+                f"unknown orchestrator actor: {self.orchestrator_actor}"
+            )
         for actor in self.actors.values():
             if actor.runtime not in self.runtimes:
-                raise AgenticConfigError(f"actor {actor.name} references unknown runtime {actor.runtime}")
+                raise AgenticConfigError(
+                    f"actor {actor.name} references unknown runtime {actor.runtime}"
+                )
         for stage in self.stages.values():
             for actor in stage.actors:
                 if actor not in self.actors:
-                    raise AgenticConfigError(f"stage {stage.name} references unknown actor {actor}")
+                    raise AgenticConfigError(
+                        f"stage {stage.name} references unknown actor {actor}"
+                    )
             for gate in stage.gates:
                 if gate not in self.gates:
-                    raise AgenticConfigError(f"stage {stage.name} references unknown gate {gate}")
+                    raise AgenticConfigError(
+                        f"stage {stage.name} references unknown gate {gate}"
+                    )
             for action in stage.actions:
                 if action not in self.actions:
-                    raise AgenticConfigError(f"stage {stage.name} references unknown action {action}")
-            if stage.next_stage and stage.next_stage != "done" and stage.next_stage not in self.stages:
-                raise AgenticConfigError(f"stage {stage.name} references unknown next stage {stage.next_stage}")
+                    raise AgenticConfigError(
+                        f"stage {stage.name} references unknown action {action}"
+                    )
+            if (
+                stage.next_stage
+                and stage.next_stage != "done"
+                and stage.next_stage not in self.stages
+            ):
+                raise AgenticConfigError(
+                    f"stage {stage.name} references unknown next stage {stage.next_stage}"
+                )
 
 
 def _resolve(root: Path, value: str) -> Path:

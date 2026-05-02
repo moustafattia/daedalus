@@ -1,4 +1,5 @@
 """Shared tracker integrations reused across workflows."""
+
 from __future__ import annotations
 
 import json
@@ -40,19 +41,31 @@ class CodeHostConfigError(RuntimeError):
 class CodeHostClient(Protocol):
     kind: str
 
-    def list_open_pull_requests(self, *, limit: int = 50, fields: str | None = None) -> list[dict[str, Any]]: ...
+    def list_open_pull_requests(
+        self, *, limit: int = 50, fields: str | None = None
+    ) -> list[dict[str, Any]]: ...
 
     def create_pull_request(self, *, head: str, title: str, body: str) -> str: ...
 
     def mark_pull_request_ready(self, pr_number: int | str | None) -> bool: ...
 
-    def merge_pull_request(self, pr_number: int | str | None, *, squash: bool = True, delete_branch: bool = True) -> dict[str, Any]: ...
+    def merge_pull_request(
+        self,
+        pr_number: int | str | None,
+        *,
+        squash: bool = True,
+        delete_branch: bool = True,
+    ) -> dict[str, Any]: ...
 
     def resolve_review_thread(self, thread_id: str) -> bool: ...
 
-    def fetch_issue_reactions(self, issue_number: int | str | None) -> list[dict[str, Any]]: ...
+    def fetch_issue_reactions(
+        self, issue_number: int | str | None
+    ) -> list[dict[str, Any]]: ...
 
-    def fetch_pull_request_review_threads(self, pr_number: int | str | None) -> dict[str, Any]: ...
+    def fetch_pull_request_review_threads(
+        self, pr_number: int | str | None
+    ) -> dict[str, Any]: ...
 
 
 _TRACKER_KINDS: dict[str, type] = {}
@@ -119,7 +132,9 @@ def build_code_host_client(
             f"unsupported code-host.kind={kind!r}; supported kinds: {sorted(_CODE_HOST_KINDS)}"
         )
     cls = _CODE_HOST_KINDS[kind]
-    return cls(code_host_cfg=code_host_cfg, repo_path=repo_path, run=run, run_json=run_json)
+    return cls(
+        code_host_cfg=code_host_cfg, repo_path=repo_path, run=run, run_json=run_json
+    )
 
 
 def resolve_tracker_path(*, workflow_root: Path, tracker_cfg: dict[str, Any]) -> Path:
@@ -205,16 +220,22 @@ def tracker_kind(tracker_cfg: dict[str, Any]) -> str:
 
 
 def linear_endpoint(tracker_cfg: dict[str, Any]) -> str:
-    endpoint = str(tracker_cfg.get("endpoint") or "https://api.linear.app/graphql").strip()
+    endpoint = str(
+        tracker_cfg.get("endpoint") or "https://api.linear.app/graphql"
+    ).strip()
     if not endpoint:
-        raise TrackerConfigError("tracker.endpoint cannot be blank for tracker.kind='linear'")
+        raise TrackerConfigError(
+            "tracker.endpoint cannot be blank for tracker.kind='linear'"
+        )
     return endpoint
 
 
 def linear_project_slug(tracker_cfg: dict[str, Any]) -> str:
     project_slug = str(tracker_cfg.get("project_slug") or "").strip()
     if not project_slug:
-        raise TrackerConfigError("tracker.project_slug is required for tracker.kind='linear'")
+        raise TrackerConfigError(
+            "tracker.project_slug is required for tracker.kind='linear'"
+        )
     return project_slug
 
 
@@ -222,7 +243,9 @@ def linear_api_key(tracker_cfg: dict[str, Any]) -> str:
     raw = str(tracker_cfg.get("api_key") or "$LINEAR_API_KEY").strip()
     value = resolve_env_indirection(raw)
     if not value:
-        raise TrackerConfigError("tracker.api_key is required for tracker.kind='linear' (supports $VARNAME indirection)")
+        raise TrackerConfigError(
+            "tracker.api_key is required for tracker.kind='linear' (supports $VARNAME indirection)"
+        )
     return value
 
 
@@ -265,8 +288,14 @@ def normalize_blocked_by(*, issue_id: str, payload: Any) -> list[dict[str, Any]]
                 "id": str(blocker.get("id") or "").strip() or None,
                 "identifier": str(blocker.get("identifier") or "").strip() or None,
                 "state": str(blocker.get("state") or "").strip() or None,
-                "created_at": str(blocker.get("created_at") or blocker.get("createdAt") or "").strip() or None,
-                "updated_at": str(blocker.get("updated_at") or blocker.get("updatedAt") or "").strip() or None,
+                "created_at": str(
+                    blocker.get("created_at") or blocker.get("createdAt") or ""
+                ).strip()
+                or None,
+                "updated_at": str(
+                    blocker.get("updated_at") or blocker.get("updatedAt") or ""
+                ).strip()
+                or None,
             }
         )
     return blockers
@@ -274,7 +303,9 @@ def normalize_blocked_by(*, issue_id: str, payload: Any) -> list[dict[str, Any]]
 
 def normalize_issue(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        raise TrackerConfigError(f"issue entries must be objects, got {type(payload).__name__}")
+        raise TrackerConfigError(
+            f"issue entries must be objects, got {type(payload).__name__}"
+        )
     issue_id = str(payload.get("id") or "").strip()
     if not issue_id:
         raise TrackerConfigError("each issue entry must define a non-empty id")
@@ -283,15 +314,24 @@ def normalize_issue(payload: Any) -> dict[str, Any]:
     description = str(payload.get("description") or "").strip() or None
     state = str(payload.get("state") or "").strip()
     priority = coerce_priority(payload.get("priority"))
-    branch_name = str(payload.get("branch_name") or payload.get("branchName") or "").strip() or None
+    branch_name = (
+        str(payload.get("branch_name") or payload.get("branchName") or "").strip()
+        or None
+    )
     url = str(payload.get("url") or "").strip() or None
     labels_raw = payload.get("labels") or []
     if not isinstance(labels_raw, list):
         raise TrackerConfigError(f"issue {issue_id!r} labels must be a list")
     labels = [str(label).strip().lower() for label in labels_raw if str(label).strip()]
-    blocked_by = normalize_blocked_by(issue_id=issue_id, payload=payload.get("blocked_by") or payload.get("blockedBy"))
-    created_at = str(payload.get("created_at") or payload.get("createdAt") or "").strip() or None
-    updated_at = str(payload.get("updated_at") or payload.get("updatedAt") or "").strip() or None
+    blocked_by = normalize_blocked_by(
+        issue_id=issue_id, payload=payload.get("blocked_by") or payload.get("blockedBy")
+    )
+    created_at = (
+        str(payload.get("created_at") or payload.get("createdAt") or "").strip() or None
+    )
+    updated_at = (
+        str(payload.get("updated_at") or payload.get("updatedAt") or "").strip() or None
+    )
     return {
         "id": issue_id,
         "identifier": identifier,
@@ -354,7 +394,11 @@ def extract_linear_blockers(payload: dict[str, Any]) -> list[dict[str, Any]]:
     for relation in nodes:
         if not isinstance(relation, dict):
             continue
-        relation_type = str(relation.get("type") or relation.get("relationType") or "").strip().lower()
+        relation_type = (
+            str(relation.get("type") or relation.get("relationType") or "")
+            .strip()
+            .lower()
+        )
         if "block" not in relation_type:
             continue
         related = relation.get("relatedIssue") or relation.get("issue") or {}
@@ -370,8 +414,14 @@ def extract_linear_blockers(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "id": str(related.get("id") or "").strip() or None,
                 "identifier": str(related.get("identifier") or "").strip() or None,
                 "state": state_name,
-                "created_at": str(related.get("createdAt") or related.get("created_at") or "").strip() or None,
-                "updated_at": str(related.get("updatedAt") or related.get("updated_at") or "").strip() or None,
+                "created_at": str(
+                    related.get("createdAt") or related.get("created_at") or ""
+                ).strip()
+                or None,
+                "updated_at": str(
+                    related.get("updatedAt") or related.get("updated_at") or ""
+                ).strip()
+                or None,
             }
         )
     return blockers
@@ -386,10 +436,12 @@ def issue_priority_sort_key(issue: dict[str, Any]) -> tuple[int, str, str]:
 
 
 def chunk(values: list[str], size: int) -> list[list[str]]:
-    return [values[index:index + size] for index in range(0, len(values), size)]
+    return [values[index : index + size] for index in range(0, len(values), size)]
 
 
-def http_post_json(endpoint: str, *, query: str, variables: dict[str, Any], api_key: str) -> dict[str, Any]:
+def http_post_json(
+    endpoint: str, *, query: str, variables: dict[str, Any], api_key: str
+) -> dict[str, Any]:
     body = json.dumps({"query": query, "variables": variables}).encode("utf-8")
     request = urllib.request.Request(
         endpoint,
@@ -405,7 +457,9 @@ def http_post_json(endpoint: str, *, query: str, variables: dict[str, Any], api_
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise TrackerConfigError(f"Linear API request failed: HTTP {exc.code}: {detail}") from exc
+        raise TrackerConfigError(
+            f"Linear API request failed: HTTP {exc.code}: {detail}"
+        ) from exc
     except urllib.error.URLError as exc:
         raise TrackerConfigError(f"Linear API request failed: {exc.reason}") from exc
     if not isinstance(payload, dict):

@@ -16,6 +16,7 @@ workflow-root resolver. That keeps ``SPRINTS_WORKFLOW_ROOT`` as the canonical
 override and otherwise falls back to the installed/repo-local workflow layout
 without hardcoding a single project path.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -76,4 +77,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

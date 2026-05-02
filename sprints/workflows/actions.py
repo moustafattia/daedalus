@@ -1,4 +1,5 @@
 """Deterministic actions available to agentic workflows."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -40,7 +41,9 @@ def _run_noop(action: ActionConfig, inputs: dict[str, Any]) -> ActionResult:
 
 def _run_command(action: ActionConfig, inputs: dict[str, Any]) -> ActionResult:
     command = action.raw.get("command") or inputs.get("command")
-    if not isinstance(command, list) or not all(isinstance(part, str) for part in command):
+    if not isinstance(command, list) or not all(
+        isinstance(part, str) for part in command
+    ):
         return ActionResult(
             name=action.name,
             ok=False,

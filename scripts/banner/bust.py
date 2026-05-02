@@ -1,4 +1,5 @@
 """Right-side hero image: load + chroma-key the banner source art."""
+
 from __future__ import annotations
 
 from PIL import Image, ImageFilter
@@ -26,8 +27,8 @@ def _key_engraving(src: Image.Image) -> Image.Image:
     g_px = grey.load()
     px = src.load()
 
-    near = 215   # paper threshold — anything brighter is fully transparent
-    far = 100    # ink threshold  — anything darker is fully opaque
+    near = 215  # paper threshold — anything brighter is fully transparent
+    far = 100  # ink threshold  — anything darker is fully opaque
 
     ink_r, ink_g, ink_b = config.INK
     for y in range(src.height):
@@ -39,7 +40,7 @@ def _key_engraving(src: Image.Image) -> Image.Image:
                 a = 255
             else:
                 a = int((near - v) / (near - far) * 255)
-            t = 1 - (v / 255)            # 0..1 darkness factor
+            t = 1 - (v / 255)  # 0..1 darkness factor
             r2 = int(ink_r + (255 - ink_r) * (1 - t) * 0.8)
             g2 = int(ink_g + (255 - ink_g) * (1 - t) * 0.8)
             b2 = int(ink_b + (255 - ink_b) * (1 - t) * 0.8)
@@ -53,8 +54,7 @@ def prepare_bust() -> Image.Image:
     w0, h0 = src.size
 
     # Trim plate borders / edge content.
-    src = src.crop((int(w0 * 0.03), int(h0 * 0.02),
-                    int(w0 * 0.97), int(h0 * 0.92)))
+    src = src.crop((int(w0 * 0.03), int(h0 * 0.02), int(w0 * 0.97), int(h0 * 0.92)))
 
     src = _resize_to_target(src)
     keyed = _key_engraving(src)

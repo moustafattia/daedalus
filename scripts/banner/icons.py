@@ -13,6 +13,7 @@ Two pieces:
 Both render into an existing Image / ImageDraw — no global state. Add new
 icons in this module so callers stay agnostic of source format.
 """
+
 from __future__ import annotations
 
 from PIL import Image, ImageDraw, ImageOps
@@ -32,8 +33,9 @@ def _load(path) -> Image.Image:
     return _png_cache[key].copy()
 
 
-def _recolour(src: Image.Image, color: tuple[int, int, int],
-              alpha: int = 255) -> Image.Image:
+def _recolour(
+    src: Image.Image, color: tuple[int, int, int], alpha: int = 255
+) -> Image.Image:
     """Recolour a single-tone artwork to `color`.
 
     Picks the right "silhouette mask" for the source format:
@@ -65,9 +67,15 @@ def _recolour(src: Image.Image, color: tuple[int, int, int],
     return out
 
 
-def paste_png(im: Image.Image, src_path, cx: int, cy: int,
-              height: int, color: tuple[int, int, int],
-              alpha: int = 255) -> None:
+def paste_png(
+    im: Image.Image,
+    src_path,
+    cx: int,
+    cy: int,
+    height: int,
+    color: tuple[int, int, int],
+    alpha: int = 255,
+) -> None:
     """Paste a single-tone artwork at (cx, cy) scaled to `height`, recoloured."""
     if alpha <= 0:
         return
@@ -80,15 +88,22 @@ def paste_png(im: Image.Image, src_path, cx: int, cy: int,
     im.paste(tinted, (cx - target_w // 2, cy - target_h // 2), tinted)
 
 
-def paste_caduceus(im: Image.Image, cx: int, cy: int, height: int,
-                   color: tuple[int, int, int] = config.HERMES_GOLD,
-                   alpha: int = 255) -> None:
+def paste_caduceus(
+    im: Image.Image,
+    cx: int,
+    cy: int,
+    height: int,
+    color: tuple[int, int, int] = config.HERMES_GOLD,
+    alpha: int = 255,
+) -> None:
     """Hermes's herald wand — embedded line drawing recoloured to `color`."""
-    paste_png(im, config.ASSETS / "source" / "caduceus.jpg",
-              cx, cy, height, color, alpha)
+    paste_png(
+        im, config.ASSETS / "source" / "caduceus.jpg", cx, cy, height, color, alpha
+    )
 
 
 # ── right-margin editorial vignettes ────────────────────────────────────
+
 
 def draw_margin_icons(d: ImageDraw.ImageDraw, alpha: int) -> None:
     """Magnifying glass + doc + curly braces. Ambient editorial decoration."""

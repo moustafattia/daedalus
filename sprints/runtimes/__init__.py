@@ -5,6 +5,7 @@ that know how to talk to Codex, Claude, Hermes Agent, and similar executors.
 Workflow packages compose these backends with workflow-specific prompts,
 policies, and state machines.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -123,7 +124,9 @@ def _ensure_builtin_runtimes_registered() -> None:
             _RUNTIME_KINDS.setdefault(kind, cls)
 
 
-def build_runtimes(runtimes_cfg: dict, *, run=None, run_json=None) -> dict[str, Runtime]:
+def build_runtimes(
+    runtimes_cfg: dict, *, run=None, run_json=None
+) -> dict[str, Runtime]:
     if not runtimes_cfg:
         return {}
 

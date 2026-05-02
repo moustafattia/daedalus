@@ -160,7 +160,11 @@ def acquire_engine_lease(
             ).fetchone()
             current_owner = row[0] if row else current_owner
         if not released_at and current_owner != owner_instance_id:
-            return {"acquired": False, "lease_id": lease_id, "owner_instance_id": current_owner}
+            return {
+                "acquired": False,
+                "lease_id": lease_id,
+                "owner_instance_id": current_owner,
+            }
     else:
         return {"acquired": False, "lease_id": lease_id, "owner_instance_id": None}
     return {
@@ -262,9 +266,16 @@ def read_engine_lease(
     stale_reasons: list[str] = []
     if released_at:
         stale_reasons.append("lease-released")
-    if expires_epoch is not None and now_epoch is not None and int(now_epoch) > expires_epoch:
+    if (
+        expires_epoch is not None
+        and now_epoch is not None
+        and int(now_epoch) > expires_epoch
+    ):
         stale_reasons.append("lease-expired")
-    if heartbeat_age_seconds is not None and heartbeat_age_seconds > stale_after_seconds:
+    if (
+        heartbeat_age_seconds is not None
+        and heartbeat_age_seconds > stale_after_seconds
+    ):
         stale_reasons.append("heartbeat-old")
     if active_owner_instance_id and owner_instance_id != active_owner_instance_id:
         stale_reasons.append("owner-mismatch")
@@ -280,7 +291,14 @@ def read_engine_lease(
         "released_at": released_at,
         "release_reason": release_reason,
         "heartbeat_age_seconds": heartbeat_age_seconds,
-        "expired": bool(released_at or (expires_epoch is not None and now_epoch is not None and int(now_epoch) > expires_epoch)),
+        "expired": bool(
+            released_at
+            or (
+                expires_epoch is not None
+                and now_epoch is not None
+                and int(now_epoch) > expires_epoch
+            )
+        ),
         "stale": bool(stale_reasons),
         "stale_reasons": stale_reasons,
         "metadata": metadata,

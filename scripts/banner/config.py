@@ -2,6 +2,7 @@
 
 Everything tunable lives here. Other modules import from this one.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,21 +24,21 @@ FONT_SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 W, H = 1200, 400
 
 # ── palette ──────────────────────────────────────────────────────────────
-PAPER = (232, 226, 213)         # cream parchment
+PAPER = (232, 226, 213)  # cream parchment
 PAPER_SHADOW = (210, 202, 186)
-INK = (28, 32, 36)              # near-black for body text
+INK = (28, 32, 36)  # near-black for body text
 INK_SOFT = (76, 84, 92)
-CYAN = (16, 130, 142)           # darker, painterly variant of brand cyan
+CYAN = (16, 130, 142)  # darker, painterly variant of brand cyan
 CYAN_BRIGHT = (34, 180, 195)
-HERMES_GOLD = (165, 132, 60)    # warmer gold for the caduceus
+HERMES_GOLD = (165, 132, 60)  # warmer gold for the caduceus
 
 NETWORK_COLORS = [
-    (110, 70, 60),    # burgundy
-    (170, 130, 70),   # ochre
-    (60, 110, 110),   # teal-grey
-    (120, 130, 90),   # olive
-    (90, 80, 110),    # ink-purple
-    (160, 100, 80),   # terracotta
+    (110, 70, 60),  # burgundy
+    (170, 130, 70),  # ochre
+    (60, 110, 110),  # teal-grey
+    (120, 130, 90),  # olive
+    (90, 80, 110),  # ink-purple
+    (160, 100, 80),  # terracotta
 ]
 
 # ── animation timing ─────────────────────────────────────────────────────

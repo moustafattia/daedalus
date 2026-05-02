@@ -88,7 +88,9 @@ class WorkResult:
     metrics: dict[str, Any] = field(default_factory=dict)
 
 
-def work_item_from_issue(issue: dict[str, Any], *, source: str | None = None) -> WorkItemRef:
+def work_item_from_issue(
+    issue: dict[str, Any], *, source: str | None = None
+) -> WorkItemRef:
     issue_id = str(issue.get("id") or "").strip()
     if not issue_id:
         raise ValueError("issue is missing id")

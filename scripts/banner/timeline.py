@@ -5,6 +5,7 @@ in this module that returns 0.0 (not started) → 1.0 (complete).
 
 Tweak timings here to retune the animation without touching renderers.
 """
+
 from __future__ import annotations
 
 import math
@@ -30,6 +31,7 @@ def _ramp(frame: int, start: float, end: float) -> float:
 
 
 # ── element progress functions ──────────────────────────────────────────
+
 
 def constellation_progress(f: int) -> float:
     return _ramp(f, 0.00, 0.30)
@@ -62,10 +64,10 @@ def hold_to_loop(f: int) -> float:
 # very first thing the viewer sees. Tokens are spread across most of
 # the loop so each stage stays on screen long enough to read.
 FLOW_TOKEN_COUNT = 7
-FLOW_FIRST_START = 0.00    # first token starts at the beginning of the loop
+FLOW_FIRST_START = 0.00  # first token starts at the beginning of the loop
 FLOW_TOKEN_STRIDE = 0.095  # gap between consecutive token starts
-FLOW_FADE_IN = 0.06        # fade-in duration per token
-FLOW_SETTLE = 0.18         # cyan → ink settle duration per token
+FLOW_FADE_IN = 0.06  # fade-in duration per token
+FLOW_SETTLE = 0.18  # cyan → ink settle duration per token
 
 
 def flow_token_state(f: int, token_idx: int) -> tuple[int, float]:
@@ -83,8 +85,7 @@ def flow_token_state(f: int, token_idx: int) -> tuple[int, float]:
         return 0, 0.0
     alpha = int(255 * ease(fade_p))
 
-    settle_p = max(0.0, min(1.0,
-                            (t - start - FLOW_FADE_IN) / FLOW_SETTLE))
+    settle_p = max(0.0, min(1.0, (t - start - FLOW_FADE_IN) / FLOW_SETTLE))
     return alpha, ease(settle_p)
 
 
@@ -93,9 +94,9 @@ def flow_pulse_progress(f: int) -> float | None:
 
     Fires once after all tokens have ignited, sweeping left → right.
     """
-    pulse_start = (FLOW_FIRST_START
-                   + (FLOW_TOKEN_COUNT - 1) * FLOW_TOKEN_STRIDE
-                   + FLOW_FADE_IN)
+    pulse_start = (
+        FLOW_FIRST_START + (FLOW_TOKEN_COUNT - 1) * FLOW_TOKEN_STRIDE + FLOW_FADE_IN
+    )
     pulse_end = 1.0
     t = f / F
     if t < pulse_start or t > pulse_end:

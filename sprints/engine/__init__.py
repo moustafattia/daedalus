@@ -1,4 +1,5 @@
 """Shared Sprints engine database mechanics."""
+
 from __future__ import annotations
 
 from .lifecycle import (

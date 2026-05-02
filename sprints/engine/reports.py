@@ -23,7 +23,9 @@ def _workflow_name_for_root(workflow_root: Path) -> str:
     contract = load_workflow_contract(workflow_root)
     workflow_name = str(contract.config.get("workflow") or "").strip()
     if not workflow_name:
-        raise EngineReportError(f"{contract.source_path} is missing top-level `workflow:` field")
+        raise EngineReportError(
+            f"{contract.source_path} is missing top-level `workflow:` field"
+        )
     return workflow_name
 
 
@@ -57,7 +59,9 @@ def _read_jsonl_events(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
     return events
 
 
-def _run_timeline_for_cli(workflow_root: Path, workflow_name: str, run_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+def _run_timeline_for_cli(
+    workflow_root: Path, workflow_name: str, run_id: str, *, limit: int = 100
+) -> list[dict[str, Any]]:
     paths = runtime_paths(workflow_root)
     engine_events = read_engine_events_for_run(
         paths["db_path"],
@@ -67,13 +71,20 @@ def _run_timeline_for_cli(workflow_root: Path, workflow_name: str, run_id: str, 
     )
     if engine_events:
         return [{**event, "source": "engine-events"} for event in engine_events]
-    source_paths = [paths["event_log_path"], _workflow_audit_path(workflow_root, workflow_name)]
+    source_paths = [
+        paths["event_log_path"],
+        _workflow_audit_path(workflow_root, workflow_name),
+    ]
     timeline: list[dict[str, Any]] = []
     for path in dict.fromkeys(source_paths):
         for event in _read_jsonl_events(path, limit=max(limit * 5, limit)):
             if _run_event_id(event) == run_id:
                 timeline.append({**event, "source_path": str(path)})
-    timeline.sort(key=lambda item: str(item.get("at") or item.get("created_at") or item.get("time") or ""))
+    timeline.sort(
+        key=lambda item: str(
+            item.get("at") or item.get("created_at") or item.get("time") or ""
+        )
+    )
     return timeline[-limit:]
 
 
@@ -95,7 +106,9 @@ def build_runs_report(
         run = read_engine_run(db_path, workflow=workflow_name, run_id=run_id)
         if run is None:
             raise EngineReportError(f"unknown engine run: {run_id}")
-        age_seconds = max(int(now_epoch - float(run.get("started_at_epoch") or now_epoch)), 0)
+        age_seconds = max(
+            int(now_epoch - float(run.get("started_at_epoch") or now_epoch)), 0
+        )
         return {
             "mode": "show",
             "workflow": workflow_name,
@@ -104,13 +117,17 @@ def build_runs_report(
                 "age_seconds": age_seconds,
                 "stale": run.get("status") == "running" and age_seconds > stale_seconds,
             },
-            "timeline": _run_timeline_for_cli(workflow_root, workflow_name, run_id, limit=max(limit, 1)),
+            "timeline": _run_timeline_for_cli(
+                workflow_root, workflow_name, run_id, limit=max(limit, 1)
+            ),
         }
 
     runs = read_engine_runs(db_path, workflow=workflow_name, limit=max(limit, 1) * 5)
     enriched = []
     for run in runs:
-        age_seconds = max(int(now_epoch - float(run.get("started_at_epoch") or now_epoch)), 0)
+        age_seconds = max(
+            int(now_epoch - float(run.get("started_at_epoch") or now_epoch)), 0
+        )
         item = {
             **run,
             "age_seconds": age_seconds,
@@ -163,7 +180,9 @@ def build_events_report(
 ) -> dict[str, Any]:
     workflow_root = Path(workflow_root).resolve()
     workflow_name = _workflow_name_for_root(workflow_root)
-    store = EngineStore(db_path=runtime_paths(workflow_root)["db_path"], workflow=workflow_name)
+    store = EngineStore(
+        db_path=runtime_paths(workflow_root)["db_path"], workflow=workflow_name
+    )
     filters = {
         "run_id": run_id,
         "work_id": work_id,
@@ -212,7 +231,9 @@ def build_events_report(
     return {
         "mode": "list",
         "workflow": workflow_name,
-        "filters": {key: value for key, value in filters.items() if value not in (None, "")},
+        "filters": {
+            key: value for key, value in filters.items() if value not in (None, "")
+        },
         "counts": {"shown": len(events)},
         "events": events,
     }

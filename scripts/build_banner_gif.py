@@ -15,6 +15,7 @@ Or::
 
 Both write to ``assets/sprints-banner.gif``.
 """
+
 from __future__ import annotations
 
 import sys

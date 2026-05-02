@@ -1,4 +1,5 @@
 """Orchestrator prompt rendering and decision parsing."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -28,18 +29,33 @@ class OrchestratorDecision:
         try:
             raw = json.loads(output)
         except json.JSONDecodeError as exc:
-            raise OrchestratorDecisionError(f"orchestrator returned invalid JSON: {exc}") from exc
+            raise OrchestratorDecisionError(
+                f"orchestrator returned invalid JSON: {exc}"
+            ) from exc
         if not isinstance(raw, dict):
-            raise OrchestratorDecisionError("orchestrator decision must be a JSON object")
+            raise OrchestratorDecisionError(
+                "orchestrator decision must be a JSON object"
+            )
         decision = str(raw.get("decision", ""))
-        if decision not in {"advance", "retry", "run_actor", "run_action", "operator_attention", "complete"}:
-            raise OrchestratorDecisionError(f"unsupported orchestrator decision: {decision}")
+        if decision not in {
+            "advance",
+            "retry",
+            "run_actor",
+            "run_action",
+            "operator_attention",
+            "complete",
+        }:
+            raise OrchestratorDecisionError(
+                f"unsupported orchestrator decision: {decision}"
+            )
         stage = str(raw.get("stage", ""))
         if not stage:
             raise OrchestratorDecisionError("orchestrator decision is missing stage")
         inputs = raw.get("inputs") or {}
         if not isinstance(inputs, dict):
-            raise OrchestratorDecisionError("orchestrator decision inputs must be an object")
+            raise OrchestratorDecisionError(
+                "orchestrator decision inputs must be an object"
+            )
         target = raw.get("target")
         return cls(
             decision=decision,
@@ -112,7 +128,9 @@ def build_orchestrator_prompt(
 
 
 def build_actor_prompt(*, actor_policy: ActorPolicy, variables: dict[str, Any]) -> str:
-    return render_prompt_template(prompt_template=actor_policy.body, variables=variables)
+    return render_prompt_template(
+        prompt_template=actor_policy.body, variables=variables
+    )
 
 
 def _resolve_variable(expr: str, variables: dict[str, Any]) -> Any:

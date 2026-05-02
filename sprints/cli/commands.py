@@ -48,11 +48,14 @@ PLUGIN_DIR = Path(__file__).resolve().parents[1]
 
 # Module Setup
 
+
 def resolve_default_workflow_root() -> Path:
     return resolve_workflow_root_default(plugin_dir=PLUGIN_DIR)
 
+
 class SprintsCommandError(Exception):
     pass
+
 
 class SprintsArgumentParser(argparse.ArgumentParser):
     def error(self, message):
@@ -61,8 +64,11 @@ class SprintsArgumentParser(argparse.ArgumentParser):
 
 # Parser Shape
 
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = SprintsArgumentParser(prog="sprints", description="Sprints operator control surface.")
+    parser = SprintsArgumentParser(
+        prog="sprints", description="Sprints operator control surface."
+    )
     return configure_subcommands(parser)
 
 
@@ -94,7 +100,10 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     doctor_cmd.set_defaults(func=run_cli_command)
 
-    validate_cmd = sub.add_parser("validate", help="Validate the repo-owned WORKFLOW.md contract and workflow preflight rules.")
+    validate_cmd = sub.add_parser(
+        "validate",
+        help="Validate the repo-owned WORKFLOW.md contract and workflow preflight rules.",
+    )
     validate_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     validate_cmd.add_argument("--json", action="store_true")
     validate_cmd.add_argument(
@@ -105,9 +114,16 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     validate_cmd.set_defaults(func=run_cli_command)
 
-    runs_cmd = sub.add_parser("runs", help="Inspect durable engine run history and run timelines.")
+    runs_cmd = sub.add_parser(
+        "runs", help="Inspect durable engine run history and run timelines."
+    )
     runs_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    runs_cmd.add_argument("runs_action", nargs="?", default="list", choices=["list", "failed", "stale", "show"])
+    runs_cmd.add_argument(
+        "runs_action",
+        nargs="?",
+        default="list",
+        choices=["list", "failed", "stale", "show"],
+    )
     runs_cmd.add_argument("run_id", nargs="?")
     runs_cmd.add_argument("--limit", type=int, default=20)
     runs_cmd.add_argument("--stale-seconds", type=int, default=600)
@@ -120,9 +136,13 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     runs_cmd.set_defaults(func=run_cli_command)
 
-    events_cmd = sub.add_parser("events", help="Inspect and prune the durable engine event ledger.")
+    events_cmd = sub.add_parser(
+        "events", help="Inspect and prune the durable engine event ledger."
+    )
     events_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    events_cmd.add_argument("events_action", nargs="?", default="list", choices=["list", "stats", "prune"])
+    events_cmd.add_argument(
+        "events_action", nargs="?", default="list", choices=["list", "stats", "prune"]
+    )
     events_cmd.add_argument("--run-id")
     events_cmd.add_argument("--work-id")
     events_cmd.add_argument("--type", dest="event_type")
@@ -144,9 +164,17 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         "watch",
         help="Live operator TUI: lanes, alerts, recent events.",
     )
-    watch_cmd.add_argument("--workflow-root", type=Path, default=default_workflow_root_path)
-    watch_cmd.add_argument("--once", action="store_true", help="Render one frame and exit (default when stdout is not a TTY).")
-    watch_cmd.add_argument("--interval", type=float, default=2.0, help="Poll interval in live mode.")
+    watch_cmd.add_argument(
+        "--workflow-root", type=Path, default=default_workflow_root_path
+    )
+    watch_cmd.add_argument(
+        "--once",
+        action="store_true",
+        help="Render one frame and exit (default when stdout is not a TTY).",
+    )
+    watch_cmd.add_argument(
+        "--interval", type=float, default=2.0, help="Poll interval in live mode."
+    )
     watch_cmd.set_defaults(handler=_lazy_cmd_watch, func=run_cli_command)
 
     scaffold_cmd = sub.add_parser(
@@ -161,9 +189,15 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     scaffold_cmd.add_argument("--workflow", default="agentic", choices=["agentic"])
     scaffold_cmd.add_argument("--repo-path", type=Path)
-    scaffold_cmd.add_argument("--repo-slug", required=True, help="Repository identity in owner/repo form for workflow instance naming.")
+    scaffold_cmd.add_argument(
+        "--repo-slug",
+        required=True,
+        help="Repository identity in owner/repo form for workflow instance naming.",
+    )
     scaffold_cmd.add_argument("--active-lane-label", default="active-lane")
-    scaffold_cmd.add_argument("--engine-owner", default="hermes", choices=["hermes", "openclaw"])
+    scaffold_cmd.add_argument(
+        "--engine-owner", default="hermes", choices=["hermes", "openclaw"]
+    )
     scaffold_cmd.add_argument("--force", action="store_true")
     scaffold_cmd.add_argument("--json", action="store_true")
     scaffold_cmd.set_defaults(handler=cmd_scaffold_workflow, func=run_cli_command)
@@ -172,12 +206,22 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         "bootstrap",
         help="Infer repo settings from the current git checkout and scaffold a repo-owned workflow contract.",
     )
-    bootstrap_cmd.add_argument("--repo-path", type=Path, help="Git checkout to inspect (defaults to current working directory).")
-    bootstrap_cmd.add_argument("--workflow-root", type=Path, help="Optional explicit workflow root override.")
+    bootstrap_cmd.add_argument(
+        "--repo-path",
+        type=Path,
+        help="Git checkout to inspect (defaults to current working directory).",
+    )
+    bootstrap_cmd.add_argument(
+        "--workflow-root", type=Path, help="Optional explicit workflow root override."
+    )
     bootstrap_cmd.add_argument("--workflow", default="agentic", choices=["agentic"])
-    bootstrap_cmd.add_argument("--repo-slug", help="Override the inferred repository slug from git origin.")
+    bootstrap_cmd.add_argument(
+        "--repo-slug", help="Override the inferred repository slug from git origin."
+    )
     bootstrap_cmd.add_argument("--active-lane-label", default="active-lane")
-    bootstrap_cmd.add_argument("--engine-owner", default="hermes", choices=["hermes", "openclaw"])
+    bootstrap_cmd.add_argument(
+        "--engine-owner", default="hermes", choices=["hermes", "openclaw"]
+    )
     bootstrap_cmd.add_argument("--force", action="store_true")
     bootstrap_cmd.add_argument("--json", action="store_true")
     bootstrap_cmd.set_defaults(handler=cmd_bootstrap_workflow, func=run_cli_command)
@@ -186,8 +230,12 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         "configure-runtime",
         help="Bind a workflow role to a built-in runtime preset in the repo-owned WORKFLOW.md contract.",
     )
-    configure_runtime_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    configure_runtime_cmd.add_argument("--runtime", required=True, choices=available_runtime_presets())
+    configure_runtime_cmd.add_argument(
+        "--workflow-root", default=default_workflow_root_str
+    )
+    configure_runtime_cmd.add_argument(
+        "--runtime", required=True, choices=available_runtime_presets()
+    )
     configure_runtime_cmd.add_argument(
         "--role",
         required=True,
@@ -211,10 +259,22 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         "runtime-matrix",
         help="Show workflow role-to-runtime bindings and optionally execute a tiny runtime-stage smoke.",
     )
-    runtime_matrix_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    runtime_matrix_cmd.add_argument("--role", action="append", help="Limit to a workflow role. Can be repeated.")
-    runtime_matrix_cmd.add_argument("--runtime", action="append", help="Limit to a runtime profile. Can be repeated.")
-    runtime_matrix_cmd.add_argument("--execute", action="store_true", help="Run a tiny prompt through each selected role runtime.")
+    runtime_matrix_cmd.add_argument(
+        "--workflow-root", default=default_workflow_root_str
+    )
+    runtime_matrix_cmd.add_argument(
+        "--role", action="append", help="Limit to a workflow role. Can be repeated."
+    )
+    runtime_matrix_cmd.add_argument(
+        "--runtime",
+        action="append",
+        help="Limit to a runtime profile. Can be repeated.",
+    )
+    runtime_matrix_cmd.add_argument(
+        "--execute",
+        action="store_true",
+        help="Run a tiny prompt through each selected role runtime.",
+    )
     runtime_matrix_cmd.add_argument("--json", action="store_true")
     runtime_matrix_cmd.add_argument(
         "--format",
@@ -232,14 +292,25 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     codex_sub.required = True
 
     def _add_codex_app_server_auth_args(cmd: argparse.ArgumentParser) -> None:
-        cmd.add_argument("--ws-token-file", help="Absolute token file for capability-token WebSocket auth.")
-        cmd.add_argument("--ws-token-sha256", help="SHA-256 verifier for capability-token WebSocket auth.")
-        cmd.add_argument("--ws-shared-secret-file", help="Absolute secret file for signed-bearer-token WebSocket auth.")
+        cmd.add_argument(
+            "--ws-token-file",
+            help="Absolute token file for capability-token WebSocket auth.",
+        )
+        cmd.add_argument(
+            "--ws-token-sha256",
+            help="SHA-256 verifier for capability-token WebSocket auth.",
+        )
+        cmd.add_argument(
+            "--ws-shared-secret-file",
+            help="Absolute secret file for signed-bearer-token WebSocket auth.",
+        )
         cmd.add_argument("--ws-issuer")
         cmd.add_argument("--ws-audience")
         cmd.add_argument("--ws-max-clock-skew-seconds", type=int)
 
-    codex_install_cmd = codex_sub.add_parser("install", help="Write the Codex app-server user unit.")
+    codex_install_cmd = codex_sub.add_parser(
+        "install", help="Write the Codex app-server user unit."
+    )
     codex_install_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     codex_install_cmd.add_argument("--listen", default=DEFAULT_CODEX_APP_SERVER_LISTEN)
     codex_install_cmd.add_argument("--service-name")
@@ -248,7 +319,9 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     codex_install_cmd.add_argument("--json", action="store_true")
     codex_install_cmd.set_defaults(func=run_cli_command)
 
-    codex_up_cmd = codex_sub.add_parser("up", help="Install, enable, and start the Codex app-server user unit.")
+    codex_up_cmd = codex_sub.add_parser(
+        "up", help="Install, enable, and start the Codex app-server user unit."
+    )
     codex_up_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     codex_up_cmd.add_argument("--listen", default=DEFAULT_CODEX_APP_SERVER_LISTEN)
     codex_up_cmd.add_argument("--service-name")
@@ -257,11 +330,15 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     codex_up_cmd.add_argument("--json", action="store_true")
     codex_up_cmd.set_defaults(func=run_cli_command)
 
-    codex_status_cmd = codex_sub.add_parser("status", help="Show Codex app-server user unit status.")
+    codex_status_cmd = codex_sub.add_parser(
+        "status", help="Show Codex app-server user unit status."
+    )
     codex_status_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     codex_status_cmd.add_argument("--service-name")
     codex_status_cmd.add_argument("--endpoint", default=DEFAULT_CODEX_APP_SERVER_LISTEN)
-    codex_status_cmd.add_argument("--healthcheck-path", default=DEFAULT_CODEX_APP_SERVER_HEALTHCHECK_PATH)
+    codex_status_cmd.add_argument(
+        "--healthcheck-path", default=DEFAULT_CODEX_APP_SERVER_HEALTHCHECK_PATH
+    )
     codex_status_cmd.add_argument("--json", action="store_true")
     codex_status_cmd.add_argument(
         "--format",
@@ -271,12 +348,18 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     codex_status_cmd.set_defaults(func=run_cli_command)
 
-    codex_doctor_cmd = codex_sub.add_parser("doctor", help="Run actionable Codex app-server diagnostics.")
+    codex_doctor_cmd = codex_sub.add_parser(
+        "doctor", help="Run actionable Codex app-server diagnostics."
+    )
     codex_doctor_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
-    codex_doctor_cmd.add_argument("--mode", choices=["managed", "external"], default="managed")
+    codex_doctor_cmd.add_argument(
+        "--mode", choices=["managed", "external"], default="managed"
+    )
     codex_doctor_cmd.add_argument("--service-name")
     codex_doctor_cmd.add_argument("--endpoint")
-    codex_doctor_cmd.add_argument("--healthcheck-path", default=DEFAULT_CODEX_APP_SERVER_HEALTHCHECK_PATH)
+    codex_doctor_cmd.add_argument(
+        "--healthcheck-path", default=DEFAULT_CODEX_APP_SERVER_HEALTHCHECK_PATH
+    )
     _add_codex_app_server_auth_args(codex_doctor_cmd)
     codex_doctor_cmd.add_argument("--json", action="store_true")
     codex_doctor_cmd.add_argument(
@@ -287,21 +370,31 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     )
     codex_doctor_cmd.set_defaults(func=run_cli_command)
 
-    codex_down_cmd = codex_sub.add_parser("down", help="Stop and disable the Codex app-server user unit.")
+    codex_down_cmd = codex_sub.add_parser(
+        "down", help="Stop and disable the Codex app-server user unit."
+    )
     codex_down_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     codex_down_cmd.add_argument("--service-name")
     codex_down_cmd.add_argument("--json", action="store_true")
     codex_down_cmd.set_defaults(func=run_cli_command)
 
-    codex_restart_cmd = codex_sub.add_parser("restart", help="Restart the Codex app-server user unit.")
+    codex_restart_cmd = codex_sub.add_parser(
+        "restart", help="Restart the Codex app-server user unit."
+    )
     codex_restart_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     codex_restart_cmd.add_argument("--service-name")
-    codex_restart_cmd.add_argument("--endpoint", default=DEFAULT_CODEX_APP_SERVER_LISTEN)
-    codex_restart_cmd.add_argument("--healthcheck-path", default=DEFAULT_CODEX_APP_SERVER_HEALTHCHECK_PATH)
+    codex_restart_cmd.add_argument(
+        "--endpoint", default=DEFAULT_CODEX_APP_SERVER_LISTEN
+    )
+    codex_restart_cmd.add_argument(
+        "--healthcheck-path", default=DEFAULT_CODEX_APP_SERVER_HEALTHCHECK_PATH
+    )
     codex_restart_cmd.add_argument("--json", action="store_true")
     codex_restart_cmd.set_defaults(func=run_cli_command)
 
-    codex_logs_cmd = codex_sub.add_parser("logs", help="Show recent logs for the Codex app-server user unit.")
+    codex_logs_cmd = codex_sub.add_parser(
+        "logs", help="Show recent logs for the Codex app-server user unit."
+    )
     codex_logs_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
     codex_logs_cmd.add_argument("--service-name")
     codex_logs_cmd.add_argument("--lines", type=int, default=50)
@@ -312,6 +405,7 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
 
 
 # Entrypoints
+
 
 def execute_raw_args(raw_args: str) -> str:
     parser = build_parser()
@@ -329,7 +423,9 @@ def execute_raw_args(raw_args: str) -> str:
         if args.sprints_command == "bootstrap":
             return cmd_bootstrap_workflow(args, parser)
         result = execute_namespace(args)
-        fmt = _resolve_format(getattr(args, "format", None), getattr(args, "json", False))
+        fmt = _resolve_format(
+            getattr(args, "format", None), getattr(args, "json", False)
+        )
         return render_result(args.sprints_command, result, output_format=fmt)
     except SprintsCommandError as exc:
         return f"sprints error: {exc}"
@@ -338,6 +434,7 @@ def execute_raw_args(raw_args: str) -> str:
         return f"sprints error: {detail or parser.format_usage().strip()}"
     except Exception as exc:
         return f"sprints error: unexpected {type(exc).__name__}: {exc}"
+
 
 def run_cli_command(args: argparse.Namespace) -> None:
     args._command_source = "cli"
@@ -357,7 +454,10 @@ def run_cli_command(args: argparse.Namespace) -> None:
             print(handler(args, parser=None))
             return
     fmt = _resolve_format(getattr(args, "format", None), getattr(args, "json", False))
-    print(render_result(args.sprints_command, execute_namespace(args), output_format=fmt))
+    print(
+        render_result(args.sprints_command, execute_namespace(args), output_format=fmt)
+    )
+
 
 def execute_workflow_command(raw_args: str) -> str:
     """Slash command handler for ``/workflow <name> <cmd> [args]``.
@@ -385,7 +485,11 @@ def execute_workflow_command(raw_args: str) -> str:
 
     if not parts:
         names = list_workflows()
-        return ("available workflows: " + ", ".join(names)) if names else "no workflows installed"
+        return (
+            ("available workflows: " + ", ".join(names))
+            if names
+            else "no workflows installed"
+        )
 
     name, *cmd_args = parts
 
@@ -400,12 +504,17 @@ def execute_workflow_command(raw_args: str) -> str:
 
 # Dispatch
 
+
 def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
-    workflow_root = Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
+    workflow_root = (
+        Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
+    )
     if args.sprints_command == "status":
         return _build_project_status(workflow_root)
     if args.sprints_command == "doctor":
-        return _run_wrapper_json_command(workflow_root=workflow_root, command="doctor --json")
+        return _run_wrapper_json_command(
+            workflow_root=workflow_root, command="doctor --json"
+        )
     if args.sprints_command == "validate":
         return validate_workflow_contract(workflow_root)
     if args.sprints_command == "configure-runtime":
@@ -458,7 +567,9 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     raise SprintsCommandError(f"unknown sprints command: {args.sprints_command}")
 
 
-def _execute_codex_app_server_namespace(args: argparse.Namespace, workflow_root: Path) -> dict[str, Any]:
+def _execute_codex_app_server_namespace(
+    args: argparse.Namespace, workflow_root: Path
+) -> dict[str, Any]:
     action = args.codex_app_server_command
     if action == "install":
         return codex_app_server_install(
@@ -530,6 +641,7 @@ def _execute_codex_app_server_namespace(args: argparse.Namespace, workflow_root:
 
 # Command Handlers
 
+
 def cmd_scaffold_workflow(args, parser) -> str:
     try:
         result = scaffold_workflow_root(
@@ -585,6 +697,7 @@ def cmd_bootstrap_workflow(args, parser) -> str:
         lines.insert(4, f"origin: {result['remote_url']}")
     return "\n".join(lines)
 
+
 def configure_runtime_preset(
     *,
     workflow_root: Path,
@@ -601,8 +714,14 @@ def configure_runtime_preset(
             runtime_name=runtime_name,
             dry_run=dry_run,
         )
-    except (RuntimePresetError, WorkflowContractError, FileNotFoundError, OSError) as exc:
+    except (
+        RuntimePresetError,
+        WorkflowContractError,
+        FileNotFoundError,
+        OSError,
+    ) as exc:
         raise SprintsCommandError(str(exc)) from exc
+
 
 def _lazy_cmd_watch(args, parser):
     """Lazy import so importing the CLI doesn't pull rich into every invocation."""
@@ -628,6 +747,7 @@ def _build_project_status(workflow_root: Path) -> dict[str, Any]:
 
 # Utilities
 
+
 def _run_wrapper_json_command(*, workflow_root: Path, command: str) -> dict[str, Any]:
     """Run a workflow CLI command via the plugin-side entrypoint."""
     argv = workflow_cli_argv(workflow_root, *shlex.split(command))
@@ -640,7 +760,9 @@ def _run_wrapper_json_command(*, workflow_root: Path, command: str) -> dict[str,
     )
     if completed.returncode != 0:
         raise SprintsCommandError(
-            completed.stderr.strip() or completed.stdout.strip() or f"wrapper command failed: {command}"
+            completed.stderr.strip()
+            or completed.stdout.strip()
+            or f"wrapper command failed: {command}"
         )
     return json.loads(completed.stdout)
 
@@ -660,6 +782,7 @@ def _resolve_format(format_arg: str | None, json_flag: bool | None) -> str:
 
 if __name__ == "__main__":
     import sys
+
     result = execute_raw_args(" ".join(sys.argv[1:]))
     print(result)
     sys.exit(0 if not result.startswith("sprints error:") else 1)

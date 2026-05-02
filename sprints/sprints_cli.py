@@ -18,4 +18,3 @@ if __name__ == "__main__":
     result = _execute_raw_args(" ".join(sys.argv[1:]))
     print(result)
     sys.exit(0 if not result.startswith("sprints error:") else 1)
-

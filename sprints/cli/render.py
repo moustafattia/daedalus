@@ -26,7 +26,8 @@ def render_result(
                 from cli.formatters import format_status as _fmt_status
             except ImportError:
                 spec = importlib.util.spec_from_file_location(
-                    "sprints_formatters_for_render", PLUGIN_DIR / "cli" / "formatters.py"
+                    "sprints_formatters_for_render",
+                    PLUGIN_DIR / "cli" / "formatters.py",
                 )
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
@@ -40,7 +41,8 @@ def render_result(
                 from cli.formatters import format_doctor as _fmt
             except ImportError:
                 spec = importlib.util.spec_from_file_location(
-                    "sprints_formatters_for_doctor", PLUGIN_DIR / "cli" / "formatters.py"
+                    "sprints_formatters_for_doctor",
+                    PLUGIN_DIR / "cli" / "formatters.py",
                 )
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
@@ -56,7 +58,12 @@ def render_result(
             f"checks={len(checks)} failures={len(failures)} warnings={len(warnings)}",
         ]
         for check in checks:
-            prefix = {"pass": "PASS", "warn": "WARN", "fail": "FAIL", "skip": "SKIP"}.get(
+            prefix = {
+                "pass": "PASS",
+                "warn": "WARN",
+                "fail": "FAIL",
+                "skip": "SKIP",
+            }.get(
                 str(check.get("status")),
                 str(check.get("status")).upper(),
             )
@@ -88,7 +95,9 @@ def render_result(
                 f"kind={binding.get('kind')} exists={binding.get('profile_exists')}"
             )
         for check in availability:
-            lines.append(f"- {check.get('status')} {check.get('name')}: {check.get('detail')}")
+            lines.append(
+                f"- {check.get('status')} {check.get('name')}: {check.get('detail')}"
+            )
         return "\n".join(lines)
     if command == "runtime-matrix":
         lines = [
@@ -100,7 +109,9 @@ def render_result(
         ]
         missing = result.get("missing") or {}
         if missing.get("roles") or missing.get("runtimes"):
-            lines.append(f"missing roles={missing.get('roles') or []} runtimes={missing.get('runtimes') or []}")
+            lines.append(
+                f"missing roles={missing.get('roles') or []} runtimes={missing.get('runtimes') or []}"
+            )
         for item in result.get("matrix") or []:
             binding = item.get("binding") or {}
             availability = item.get("availability") or {}
@@ -133,7 +144,11 @@ def render_result(
             timeline = result.get("timeline") or []
             lines.append(f"timeline_events={len(timeline)}")
             for event in timeline[:10]:
-                payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+                payload = (
+                    event.get("payload")
+                    if isinstance(event.get("payload"), dict)
+                    else {}
+                )
                 kind = (
                     event.get("event")
                     or payload.get("event")
@@ -142,7 +157,13 @@ def render_result(
                     or event.get("event_type")
                     or "event"
                 )
-                at = event.get("at") or payload.get("at") or event.get("created_at") or event.get("time") or ""
+                at = (
+                    event.get("at")
+                    or payload.get("at")
+                    or event.get("created_at")
+                    or event.get("time")
+                    or ""
+                )
                 detail = (
                     event.get("summary")
                     or payload.get("summary")
@@ -157,7 +178,9 @@ def render_result(
         runs = result.get("runs") or []
         if not runs:
             return f"workflow={result.get('workflow')} runs=0 mode={result.get('mode')}"
-        lines = [f"workflow={result.get('workflow')} mode={result.get('mode')} runs={len(runs)}"]
+        lines = [
+            f"workflow={result.get('workflow')} mode={result.get('mode')} runs={len(runs)}"
+        ]
         for run in runs:
             stale = " stale=true" if run.get("stale") else ""
             lines.append(
@@ -201,7 +224,9 @@ def render_result(
             + (f" filters={filters}" if filters else "")
         ]
         for event in events[:50]:
-            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            payload = (
+                event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            )
             detail = (
                 payload.get("summary")
                 or payload.get("error")
@@ -254,8 +279,16 @@ def render_result(
                 f"enabled={result.get('enabled')} ready={ready.get('ok')}"
             )
         if action == "doctor":
-            failed = [check for check in result.get("checks") or [] if check.get("status") == "fail"]
-            warned = [check for check in result.get("checks") or [] if check.get("status") == "warn"]
+            failed = [
+                check
+                for check in result.get("checks") or []
+                if check.get("status") == "fail"
+            ]
+            warned = [
+                check
+                for check in result.get("checks") or []
+                if check.get("status") == "warn"
+            ]
             first_problem = failed[0] if failed else (warned[0] if warned else None)
             suffix = ""
             if first_problem:

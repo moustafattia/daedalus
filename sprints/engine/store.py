@@ -288,14 +288,18 @@ class EngineStore:
     def latest_runs(self, *, limit: int = 10) -> list[dict[str, Any]]:
         conn = self.connect()
         try:
-            return latest_engine_runs_from_connection(conn, workflow=self.workflow, limit=limit)
+            return latest_engine_runs_from_connection(
+                conn, workflow=self.workflow, limit=limit
+            )
         finally:
             conn.close()
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         conn = self.connect()
         try:
-            return engine_run_from_connection(conn, workflow=self.workflow, run_id=run_id)
+            return engine_run_from_connection(
+                conn, workflow=self.workflow, run_id=run_id
+            )
         finally:
             conn.close()
 
@@ -312,18 +316,33 @@ class EngineStore:
         created_at_epoch: float | None = None,
     ) -> dict[str, Any]:
         event_payload = dict(payload or {})
-        nested_payload = event_payload.get("payload") if isinstance(event_payload.get("payload"), dict) else {}
-        resolved_run_id = run_id or _payload_value(event_payload, "run_id") or _payload_value(nested_payload, "run_id")
+        nested_payload = (
+            event_payload.get("payload")
+            if isinstance(event_payload.get("payload"), dict)
+            else {}
+        )
+        resolved_run_id = (
+            run_id
+            or _payload_value(event_payload, "run_id")
+            or _payload_value(nested_payload, "run_id")
+        )
         resolved_work_id = (
             work_id
             or _payload_value(event_payload, "work_id", "issue_id", "lane_id")
             or _payload_value(nested_payload, "work_id", "issue_id", "lane_id")
         )
         resolved_event_id = event_id or _payload_value(event_payload, "event_id")
-        resolved_event_type = event_type or _payload_value(
-            event_payload, "event_type", "event", "action", "type"
-        ) or _payload_value(nested_payload, "event_type", "event", "action", "type") or "event"
-        resolved_created_at = created_at or _payload_value(event_payload, "created_at", "at") or self._now_iso()
+        resolved_event_type = (
+            event_type
+            or _payload_value(event_payload, "event_type", "event", "action", "type")
+            or _payload_value(nested_payload, "event_type", "event", "action", "type")
+            or "event"
+        )
+        resolved_created_at = (
+            created_at
+            or _payload_value(event_payload, "created_at", "at")
+            or self._now_iso()
+        )
         with self.transaction() as conn:
             return append_engine_event_to_connection(
                 conn,
@@ -331,7 +350,9 @@ class EngineStore:
                 event_type=str(resolved_event_type),
                 payload=event_payload,
                 created_at=str(resolved_created_at),
-                created_at_epoch=self._now_epoch() if created_at_epoch is None else created_at_epoch,
+                created_at_epoch=self._now_epoch()
+                if created_at_epoch is None
+                else created_at_epoch,
                 event_id=str(resolved_event_id) if resolved_event_id else None,
                 run_id=str(resolved_run_id) if resolved_run_id else None,
                 work_id=str(resolved_work_id) if resolved_work_id else None,
@@ -341,7 +362,9 @@ class EngineStore:
     def events_for_run(self, run_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
         conn = self.connect()
         try:
-            return engine_events_for_run_from_connection(conn, workflow=self.workflow, run_id=run_id, limit=limit)
+            return engine_events_for_run_from_connection(
+                conn, workflow=self.workflow, run_id=run_id, limit=limit
+            )
         finally:
             conn.close()
 
@@ -386,7 +409,9 @@ class EngineStore:
                 max_rows=max_rows,
             )
 
-    def apply_event_retention(self, event_retention: dict[str, Any] | None) -> dict[str, Any]:
+    def apply_event_retention(
+        self, event_retention: dict[str, Any] | None
+    ) -> dict[str, Any]:
         retention = normalize_event_retention(event_retention)
         if not retention.get("configured"):
             return {
@@ -405,7 +430,9 @@ class EngineStore:
             "retention": retention,
         }
 
-    def event_stats(self, event_retention: dict[str, Any] | None = None) -> dict[str, Any]:
+    def event_stats(
+        self, event_retention: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         retention = normalize_event_retention(event_retention)
         conn = self.connect()
         try:
@@ -428,7 +455,13 @@ class EngineStore:
         try:
             conn = self.connect()
         except Exception as exc:
-            return [{"name": "engine-db", "status": "fail", "detail": f"{type(exc).__name__}: {exc}"}]
+            return [
+                {
+                    "name": "engine-db",
+                    "status": "fail",
+                    "detail": f"{type(exc).__name__}: {exc}",
+                }
+            ]
         try:
             missing_tables = [
                 table
@@ -441,8 +474,12 @@ class EngineStore:
             checks.append(
                 {
                     "name": "engine-schema",
-                    "status": "pass" if not missing_tables and engine_state_tables_exist(conn) else "fail",
-                    "detail": "ok" if not missing_tables else "missing: " + ", ".join(missing_tables),
+                    "status": "pass"
+                    if not missing_tables and engine_state_tables_exist(conn)
+                    else "fail",
+                    "detail": "ok"
+                    if not missing_tables
+                    else "missing: " + ", ".join(missing_tables),
                 }
             )
 
@@ -497,7 +534,13 @@ class EngineStore:
                     "run_id": row[0],
                     "mode": row[1],
                     "started_at": row[2],
-                    "age_seconds": max(int(now_epoch - float(now_epoch if row[3] in (None, "") else row[3])), 0),
+                    "age_seconds": max(
+                        int(
+                            now_epoch
+                            - float(now_epoch if row[3] in (None, "") else row[3])
+                        ),
+                        0,
+                    ),
                     "suggested_recovery": f"inspect with `hermes sprints runs show {row[0]}`",
                 }
                 for row in stale_runs
@@ -604,7 +647,13 @@ class EngineStore:
             )
             return checks
         except Exception as exc:
-            checks.append({"name": "engine-state", "status": "fail", "detail": f"{type(exc).__name__}: {exc}"})
+            checks.append(
+                {
+                    "name": "engine-state",
+                    "status": "fail",
+                    "detail": f"{type(exc).__name__}: {exc}",
+                }
+            )
             return checks
         finally:
             conn.close()

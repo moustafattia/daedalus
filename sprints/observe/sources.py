@@ -11,6 +11,7 @@ Each function tolerates the source being absent / corrupt and returns an
 empty result rather than raising. The TUI must keep rendering even if
 one source is unavailable.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,7 +20,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from engine.state import read_engine_events, read_engine_runs, read_engine_scheduler_state
+from engine.state import (
+    read_engine_events,
+    read_engine_runs,
+    read_engine_scheduler_state,
+)
 from engine.work_items import work_item_from_issue
 from workflows.loader import WorkflowContractError, load_workflow_contract
 
@@ -28,6 +33,7 @@ try:
     from workflows.paths import runtime_paths
 except ImportError:
     import importlib.util as _ilu
+
     _here = Path(__file__).resolve().parent
     _spec = _ilu.spec_from_file_location(
         "sprints_workflows_shared_paths_for_watch",
@@ -71,7 +77,12 @@ def _load_optional_json(path: Path | None) -> dict[str, Any] | None:
 
 def _workflow_name(workflow_root: Path) -> str | None:
     try:
-        return str(load_workflow_contract(Path(workflow_root)).config.get("workflow") or "").strip() or None
+        return (
+            str(
+                load_workflow_contract(Path(workflow_root)).config.get("workflow") or ""
+            ).strip()
+            or None
+        )
     except (FileNotFoundError, WorkflowContractError, OSError):
         return None
 
@@ -90,7 +101,9 @@ def _engine_scheduler(workflow_root: Path, workflow: str) -> dict[str, Any]:
     return payload or {}
 
 
-def _engine_runs(workflow_root: Path, workflow: str, *, limit: int = 5) -> list[dict[str, Any]]:
+def _engine_runs(
+    workflow_root: Path, workflow: str, *, limit: int = 5
+) -> list[dict[str, Any]]:
     return read_engine_runs(
         runtime_paths(Path(workflow_root))["db_path"],
         workflow=workflow,
@@ -98,7 +111,9 @@ def _engine_runs(workflow_root: Path, workflow: str, *, limit: int = 5) -> list[
     )
 
 
-def _resolve_issue_runner_storage_path(workflow_root: Path, key: str, default: str) -> Path | None:
+def _resolve_issue_runner_storage_path(
+    workflow_root: Path, key: str, default: str
+) -> Path | None:
     try:
         contract = load_workflow_contract(Path(workflow_root))
     except (FileNotFoundError, WorkflowContractError, OSError):
@@ -119,7 +134,9 @@ def recent_sprints_events(workflow_root: Path, limit: int = 50) -> list[dict[str
 def recent_workflow_audit(workflow_root: Path, limit: int = 50) -> list[dict[str, Any]]:
     base = Path(workflow_root)
     if _workflow_name(base) == "issue-runner":
-        audit_path = _resolve_issue_runner_storage_path(base, "audit-log", "memory/workflow-audit.jsonl")
+        audit_path = _resolve_issue_runner_storage_path(
+            base, "audit-log", "memory/workflow-audit.jsonl"
+        )
         return _read_jsonl_tail(audit_path, limit) if audit_path is not None else []
     # workflow-audit.jsonl lives under <root>/runtime/memory/ in the project layout
     # and under <root>/memory/ in the legacy layout â€” match runtime_paths logic.
@@ -206,7 +223,9 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
             {
                 "lane_id": row.get("issue_id"),
                 "state": row.get("state") or row.get("worker_status") or "running",
-                "workflow_state": row.get("state") or row.get("worker_status") or "running",
+                "workflow_state": row.get("state")
+                or row.get("worker_status")
+                or "running",
                 "issue_identifier": row.get("identifier") or row.get("issue_id"),
                 "lane_status": row.get("worker_status") or "running",
                 "kind": "running",
@@ -251,8 +270,18 @@ def active_lanes(workflow_root: Path) -> list[dict[str, Any]]:
             }
             lane["work_item"] = work_item_from_issue(
                 {
-                    "id": str(lane.get("issue_id") or lane.get("issue_identifier") or lane.get("id") or ""),
-                    "identifier": str(lane.get("issue_identifier") or lane.get("issue_number") or lane.get("id") or ""),
+                    "id": str(
+                        lane.get("issue_id")
+                        or lane.get("issue_identifier")
+                        or lane.get("id")
+                        or ""
+                    ),
+                    "identifier": str(
+                        lane.get("issue_identifier")
+                        or lane.get("issue_number")
+                        or lane.get("id")
+                        or ""
+                    ),
                     "title": str(lane.get("title") or ""),
                     "url": lane.get("url"),
                     "state": lane.get("state"),
@@ -288,7 +317,8 @@ def _runtime_session_entries(scheduler: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "issue_id": raw_entry.get("issue_id") or issue_id,
                 "issue_number": issue_number,
-                "issue_identifier": raw_entry.get("identifier") or (f"#{issue_number}" if issue_number else issue_id),
+                "issue_identifier": raw_entry.get("identifier")
+                or (f"#{issue_number}" if issue_number else issue_id),
                 "thread_id": raw_entry.get("thread_id"),
                 "turn_id": raw_entry.get("turn_id"),
                 "status": raw_entry.get("status"),
@@ -314,9 +344,21 @@ def workflow_status(workflow_root: Path) -> dict[str, Any]:
             "workflow": "change-delivery",
             "health": None,
             "updated_at": scheduler_payload.get("updated_at"),
-            "running_count": len([entry for entry in runtime_sessions if entry.get("status") == "running"]),
+            "running_count": len(
+                [
+                    entry
+                    for entry in runtime_sessions
+                    if entry.get("status") == "running"
+                ]
+            ),
             "retry_count": 0,
-            "canceling_count": len([entry for entry in runtime_sessions if entry.get("status") == "canceling"]),
+            "canceling_count": len(
+                [
+                    entry
+                    for entry in runtime_sessions
+                    if entry.get("status") == "canceling"
+                ]
+            ),
             "selected_issue": None,
             "runtime_sessions": runtime_sessions,
             "latest_runs": latest_runs,
@@ -340,7 +382,9 @@ def workflow_status(workflow_root: Path) -> dict[str, Any]:
             "rate_limits": totals.get("rate_limits"),
         }
 
-    status_path = _resolve_issue_runner_storage_path(workflow_root, "status", "memory/workflow-status.json")
+    status_path = _resolve_issue_runner_storage_path(
+        workflow_root, "status", "memory/workflow-status.json"
+    )
     status_payload = _load_optional_json(status_path) or {}
     scheduler_payload = _engine_scheduler(workflow_root, "issue-runner")
     scheduler = {
@@ -356,9 +400,11 @@ def workflow_status(workflow_root: Path) -> dict[str, Any]:
         "updated_at": scheduler_payload.get("updated_at") or last_run.get("updatedAt"),
         "running_count": len(scheduler["running"]),
         "retry_count": len(scheduler["retry_queue"]),
-        "selected_issue": ((last_run.get("issue") or {}).get("identifier") or (last_run.get("issue") or {}).get("id")),
+        "selected_issue": (
+            (last_run.get("issue") or {}).get("identifier")
+            or (last_run.get("issue") or {}).get("id")
+        ),
         "latest_runs": latest_runs,
         "total_tokens": int((scheduler["runtime_totals"].get("total_tokens") or 0)),
         "rate_limits": scheduler["runtime_totals"].get("rate_limits"),
     }
-

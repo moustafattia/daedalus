@@ -5,7 +5,9 @@ from typing import Any
 from .work_items import RetryEntry, RunningWork, WorkItemRef
 
 
-def clear_work_entries(entries: dict[str, dict[str, Any]], work_ids: list[str | None]) -> dict[str, dict[str, Any]]:
+def clear_work_entries(
+    entries: dict[str, dict[str, Any]], work_ids: list[str | None]
+) -> dict[str, dict[str, Any]]:
     next_entries = dict(entries)
     for work_id in work_ids:
         if work_id:
@@ -91,7 +93,9 @@ def recover_running_as_retry(
         entries[issue_id] = {
             "issue_id": issue_id,
             "identifier": running.get("identifier"),
-            "attempt": max(int(existing.get("attempt") or 0), int(running.get("attempt") or 0), 1),
+            "attempt": max(
+                int(existing.get("attempt") or 0), int(running.get("attempt") or 0), 1
+            ),
             "error": error,
             "due_at_epoch": now_epoch,
             "current_attempt": running.get("attempt"),

@@ -291,7 +291,9 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
 
 def _ensure_column(conn: sqlite3.Connection, table_name: str, column_sql: str) -> None:
     column_name = column_sql.split()[0]
-    if table_exists(conn, table_name) and not column_exists(conn, table_name, column_name):
+    if table_exists(conn, table_name) and not column_exists(
+        conn, table_name, column_name
+    ):
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
 
 
@@ -300,7 +302,9 @@ def _primary_key_columns(conn: sqlite3.Connection, table_name: str) -> list[str]
         rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
     except sqlite3.OperationalError:
         return []
-    pk_rows = sorted((row for row in rows if int(row[5] or 0) > 0), key=lambda row: int(row[5] or 0))
+    pk_rows = sorted(
+        (row for row in rows if int(row[5] or 0) > 0), key=lambda row: int(row[5] or 0)
+    )
     return [str(row[1]) for row in pk_rows]
 
 
@@ -323,5 +327,7 @@ def _rebuild_table_for_primary_key(
     conn.execute(f"ALTER TABLE {table_name} RENAME TO {old_table_name}")
     conn.execute(create_sql)
     columns = ", ".join(copy_columns)
-    conn.execute(f"INSERT OR IGNORE INTO {table_name} ({columns}) SELECT {columns} FROM {old_table_name}")
+    conn.execute(
+        f"INSERT OR IGNORE INTO {table_name} ({columns}) SELECT {columns} FROM {old_table_name}"
+    )
     conn.execute(f"DROP TABLE {old_table_name}")

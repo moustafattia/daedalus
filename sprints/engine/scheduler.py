@@ -40,7 +40,9 @@ def retry_due_at(
     return float(now_epoch if now_epoch is not None else time.time())
 
 
-def restore_scheduler_state(payload: dict[str, Any], *, now_epoch: float) -> RestoredSchedulerState:
+def restore_scheduler_state(
+    payload: dict[str, Any], *, now_epoch: float
+) -> RestoredSchedulerState:
     retry_entries: dict[str, dict[str, Any]] = {}
     for item in payload.get("retry_queue") or []:
         if not isinstance(item, dict):
@@ -53,7 +55,9 @@ def restore_scheduler_state(payload: dict[str, Any], *, now_epoch: float) -> Res
             "identifier": item.get("identifier"),
             "attempt": int(item.get("attempt") or 0),
             "error": item.get("error"),
-            "due_at_epoch": float(_first_value_or_default(now_epoch, item.get("due_at_epoch"))),
+            "due_at_epoch": float(
+                _first_value_or_default(now_epoch, item.get("due_at_epoch"))
+            ),
             "current_attempt": item.get("current_attempt"),
             "run_id": item.get("run_id"),
         }
@@ -93,7 +97,9 @@ def restore_scheduler_state(payload: dict[str, Any], *, now_epoch: float) -> Res
         retry_entries=retry_entries,
         recovered_running=recovered_running,
         runtime_totals=dict(payload.get("runtime_totals") or {}),
-        runtime_sessions=restore_runtime_sessions(payload.get("runtime_sessions") or {}),
+        runtime_sessions=restore_runtime_sessions(
+            payload.get("runtime_sessions") or {}
+        ),
     )
 
 
@@ -104,8 +110,12 @@ def running_snapshot(
 ) -> list[dict[str, Any]]:
     running = []
     for issue_id, entry in running_entries.items():
-        started_at_epoch = float(_value_or_default(entry.get("started_at_epoch"), now_epoch))
-        heartbeat_at_epoch = float(_value_or_default(entry.get("heartbeat_at_epoch"), started_at_epoch))
+        started_at_epoch = float(
+            _value_or_default(entry.get("started_at_epoch"), now_epoch)
+        )
+        heartbeat_at_epoch = float(
+            _value_or_default(entry.get("heartbeat_at_epoch"), started_at_epoch)
+        )
         running.append(
             {
                 "issue_id": issue_id,
@@ -117,7 +127,9 @@ def running_snapshot(
                 "started_at_epoch": started_at_epoch,
                 "heartbeat_at_epoch": heartbeat_at_epoch,
                 "running_for_ms": max(int((now_epoch - started_at_epoch) * 1000), 0),
-                "heartbeat_age_ms": max(int((now_epoch - heartbeat_at_epoch) * 1000), 0),
+                "heartbeat_age_ms": max(
+                    int((now_epoch - heartbeat_at_epoch) * 1000), 0
+                ),
                 "cancel_requested": bool(entry.get("cancel_requested") or False),
                 "cancel_reason": entry.get("cancel_reason"),
                 "thread_id": entry.get("thread_id"),
@@ -125,7 +137,9 @@ def running_snapshot(
                 "run_id": entry.get("run_id"),
             }
         )
-    running.sort(key=lambda item: (item["state"] or "", item["identifier"] or item["issue_id"]))
+    running.sort(
+        key=lambda item: (item["state"] or "", item["identifier"] or item["issue_id"])
+    )
     return running
 
 
@@ -148,7 +162,13 @@ def retry_queue_snapshot(
                 "run_id": entry.get("run_id"),
             }
         )
-    entries.sort(key=lambda item: (item["due_in_ms"], item["attempt"], item["identifier"] or item["issue_id"]))
+    entries.sort(
+        key=lambda item: (
+            item["due_in_ms"],
+            item["attempt"],
+            item["identifier"] or item["issue_id"],
+        )
+    )
     return entries
 
 
@@ -175,10 +195,14 @@ def restore_runtime_sessions(raw: Any) -> dict[str, dict[str, Any]]:
     return restored
 
 
-def runtime_sessions_snapshot(runtime_sessions: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def runtime_sessions_snapshot(
+    runtime_sessions: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     return {
         issue_id: dict(entry)
-        for issue_id, entry in sorted(runtime_sessions.items(), key=lambda item: item[0])
+        for issue_id, entry in sorted(
+            runtime_sessions.items(), key=lambda item: item[0]
+        )
     }
 
 

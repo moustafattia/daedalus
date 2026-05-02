@@ -18,7 +18,9 @@ from . import (
 )
 
 
-def _configured_states(tracker_cfg: dict[str, Any], *keys: str, default: tuple[str, ...]) -> list[str]:
+def _configured_states(
+    tracker_cfg: dict[str, Any], *keys: str, default: tuple[str, ...]
+) -> list[str]:
     for key in keys:
         if key in tracker_cfg:
             value = tracker_cfg.get(key)
@@ -226,17 +228,23 @@ class LinearTrackerClient:
                 api_key=self._api_key,
             )
             try:
-                issues = (((payload.get("data") or {}).get("issues")) or {})
+                issues = ((payload.get("data") or {}).get("issues")) or {}
                 page_nodes = issues.get("nodes") or []
                 page_info = issues.get("pageInfo") or {}
             except AttributeError as exc:
-                raise TrackerConfigError("Linear GraphQL response did not contain the expected issues connection") from exc
+                raise TrackerConfigError(
+                    "Linear GraphQL response did not contain the expected issues connection"
+                ) from exc
             if not isinstance(page_nodes, list):
-                raise TrackerConfigError("Linear GraphQL response issues.nodes must be a list")
+                raise TrackerConfigError(
+                    "Linear GraphQL response issues.nodes must be a list"
+                )
             nodes.extend(item for item in page_nodes if isinstance(item, dict))
             if not page_info.get("hasNextPage"):
                 break
             after = str(page_info.get("endCursor") or "").strip() or None
             if not after:
-                raise TrackerConfigError("Linear GraphQL pagination reported hasNextPage without endCursor")
+                raise TrackerConfigError(
+                    "Linear GraphQL pagination reported hasNextPage without endCursor"
+                )
         return nodes

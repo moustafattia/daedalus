@@ -28,9 +28,15 @@ def _systemd_user_dir() -> Path:
     return (Path.home() / ".config" / "systemd" / "user").resolve()
 
 
-def _codex_app_server_service_name(*, workflow_root: Path, service_name: str | None = None) -> str:
+def _codex_app_server_service_name(
+    *, workflow_root: Path, service_name: str | None = None
+) -> str:
     if service_name:
-        return service_name if service_name.endswith(".service") else f"{service_name}.service"
+        return (
+            service_name
+            if service_name.endswith(".service")
+            else f"{service_name}.service"
+        )
     return f"{CODEX_APP_SERVER_SERVICE_PREFIX}@{workflow_root.name}.service"
 
 
@@ -61,11 +67,19 @@ def _codex_app_server_ws_auth_args(
     audience = str(ws_audience or "").strip()
 
     if token_file and token_sha256:
-        raise CodexAppServerError("use either --ws-token-file or --ws-token-sha256, not both")
+        raise CodexAppServerError(
+            "use either --ws-token-file or --ws-token-sha256, not both"
+        )
     if (token_file or token_sha256) and shared_secret_file:
-        raise CodexAppServerError("capability-token and signed-bearer-token auth modes are mutually exclusive")
-    if (issuer or audience or ws_max_clock_skew_seconds is not None) and not shared_secret_file:
-        raise CodexAppServerError("--ws-issuer, --ws-audience, and --ws-max-clock-skew-seconds require --ws-shared-secret-file")
+        raise CodexAppServerError(
+            "capability-token and signed-bearer-token auth modes are mutually exclusive"
+        )
+    if (
+        issuer or audience or ws_max_clock_skew_seconds is not None
+    ) and not shared_secret_file:
+        raise CodexAppServerError(
+            "--ws-issuer, --ws-audience, and --ws-max-clock-skew-seconds require --ws-shared-secret-file"
+        )
     if ws_max_clock_skew_seconds is not None and ws_max_clock_skew_seconds < 0:
         raise CodexAppServerError("--ws-max-clock-skew-seconds must be non-negative")
 
@@ -81,9 +95,14 @@ def _codex_app_server_ws_auth_args(
             {"mode": "capability-token", "token_sha256": token_sha256},
         )
     if shared_secret_file:
-        path = _absolute_secret_path(shared_secret_file, flag_name="--ws-shared-secret-file")
+        path = _absolute_secret_path(
+            shared_secret_file, flag_name="--ws-shared-secret-file"
+        )
         args = ["--ws-auth", "signed-bearer-token", "--ws-shared-secret-file", path]
-        summary: dict[str, Any] = {"mode": "signed-bearer-token", "shared_secret_file": path}
+        summary: dict[str, Any] = {
+            "mode": "signed-bearer-token",
+            "shared_secret_file": path,
+        }
         if issuer:
             args.extend(["--ws-issuer", issuer])
             summary["issuer"] = issuer
@@ -118,25 +137,29 @@ def _render_codex_app_server_unit(
         ws_audience=ws_audience,
         ws_max_clock_skew_seconds=ws_max_clock_skew_seconds,
     )
-    exec_start = shlex.join(["/usr/bin/env", *command_parts, "app-server", "--listen", listen, *auth_args])
-    return "\n".join([
-        "[Unit]",
-        "Description=Sprints Codex app-server (workspace=%i)",
-        "After=default.target",
-        "",
-        "[Service]",
-        "Type=simple",
-        "WorkingDirectory=%h",
-        f"Environment=PATH={service_path}",
-        "Environment=PYTHONUNBUFFERED=1",
-        f"ExecStart={exec_start}",
-        "Restart=always",
-        "RestartSec=5",
-        "",
-        "[Install]",
-        "WantedBy=default.target",
-        "",
-    ])
+    exec_start = shlex.join(
+        ["/usr/bin/env", *command_parts, "app-server", "--listen", listen, *auth_args]
+    )
+    return "\n".join(
+        [
+            "[Unit]",
+            "Description=Sprints Codex app-server (workspace=%i)",
+            "After=default.target",
+            "",
+            "[Service]",
+            "Type=simple",
+            "WorkingDirectory=%h",
+            f"Environment=PATH={service_path}",
+            "Environment=PYTHONUNBUFFERED=1",
+            f"ExecStart={exec_start}",
+            "Restart=always",
+            "RestartSec=5",
+            "",
+            "[Install]",
+            "WantedBy=default.target",
+            "",
+        ]
+    )
 
 
 def _run_systemctl(*args: str) -> dict[str, Any]:
@@ -288,7 +311,9 @@ def codex_app_server_down(
         "service_name": resolved_service_name,
         "stop": stop_result,
         "disable": disable_result,
-        "status": codex_app_server_status(workflow_root=workflow_root, service_name=resolved_service_name),
+        "status": codex_app_server_status(
+            workflow_root=workflow_root, service_name=resolved_service_name
+        ),
     }
 
 
@@ -330,7 +355,17 @@ def codex_app_server_logs(
         service_name=service_name,
     )
     completed = subprocess.run(
-        ["journalctl", "--user", "-u", resolved_service_name, "-n", str(lines), "--no-pager", "-o", "cat"],
+        [
+            "journalctl",
+            "--user",
+            "-u",
+            resolved_service_name,
+            "-n",
+            str(lines),
+            "--no-pager",
+            "-o",
+            "cat",
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -430,8 +465,11 @@ def codex_app_server_status(
         "unit_path": str(unit_path),
         "installed": unit_path.exists(),
         "active": active.get("stdout") or ("active" if active.get("ok") else "unknown"),
-        "enabled": enabled.get("stdout") or ("enabled" if enabled.get("ok") else "unknown"),
-        "ready": _codex_app_server_readyz(endpoint=endpoint, healthcheck_path=healthcheck_path),
+        "enabled": enabled.get("stdout")
+        or ("enabled" if enabled.get("ok") else "unknown"),
+        "ready": _codex_app_server_readyz(
+            endpoint=endpoint, healthcheck_path=healthcheck_path
+        ),
         "properties": props,
         "active_check": active,
         "enabled_check": enabled,
@@ -478,7 +516,9 @@ def _codex_app_server_auth_summary_from_unit(unit_path: Path) -> dict[str, Any] 
     summary: dict[str, Any] = {"mode": auth_mode, "source": "unit"}
     token_file = _codex_app_server_token_value(tokens, "--ws-token-file")
     token_sha256 = _codex_app_server_token_value(tokens, "--ws-token-sha256")
-    shared_secret_file = _codex_app_server_token_value(tokens, "--ws-shared-secret-file")
+    shared_secret_file = _codex_app_server_token_value(
+        tokens, "--ws-shared-secret-file"
+    )
     issuer = _codex_app_server_token_value(tokens, "--ws-issuer")
     audience = _codex_app_server_token_value(tokens, "--ws-audience")
     max_skew = _codex_app_server_token_value(tokens, "--ws-max-clock-skew-seconds")
@@ -554,7 +594,9 @@ def _load_codex_scheduler_snapshot(workflow_root: Path) -> dict[str, Any]:
     threads: list[dict[str, Any]] = []
     invalid_thread_count = 0
     if isinstance(raw_threads, dict):
-        for issue_id, raw_entry in sorted(raw_threads.items(), key=lambda item: str(item[0])):
+        for issue_id, raw_entry in sorted(
+            raw_threads.items(), key=lambda item: str(item[0])
+        ):
             if not isinstance(raw_entry, dict):
                 invalid_thread_count += 1
                 continue
@@ -566,14 +608,17 @@ def _load_codex_scheduler_snapshot(workflow_root: Path) -> dict[str, Any]:
                 {
                     "issue_id": raw_entry.get("issue_id") or issue_id,
                     "issue_number": issue_number,
-                    "identifier": raw_entry.get("identifier") or (f"#{issue_number}" if issue_number else issue_id),
+                    "identifier": raw_entry.get("identifier")
+                    or (f"#{issue_number}" if issue_number else issue_id),
                     "session_name": raw_entry.get("session_name"),
                     "runtime_name": raw_entry.get("runtime_name"),
                     "runtime_kind": raw_entry.get("runtime_kind"),
                     "thread_id": thread_id,
                     "turn_id": raw_entry.get("turn_id"),
                     "status": raw_entry.get("status"),
-                    "cancel_requested": bool(raw_entry.get("cancel_requested") or False),
+                    "cancel_requested": bool(
+                        raw_entry.get("cancel_requested") or False
+                    ),
                     "cancel_reason": raw_entry.get("cancel_reason"),
                     "updated_at": raw_entry.get("updated_at"),
                 }
@@ -644,7 +689,10 @@ def codex_app_server_doctor(
     unit_path = _codex_app_server_unit_path(resolved_service_name)
     effective_endpoint = str(endpoint or "").strip()
     if not effective_endpoint and mode == "managed":
-        effective_endpoint = _codex_app_server_listen_from_unit(unit_path) or DEFAULT_CODEX_APP_SERVER_LISTEN
+        effective_endpoint = (
+            _codex_app_server_listen_from_unit(unit_path)
+            or DEFAULT_CODEX_APP_SERVER_LISTEN
+        )
     if not effective_endpoint:
         effective_endpoint = DEFAULT_CODEX_APP_SERVER_LISTEN
 
@@ -656,7 +704,11 @@ def codex_app_server_doctor(
         ws_audience=ws_audience,
         ws_max_clock_skew_seconds=ws_max_clock_skew_seconds,
     )
-    unit_auth_summary = _codex_app_server_auth_summary_from_unit(unit_path) if mode == "managed" else None
+    unit_auth_summary = (
+        _codex_app_server_auth_summary_from_unit(unit_path)
+        if mode == "managed"
+        else None
+    )
     auth_summary = cli_auth_summary or unit_auth_summary
     if auth_summary and auth_summary is cli_auth_summary:
         auth_summary = {**auth_summary, "source": "cli"}
@@ -699,7 +751,9 @@ def codex_app_server_doctor(
         )
         ready = status_result.get("ready") or {}
     else:
-        ready = _codex_app_server_readyz(endpoint=effective_endpoint, healthcheck_path=healthcheck_path)
+        ready = _codex_app_server_readyz(
+            endpoint=effective_endpoint, healthcheck_path=healthcheck_path
+        )
         checks.append(
             _codex_app_server_doctor_check(
                 "managed-unit-file",
@@ -710,7 +764,11 @@ def codex_app_server_doctor(
         )
 
     parsed_endpoint = urlparse(effective_endpoint)
-    endpoint_shape_ok = parsed_endpoint.scheme == "ws" and bool(parsed_endpoint.hostname) and bool(parsed_endpoint.port)
+    endpoint_shape_ok = (
+        parsed_endpoint.scheme == "ws"
+        and bool(parsed_endpoint.hostname)
+        and bool(parsed_endpoint.port)
+    )
     checks.append(
         _codex_app_server_doctor_check(
             "endpoint-shape",
@@ -721,7 +779,11 @@ def codex_app_server_doctor(
     )
 
     if ready.get("ok") is True:
-        checks.append(_codex_app_server_doctor_check("readyz", "pass", f"{effective_endpoint}{healthcheck_path}"))
+        checks.append(
+            _codex_app_server_doctor_check(
+                "readyz", "pass", f"{effective_endpoint}{healthcheck_path}"
+            )
+        )
     elif ready.get("checked") is False:
         checks.append(
             _codex_app_server_doctor_check(
@@ -741,7 +803,11 @@ def codex_app_server_doctor(
             )
         )
 
-    missing_secret_paths = [path for path in _codex_app_server_secret_paths(auth_summary) if not Path(path).exists()]
+    missing_secret_paths = [
+        path
+        for path in _codex_app_server_secret_paths(auth_summary)
+        if not Path(path).exists()
+    ]
     if missing_secret_paths:
         checks.append(
             _codex_app_server_doctor_check(

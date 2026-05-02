@@ -64,7 +64,9 @@ def github_auth_success_accounts(
     if hostname:
         accounts = hosts.get(hostname) or []
         if not isinstance(accounts, list):
-            raise RuntimeError(f"gh auth status returned invalid {hostname} account information")
+            raise RuntimeError(
+                f"gh auth status returned invalid {hostname} account information"
+            )
         valid_accounts = [account for account in accounts if isinstance(account, dict)]
         success_accounts = [
             account for account in valid_accounts if account.get("state") == "success"
@@ -84,7 +86,9 @@ def github_auth_success_accounts(
         ]
         if success_accounts:
             return str(host), success_accounts
-    raise RuntimeError("gh is not authenticated for any GitHub host; run `gh auth login`")
+    raise RuntimeError(
+        "gh is not authenticated for any GitHub host; run `gh auth login`"
+    )
 
 
 def issue_label_names(issue: dict[str, Any] | None) -> set[str]:
@@ -138,7 +142,9 @@ def _subprocess_run_json(command: list[str], *, cwd: Path | None = None) -> Any:
     return payload
 
 
-def _subprocess_run(command: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _subprocess_run(
+    command: list[str], *, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
         cwd=str(cwd) if cwd else None,
@@ -152,10 +158,7 @@ def github_slug_from_config(
     tracker_cfg: dict[str, Any],
     repository_cfg: dict[str, Any] | None = None,
 ) -> str | None:
-    raw = str(
-        tracker_cfg.get("github_slug")
-        or ""
-    ).strip()
+    raw = str(tracker_cfg.get("github_slug") or "").strip()
     if not raw:
         return None
     if not _github_slug_match(raw):
@@ -194,7 +197,9 @@ def validate_github_tracker_config(
         )
 
     active_states = _configured_states(tracker_cfg, "active_states", "active-states")
-    terminal_states = _configured_states(tracker_cfg, "terminal_states", "terminal-states")
+    terminal_states = _configured_states(
+        tracker_cfg, "terminal_states", "terminal-states"
+    )
     if not active_states or set(active_states) != {"open"}:
         raise TrackerConfigError(
             "tracker.kind='github' requires tracker.active_states: [open]"
@@ -204,12 +209,19 @@ def validate_github_tracker_config(
             "tracker.kind='github' requires tracker.terminal_states: [closed]"
         )
 
-    for key in ("required_labels", "required-labels", "exclude_labels", "exclude-labels"):
+    for key in (
+        "required_labels",
+        "required-labels",
+        "exclude_labels",
+        "exclude-labels",
+    ):
         value = tracker_cfg.get(key)
         if value is None:
             continue
         if not isinstance(value, list):
-            raise TrackerConfigError(f"tracker.{key} must be a list for tracker.kind='github'")
+            raise TrackerConfigError(
+                f"tracker.{key} must be a list for tracker.kind='github'"
+            )
         if any(not str(item).strip() for item in value):
             raise TrackerConfigError(f"tracker.{key} must not contain blank labels")
 
@@ -225,9 +237,7 @@ def _resolve_repo_path(
         return repo_path.expanduser().resolve()
 
     raw = str(
-        tracker_cfg.get("repo_path")
-        or tracker_cfg.get("repo-path")
-        or ""
+        tracker_cfg.get("repo_path") or tracker_cfg.get("repo-path") or ""
     ).strip()
     if not raw:
         if not required:
@@ -264,7 +274,9 @@ def _coerce_number(value: int | str | None, *, field_name: str) -> str:
 def code_host_github_slug_from_config(code_host_cfg: dict[str, Any]) -> str:
     slug = str(code_host_cfg.get("github_slug") or "").strip()
     if not slug:
-        raise CodeHostConfigError("code-host.kind='github' requires code-host.github_slug")
+        raise CodeHostConfigError(
+            "code-host.kind='github' requires code-host.github_slug"
+        )
     github_name_with_owner_from_slug(slug)
     return slug
 
@@ -499,17 +511,20 @@ class GithubCodeHostClient:
         fields: str | None = None,
     ) -> list[dict[str, Any]]:
         payload = self._run_json(
-            self._with_repo([
-                "gh",
-                "pr",
-                "list",
-                "--state",
-                "open",
-                "--limit",
-                str(limit),
-                "--json",
-                fields or "number,title,url,headRefName,headRefOid,isDraft,updatedAt",
-            ]),
+            self._with_repo(
+                [
+                    "gh",
+                    "pr",
+                    "list",
+                    "--state",
+                    "open",
+                    "--limit",
+                    str(limit),
+                    "--json",
+                    fields
+                    or "number,title,url,headRefName,headRefOid,isDraft,updatedAt",
+                ]
+            ),
             cwd=self._repo_path,
         )
         if not isinstance(payload, list):
@@ -540,7 +555,14 @@ class GithubCodeHostClient:
             return False
         try:
             self._run(
-                self._with_repo(["gh", "pr", "ready", _coerce_number(pr_number, field_name="pr_number")]),
+                self._with_repo(
+                    [
+                        "gh",
+                        "pr",
+                        "ready",
+                        _coerce_number(pr_number, field_name="pr_number"),
+                    ]
+                ),
                 cwd=self._repo_path,
             )
         except Exception:
@@ -554,7 +576,12 @@ class GithubCodeHostClient:
         squash: bool = True,
         delete_branch: bool = True,
     ) -> dict[str, Any]:
-        command = ["gh", "pr", "merge", _coerce_number(pr_number, field_name="pr_number")]
+        command = [
+            "gh",
+            "pr",
+            "merge",
+            _coerce_number(pr_number, field_name="pr_number"),
+        ]
         if squash:
             command.append("--squash")
         if delete_branch:
@@ -572,50 +599,65 @@ class GithubCodeHostClient:
             return False
         try:
             result = self._run_json(
-                self._with_api_hostname([
-                    "gh",
-                    "api",
-                    "graphql",
-                    "-f",
-                    "query=mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } } }",
-                    "-f",
-                    f"threadId={thread_id}",
-                ]),
+                self._with_api_hostname(
+                    [
+                        "gh",
+                        "api",
+                        "graphql",
+                        "-f",
+                        "query=mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } } }",
+                        "-f",
+                        f"threadId={thread_id}",
+                    ]
+                ),
                 cwd=self._repo_path,
             )
         except Exception:
             return False
-        return bool((((result or {}).get("data") or {}).get("resolveReviewThread") or {}).get("thread", {}).get("isResolved"))
+        return bool(
+            (((result or {}).get("data") or {}).get("resolveReviewThread") or {})
+            .get("thread", {})
+            .get("isResolved")
+        )
 
-    def fetch_issue_reactions(self, issue_number: int | str | None) -> list[dict[str, Any]]:
+    def fetch_issue_reactions(
+        self, issue_number: int | str | None
+    ) -> list[dict[str, Any]]:
         number = _coerce_number(issue_number, field_name="issue_number")
         payload = self._run_json(
-            self._with_api_hostname([
-                "gh",
-                "api",
-                f"repos/{self._name_with_owner}/issues/{number}/reactions",
-                "-H",
-                "Accept: application/vnd.github+json",
-            ]),
+            self._with_api_hostname(
+                [
+                    "gh",
+                    "api",
+                    f"repos/{self._name_with_owner}/issues/{number}/reactions",
+                    "-H",
+                    "Accept: application/vnd.github+json",
+                ]
+            ),
             cwd=self._repo_path,
         )
         if not isinstance(payload, list):
             return []
         return [item for item in payload if isinstance(item, dict)]
 
-    def fetch_pull_request_review_threads(self, pr_number: int | str | None) -> dict[str, Any]:
+    def fetch_pull_request_review_threads(
+        self, pr_number: int | str | None
+    ) -> dict[str, Any]:
         number = int(_coerce_number(pr_number, field_name="pr_number"))
         owner, name = self._name_with_owner.split("/", 1)
         data = self._run_json(
-            self._with_api_hostname([
-                "gh",
-                "api",
-                "graphql",
-                "-f",
-                "query=query { repository(owner:\"%s\", name:\"%s\") { pullRequest(number: %d) { state headRefOid reviewThreads(first: 100) { nodes { id isResolved isOutdated path line comments(first: 20) { nodes { author { login } body url createdAt } } } } } } }"
-                % (owner, name, number),
-            ]),
+            self._with_api_hostname(
+                [
+                    "gh",
+                    "api",
+                    "graphql",
+                    "-f",
+                    'query=query { repository(owner:"%s", name:"%s") { pullRequest(number: %d) { state headRefOid reviewThreads(first: 100) { nodes { id isResolved isOutdated path line comments(first: 20) { nodes { author { login } body url createdAt } } } } } } }'
+                    % (owner, name, number),
+                ]
+            ),
             cwd=self._repo_path,
         )
-        return (((data or {}).get("data") or {}).get("repository") or {}).get("pullRequest") or {}
-
+        return (((data or {}).get("data") or {}).get("repository") or {}).get(
+            "pullRequest"
+        ) or {}

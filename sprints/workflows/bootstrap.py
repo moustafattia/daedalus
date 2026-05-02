@@ -24,9 +24,7 @@ class WorkflowBootstrapError(Exception):
     pass
 
 
-_REMOTE_OWNER_REPO_RE = re.compile(
-    r"(?P<owner>[^/:]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
-)
+_REMOTE_OWNER_REPO_RE = re.compile(r"(?P<owner>[^/:]+)/(?P<repo>[^/]+?)(?:\.git)?/?$")
 _REMOTE_SCP_RE = re.compile(
     r"^[^@]+@[^:]+:(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
 )
@@ -34,7 +32,9 @@ _REMOTE_SCP_RE = re.compile(
 
 def _workflow_template_path(workflow_name: str) -> Path:
     if workflow_name != "agentic":
-        raise WorkflowBootstrapError(f"no bundled workflow template for {workflow_name!r}")
+        raise WorkflowBootstrapError(
+            f"no bundled workflow template for {workflow_name!r}"
+        )
     return PLUGIN_DIR / "workflows" / "workflow.template.md"
 
 
@@ -47,8 +47,12 @@ def _git_stdout(*args: str, cwd: Path) -> str:
         check=False,
     )
     if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip() or "git command failed"
-        raise WorkflowBootstrapError(f"`git {' '.join(args)}` failed in {cwd}: {detail}")
+        detail = (
+            completed.stderr.strip() or completed.stdout.strip() or "git command failed"
+        )
+        raise WorkflowBootstrapError(
+            f"`git {' '.join(args)}` failed in {cwd}: {detail}"
+        )
     return completed.stdout.strip()
 
 
@@ -84,9 +88,7 @@ def _repo_slug_from_remote_url(remote_url: str) -> str:
 
 def _repo_workflow_contract_candidates(repo_root: Path) -> list[Path]:
     return sorted(
-        path.resolve()
-        for path in repo_root.glob("WORKFLOW*.md")
-        if path.is_file()
+        path.resolve() for path in repo_root.glob("WORKFLOW*.md") if path.is_file()
     )
 
 
@@ -208,15 +210,21 @@ def _commit_bootstrap_contract(
     workflow_name: str,
     paths: list[Path],
 ) -> dict[str, Any]:
-    branch_name = _ensure_bootstrap_branch(repo_root=repo_root, workflow_name=workflow_name)
+    branch_name = _ensure_bootstrap_branch(
+        repo_root=repo_root, workflow_name=workflow_name
+    )
     relpaths = []
     for path in paths:
         resolved = path.resolve()
         try:
             relpath = str(resolved.relative_to(repo_root.resolve()))
         except ValueError as exc:
-            raise WorkflowBootstrapError(f"cannot commit path outside repo root: {resolved}") from exc
-        if resolved.exists() or _git_path_is_tracked(repo_root=repo_root, path=resolved):
+            raise WorkflowBootstrapError(
+                f"cannot commit path outside repo root: {resolved}"
+            ) from exc
+        if resolved.exists() or _git_path_is_tracked(
+            repo_root=repo_root, path=resolved
+        ):
             relpaths.append(relpath)
     relpaths = sorted(set(relpaths))
     subprocess.run(
@@ -287,7 +295,9 @@ def bootstrap_workflow_root(
             workflow_name=workflow_name,
         )
     except ValueError as exc:
-        raise WorkflowBootstrapError(f"--repo-slug {resolved_repo_slug!r} is invalid: {exc}") from exc
+        raise WorkflowBootstrapError(
+            f"--repo-slug {resolved_repo_slug!r} is invalid: {exc}"
+        ) from exc
 
     resolved_workflow_root = (
         workflow_root.expanduser().resolve()
@@ -362,7 +372,9 @@ def scaffold_workflow_root(
     try:
         template_contract = load_workflow_contract_file(template_path)
     except (WorkflowContractError, OSError, UnicodeDecodeError) as exc:
-        raise WorkflowBootstrapError(f"unable to load workflow template {template_path}: {exc}") from exc
+        raise WorkflowBootstrapError(
+            f"unable to load workflow template {template_path}: {exc}"
+        ) from exc
     config = dict(template_contract.config)
     workflow_policy = template_contract.prompt_template
 
@@ -375,7 +387,9 @@ def scaffold_workflow_root(
             workflow_name=workflow_name,
         )
     except ValueError as exc:
-        raise WorkflowBootstrapError(f"--repo-slug {resolved_repo_slug!r} is invalid: {exc}") from exc
+        raise WorkflowBootstrapError(
+            f"--repo-slug {resolved_repo_slug!r} is invalid: {exc}"
+        ) from exc
     if root.name != resolved_instance_name:
         expected_root = root.parent / resolved_instance_name
         raise WorkflowBootstrapError(

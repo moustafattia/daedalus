@@ -51,16 +51,26 @@ def _open_engine_state_db(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _work_item_from_entry(*, workflow: str, work_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+def _work_item_from_entry(
+    *, workflow: str, work_id: str, entry: dict[str, Any]
+) -> dict[str, Any]:
     metadata = dict(entry.get("metadata") or {})
-    for key in ("issue_number", "issueNumber", "worktree", "last_event", "last_message"):
+    for key in (
+        "issue_number",
+        "issueNumber",
+        "worktree",
+        "last_event",
+        "last_message",
+    ):
         if entry.get(key) is not None:
             metadata[key] = entry.get(key)
     return {
         "workflow": workflow,
         "work_id": work_id,
         "identifier": entry.get("identifier") or work_id,
-        "state": entry.get("state") or entry.get("workflow_state") or entry.get("status"),
+        "state": entry.get("state")
+        or entry.get("workflow_state")
+        or entry.get("status"),
         "title": entry.get("title") or entry.get("issue_title"),
         "url": entry.get("url") or entry.get("issue_url"),
         "source": entry.get("source") or workflow,
@@ -124,11 +134,20 @@ def save_engine_scheduler_state_to_connection(
     conn.execute("DELETE FROM engine_retry_queue WHERE workflow=?", (workflow,))
     conn.execute("DELETE FROM engine_runtime_sessions WHERE workflow=?", (workflow,))
 
-    for work_id, entry in sorted(running_entries.items(), key=lambda item: str(item[0])):
+    for work_id, entry in sorted(
+        running_entries.items(), key=lambda item: str(item[0])
+    ):
         work_id = str(entry.get("issue_id") or work_id or "").strip()
         if not work_id:
             continue
-        _upsert_work_item(conn, workflow=workflow, work_id=work_id, entry=entry, now_iso=now_iso, now_epoch=now_epoch)
+        _upsert_work_item(
+            conn,
+            workflow=workflow,
+            work_id=work_id,
+            entry=entry,
+            now_iso=now_iso,
+            now_epoch=now_epoch,
+        )
         conn.execute(
             """
             INSERT INTO engine_running_work (
@@ -164,7 +183,14 @@ def save_engine_scheduler_state_to_connection(
         work_id = str(entry.get("issue_id") or work_id or "").strip()
         if not work_id:
             continue
-        _upsert_work_item(conn, workflow=workflow, work_id=work_id, entry=entry, now_iso=now_iso, now_epoch=now_epoch)
+        _upsert_work_item(
+            conn,
+            workflow=workflow,
+            work_id=work_id,
+            entry=entry,
+            now_iso=now_iso,
+            now_epoch=now_epoch,
+        )
         conn.execute(
             """
             INSERT INTO engine_retry_queue (
@@ -185,14 +211,23 @@ def save_engine_scheduler_state_to_connection(
             ),
         )
 
-    for work_id, entry in sorted(runtime_sessions.items(), key=lambda item: str(item[0])):
+    for work_id, entry in sorted(
+        runtime_sessions.items(), key=lambda item: str(item[0])
+    ):
         if not isinstance(entry, dict):
             continue
         work_id = str(entry.get("issue_id") or work_id or "").strip()
         thread_id = str(entry.get("thread_id") or "").strip()
         if not work_id or not thread_id:
             continue
-        _upsert_work_item(conn, workflow=workflow, work_id=work_id, entry=entry, now_iso=now_iso, now_epoch=now_epoch)
+        _upsert_work_item(
+            conn,
+            workflow=workflow,
+            work_id=work_id,
+            entry=entry,
+            now_iso=now_iso,
+            now_epoch=now_epoch,
+        )
         metadata = {
             key: value
             for key, value in entry.items()
@@ -303,7 +338,9 @@ def _scheduler_state_from_connection(
     now_epoch: float,
 ) -> dict[str, Any]:
     running_entries: dict[str, dict[str, Any]] = {}
-    running_run_id_expr = "r.run_id" if _column_exists(conn, "engine_running_work", "run_id") else "NULL"
+    running_run_id_expr = (
+        "r.run_id" if _column_exists(conn, "engine_running_work", "run_id") else "NULL"
+    )
     for row in conn.execute(
         f"""
         SELECT r.work_id, w.identifier, w.state, r.worker_id, r.attempt, r.worker_status,
@@ -338,7 +375,9 @@ def _scheduler_state_from_connection(
             "attempt": int(attempt or 0),
             "worker_status": worker_status or "running",
             "started_at_epoch": float(_value_or_default(started_at_epoch, now_epoch)),
-            "heartbeat_at_epoch": float(_first_value_or_default(now_epoch, heartbeat_at_epoch, started_at_epoch)),
+            "heartbeat_at_epoch": float(
+                _first_value_or_default(now_epoch, heartbeat_at_epoch, started_at_epoch)
+            ),
             "cancel_requested": bool(cancel_requested),
             "cancel_reason": cancel_reason,
             "thread_id": thread_id,
@@ -347,7 +386,9 @@ def _scheduler_state_from_connection(
         }
 
     retry_entries: dict[str, dict[str, Any]] = {}
-    retry_run_id_expr = "q.run_id" if _column_exists(conn, "engine_retry_queue", "run_id") else "NULL"
+    retry_run_id_expr = (
+        "q.run_id" if _column_exists(conn, "engine_retry_queue", "run_id") else "NULL"
+    )
     for row in conn.execute(
         f"""
         SELECT q.work_id, w.identifier, q.attempt, q.due_at_epoch, q.error, q.current_attempt, q.delay_type, {retry_run_id_expr}
@@ -357,7 +398,16 @@ def _scheduler_state_from_connection(
         """,
         (workflow,),
     ).fetchall():
-        work_id, identifier, attempt, due_at_epoch, error, current_attempt, delay_type, run_id = row
+        (
+            work_id,
+            identifier,
+            attempt,
+            due_at_epoch,
+            error,
+            current_attempt,
+            delay_type,
+            run_id,
+        ) = row
         retry_entries[str(work_id)] = {
             "issue_id": str(work_id),
             "identifier": identifier,
@@ -370,7 +420,11 @@ def _scheduler_state_from_connection(
         }
 
     runtime_sessions: dict[str, dict[str, Any]] = {}
-    session_run_id_expr = "s.run_id" if _column_exists(conn, "engine_runtime_sessions", "run_id") else "NULL"
+    session_run_id_expr = (
+        "s.run_id"
+        if _column_exists(conn, "engine_runtime_sessions", "run_id")
+        else "NULL"
+    )
     for row in conn.execute(
         f"""
         SELECT s.work_id, w.identifier, s.session_name, s.runtime_name, s.runtime_kind, s.session_id,
@@ -414,7 +468,9 @@ def _scheduler_state_from_connection(
             "run_id": run_id,
             "updated_at": updated_at,
         }
-        runtime_sessions[str(work_id)] = {key: value for key, value in entry.items() if value is not None}
+        runtime_sessions[str(work_id)] = {
+            key: value for key, value in entry.items() if value is not None
+        }
 
     totals_row = conn.execute(
         """
@@ -426,7 +482,9 @@ def _scheduler_state_from_connection(
     ).fetchone()
     runtime_totals: dict[str, Any] = {}
     if totals_row is not None:
-        input_tokens, output_tokens, total_tokens, turn_count, rate_limits_json = totals_row
+        input_tokens, output_tokens, total_tokens, turn_count, rate_limits_json = (
+            totals_row
+        )
         runtime_totals = {
             "input_tokens": int(input_tokens or 0),
             "output_tokens": int(output_tokens or 0),
@@ -457,7 +515,9 @@ def load_engine_scheduler_state(
 ) -> dict[str, Any]:
     conn = _open_engine_state_db(db_path)
     try:
-        return _scheduler_state_from_connection(conn, workflow=workflow, now_iso=now_iso, now_epoch=now_epoch)
+        return _scheduler_state_from_connection(
+            conn, workflow=workflow, now_iso=now_iso, now_epoch=now_epoch
+        )
     finally:
         conn.close()
 
@@ -470,7 +530,9 @@ def load_engine_scheduler_state_from_connection(
     now_epoch: float,
 ) -> dict[str, Any]:
     init_engine_state(conn)
-    return _scheduler_state_from_connection(conn, workflow=workflow, now_iso=now_iso, now_epoch=now_epoch)
+    return _scheduler_state_from_connection(
+        conn, workflow=workflow, now_iso=now_iso, now_epoch=now_epoch
+    )
 
 
 def read_engine_scheduler_state(
@@ -489,7 +551,9 @@ def read_engine_scheduler_state(
     try:
         if not all(_table_exists(conn, name) for name in ENGINE_SCHEDULER_TABLES):
             return None
-        return _scheduler_state_from_connection(conn, workflow=workflow, now_iso=now_iso, now_epoch=now_epoch)
+        return _scheduler_state_from_connection(
+            conn, workflow=workflow, now_iso=now_iso, now_epoch=now_epoch
+        )
     except sqlite3.OperationalError:
         return None
     finally:
@@ -519,7 +583,9 @@ def _run_row_to_dict(row: tuple[Any, ...]) -> dict[str, Any]:
         "started_at": started_at,
         "started_at_epoch": float(started_at_epoch or 0),
         "completed_at": completed_at,
-        "completed_at_epoch": None if completed_at_epoch is None else float(completed_at_epoch),
+        "completed_at_epoch": None
+        if completed_at_epoch is None
+        else float(completed_at_epoch),
         "selected_count": int(selected_count or 0),
         "completed_count": int(completed_count or 0),
         "error": error,
@@ -609,8 +675,16 @@ def finish_engine_run_to_connection(
     if metadata:
         merged_metadata.update(metadata)
     final_status = str(status or "completed").strip() or "completed"
-    final_selected_count = current["selected_count"] if selected_count is None else int(selected_count or 0)
-    final_completed_count = current["completed_count"] if completed_count is None else int(completed_count or 0)
+    final_selected_count = (
+        current["selected_count"]
+        if selected_count is None
+        else int(selected_count or 0)
+    )
+    final_completed_count = (
+        current["completed_count"]
+        if completed_count is None
+        else int(completed_count or 0)
+    )
     final_error = error if error is not None else current.get("error")
     conn.execute(
         """
@@ -1099,7 +1173,12 @@ def read_engine_event_stats(
         "newest_event_epoch": None,
         "by_type": {},
         "by_severity": {},
-        "retention": {**empty_retention, "excess_rows": 0, "age_overdue": False, "overdue": False},
+        "retention": {
+            **empty_retention,
+            "excess_rows": 0,
+            "age_overdue": False,
+            "overdue": False,
+        },
     }
     if not db_path.exists():
         return empty

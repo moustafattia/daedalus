@@ -8,6 +8,7 @@ Frame layers (bottom → top):
     5. Right-margin editorial vignettes
     6. Left-side title block (caduceus + wordmark + animated flow line)
 """
+
 from __future__ import annotations
 
 import random
@@ -40,8 +41,10 @@ class Scene:
         self.bust = bust_mod.prepare_bust()
         self.bust_pos = bust_mod.placement(self.bust)
         # Constellation seed near the bust head's upper-right.
-        seed_origin = (self.bust_pos["x"] + self.bust.width - 60,
-                       self.bust_pos["y"] + 110)
+        seed_origin = (
+            self.bust_pos["x"] + self.bust.width - 60,
+            self.bust_pos["y"] + 110,
+        )
         self.nodes, self.edges = constellation.build(seed_origin)
 
 
@@ -58,8 +61,7 @@ def render_frame(scene: Scene, f: int) -> Image.Image:
     im.paste(overlay, (0, 0), overlay)
 
     # 3. engraved hero emblem
-    im.paste(scene.bust, (scene.bust_pos["x"], scene.bust_pos["y"]),
-             scene.bust)
+    im.paste(scene.bust, (scene.bust_pos["x"], scene.bust_pos["y"]), scene.bust)
 
     # 4. code overlays (each on its own RGBA layer for clean alpha).
     # Anchored relative to the hero image's left edge so they sit next
@@ -70,17 +72,30 @@ def render_frame(scene: Scene, f: int) -> Image.Image:
     cd = ImageDraw.Draw(code_layer)
     bx = scene.bust_pos["x"]
     code_x = bx - 270
-    code_overlays.draw_block(cd, code_overlays.AGENTS_BLOCK,
-                             code_x, 50,
-                             typography.code(), timeline.code_alpha(f, 0))
-    code_overlays.draw_block(cd, code_overlays.GITHUB_BLOCK,
-                             code_x, 165,
-                             typography.code_small(),
-                             timeline.code_alpha(f, 1))
-    code_overlays.draw_block(cd, code_overlays.TURNLOG_BLOCK,
-                             code_x, 250,
-                             typography.code_small(),
-                             timeline.code_alpha(f, 2))
+    code_overlays.draw_block(
+        cd,
+        code_overlays.AGENTS_BLOCK,
+        code_x,
+        50,
+        typography.code(),
+        timeline.code_alpha(f, 0),
+    )
+    code_overlays.draw_block(
+        cd,
+        code_overlays.GITHUB_BLOCK,
+        code_x,
+        165,
+        typography.code_small(),
+        timeline.code_alpha(f, 1),
+    )
+    code_overlays.draw_block(
+        cd,
+        code_overlays.TURNLOG_BLOCK,
+        code_x,
+        250,
+        typography.code_small(),
+        timeline.code_alpha(f, 2),
+    )
     im.paste(code_layer, (0, 0), code_layer)
 
     # 5. right-margin editorial vignettes

@@ -14,6 +14,7 @@ frame number. Everything else (timing, colours, fonts) is read from
 `config` + `timeline` + `typography` so this module has no policy of
 its own — only rendering.
 """
+
 from __future__ import annotations
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -28,8 +29,9 @@ TOKENS = ["Issue", "→", "Code", "→", "Review", "→", "Merge"]
 SPACING = 14  # px between tokens — gives the line breathing room
 
 
-def _blend(a: tuple[int, int, int], b: tuple[int, int, int],
-           t: float) -> tuple[int, int, int]:
+def _blend(
+    a: tuple[int, int, int], b: tuple[int, int, int], t: float
+) -> tuple[int, int, int]:
     return (
         int(a[0] + (b[0] - a[0]) * t),
         int(a[1] + (b[1] - a[1]) * t),
@@ -81,11 +83,15 @@ def draw(im: Image.Image, *, anchor: tuple[int, int], frame: int) -> None:
         glow_y = anchor_y + font.size // 2 + 2
         glow_layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
         gd = ImageDraw.Draw(glow_layer)
-        gd.ellipse((glow_x - 9, glow_y - 9, glow_x + 9, glow_y + 9),
-                   fill=(*config.CYAN_BRIGHT, 130))
+        gd.ellipse(
+            (glow_x - 9, glow_y - 9, glow_x + 9, glow_y + 9),
+            fill=(*config.CYAN_BRIGHT, 130),
+        )
         glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=4))
         im.paste(glow_layer, (0, 0), glow_layer)
         # Bright core
         gd2 = ImageDraw.Draw(im, "RGBA")
-        gd2.ellipse((glow_x - 3, glow_y - 3, glow_x + 3, glow_y + 3),
-                    fill=(*config.CYAN_BRIGHT, 230))
+        gd2.ellipse(
+            (glow_x - 3, glow_y - 3, glow_x + 3, glow_y + 3),
+            fill=(*config.CYAN_BRIGHT, 230),
+        )

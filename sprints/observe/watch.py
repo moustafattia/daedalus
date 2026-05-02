@@ -5,6 +5,7 @@ in later — this module exposes ``render_frame_to_string(snapshot)`` so the
 CLI handler and tests can both produce frame text without spinning up a
 real TTY.
 """
+
 from __future__ import annotations
 
 import json
@@ -62,7 +63,13 @@ def _events_table(events: list[dict[str, Any]]) -> Table:
             str(ev.get("at") or ev.get("created_at") or ev.get("time") or "")[:19],
             str(ev.get("source") or "engine-events"),
             str(ev.get("event") or ev.get("action") or ev.get("event_type") or ""),
-            str(ev.get("detail") or ev.get("summary") or payload.get("summary") or payload.get("error") or ""),
+            str(
+                ev.get("detail")
+                or ev.get("summary")
+                or payload.get("summary")
+                or payload.get("error")
+                or ""
+            ),
         )
     return t
 
@@ -108,7 +115,9 @@ def render_frame_to_string(snapshot: Mapping[str, Any]) -> str:
     console = Console(record=True, width=120, force_terminal=False)
     console.print(Panel("Sprints active lanes", style="bold"))
     console.print(_lanes_table(snapshot.get("active_lanes") or []))
-    workflow_status_panel = _workflow_status_panel(snapshot.get("workflow_status") or {})
+    workflow_status_panel = _workflow_status_panel(
+        snapshot.get("workflow_status") or {}
+    )
     if workflow_status_panel is not None:
         console.print(workflow_status_panel)
     alerts_panel = _alerts_panel(snapshot.get("alert_state") or {})
@@ -124,7 +133,11 @@ try:
 except ImportError:
     import importlib.util as _ilu
     from pathlib import Path as _Path
-    _spec = _ilu.spec_from_file_location("sprints_watch_sources_for_watch", _Path(__file__).resolve().parent / "sources.py")
+
+    _spec = _ilu.spec_from_file_location(
+        "sprints_watch_sources_for_watch",
+        _Path(__file__).resolve().parent / "sources.py",
+    )
     _watch_sources = _ilu.module_from_spec(_spec)
     _spec.loader.exec_module(_watch_sources)
 
@@ -164,7 +177,11 @@ def cmd_watch(args, parser) -> str:
     is not set, enters a rich.live polling loop; that path returns the empty
     string after the user quits. Tests always exercise the one-shot path.
     """
-    workflow_root = Path(args.workflow_root) if not isinstance(args.workflow_root, Path) else args.workflow_root
+    workflow_root = (
+        Path(args.workflow_root)
+        if not isinstance(args.workflow_root, Path)
+        else args.workflow_root
+    )
     snapshot = build_snapshot(workflow_root)
     text = render_frame_to_string(snapshot)
     if getattr(args, "once", False) or not _stdout_is_tty():
@@ -178,7 +195,12 @@ def cmd_watch(args, parser) -> str:
     console = Console()
     interval = float(getattr(args, "interval", 2.0) or 2.0)
     try:
-        with Live(render_frame_to_string(snapshot), console=console, refresh_per_second=4, screen=True):
+        with Live(
+            render_frame_to_string(snapshot),
+            console=console,
+            refresh_per_second=4,
+            screen=True,
+        ):
             while True:
                 sleep(interval)
                 snapshot = build_snapshot(workflow_root)
@@ -228,12 +250,14 @@ def reconcile_stalls_tick(
 
     verdicts = reconcile_stalls(snapshot, running, now=now)
     for verdict in verdicts:
-        append_event({
-            "type": SPRINTS_STALL_DETECTED,
-            "issue_id": verdict.issue_id,
-            "elapsed_seconds": verdict.elapsed_seconds,
-            "threshold_seconds": verdict.threshold_seconds,
-        })
+        append_event(
+            {
+                "type": SPRINTS_STALL_DETECTED,
+                "issue_id": verdict.issue_id,
+                "elapsed_seconds": verdict.elapsed_seconds,
+                "threshold_seconds": verdict.threshold_seconds,
+            }
+        )
         orchestrator.terminate_worker(verdict.issue_id, reason="stall")
         append_event({"type": SPRINTS_STALL_TERMINATED, "issue_id": verdict.issue_id})
         orchestrator.queue_retry(verdict.issue_id, error="stall_timeout")

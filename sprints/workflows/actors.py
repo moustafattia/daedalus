@@ -1,4 +1,5 @@
 """Actor runtime dispatch for agentic workflows."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,8 +15,7 @@ DEFAULT_ACTOR_OUTPUT = (
 
 
 class ActorRuntime(Protocol):
-    def run(self, *, actor: ActorConfig, prompt: str) -> str:
-        ...
+    def run(self, *, actor: ActorConfig, prompt: str) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -33,5 +33,7 @@ def build_actor_runtime(*, config: AgenticConfig, actor: ActorConfig) -> ActorRu
             f"agentic first slice supports only local runtime mechanics; "
             f"actor {actor.name} uses {runtime.kind}"
         )
-    output = actor.raw.get("output") or runtime.raw.get("output") or DEFAULT_ACTOR_OUTPUT
+    output = (
+        actor.raw.get("output") or runtime.raw.get("output") or DEFAULT_ACTOR_OUTPUT
+    )
     return LocalRuntime(output=str(output))

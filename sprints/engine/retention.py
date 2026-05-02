@@ -32,10 +32,14 @@ def normalize_event_retention(value: dict[str, Any] | None) -> dict[str, Any]:
 
     raw = value if isinstance(value, dict) else {}
     events = raw.get("events") if isinstance(raw.get("events"), dict) else raw
-    max_age_days = _number(events.get("max-age-days") if isinstance(events, dict) else None)
+    max_age_days = _number(
+        events.get("max-age-days") if isinstance(events, dict) else None
+    )
     if max_age_days is None and isinstance(events, dict):
         max_age_days = _number(events.get("max_age_days"))
-    max_age_seconds = _number(events.get("max-age-seconds") if isinstance(events, dict) else None)
+    max_age_seconds = _number(
+        events.get("max-age-seconds") if isinstance(events, dict) else None
+    )
     if max_age_seconds is None and isinstance(events, dict):
         max_age_seconds = _number(events.get("max_age_seconds"))
     if max_age_seconds is None and max_age_days is not None:

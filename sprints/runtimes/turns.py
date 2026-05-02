@@ -4,6 +4,7 @@ A Sprints turn is one prompt/result exchange at the runtime boundary. Some
 backends, such as Codex app-server, implement that with their own protocol
 turns (`turn/start`, `turn/completed`), but this module stays backend-neutral.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -37,7 +38,9 @@ def command_output_result(output: str) -> PromptRunResult:
     )
 
 
-def prompt_result_from_payload(payload: dict[str, Any], *, fallback_output: str = "") -> PromptRunResult:
+def prompt_result_from_payload(
+    payload: dict[str, Any], *, fallback_output: str = ""
+) -> PromptRunResult:
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
     output = payload.get("output")
     if output is None:
@@ -66,7 +69,9 @@ def prompt_result_from_payload(payload: dict[str, Any], *, fallback_output: str 
     )
 
 
-def load_structured_result(path: Path, *, fallback_output: str = "") -> PromptRunResult | None:
+def load_structured_result(
+    path: Path, *, fallback_output: str = ""
+) -> PromptRunResult | None:
     path = Path(path)
     if not path.exists() or path.stat().st_size <= 0:
         return None
@@ -80,7 +85,9 @@ def prompt_result_from_stage(result: RuntimeStageResult) -> PromptRunResult:
     runtime_result = result.runtime_result
     if isinstance(runtime_result, PromptRunResult):
         return runtime_result
-    if all(hasattr(runtime_result, name) for name in ("output", "tokens", "rate_limits")):
+    if all(
+        hasattr(runtime_result, name) for name in ("output", "tokens", "rate_limits")
+    ):
         return runtime_result
     return command_output_result(result.output)
 
@@ -97,15 +104,22 @@ def raw_output_from_runtime_result(result: Any) -> str:
     return str(result or "")
 
 
-def resolve_stage_command(*, agent_cfg: dict[str, Any], runtime_cfg: dict[str, Any]) -> list[str] | None:
+def resolve_stage_command(
+    *, agent_cfg: dict[str, Any], runtime_cfg: dict[str, Any]
+) -> list[str] | None:
     command = agent_cfg.get("command")
     if command:
         return _ensure_argv(command)
 
-    if runtime_cfg.get("stage-command") is False or runtime_cfg.get("stage_command") is False:
+    if (
+        runtime_cfg.get("stage-command") is False
+        or runtime_cfg.get("stage_command") is False
+    ):
         return None
 
-    command_role = str(runtime_cfg.get("command-role") or runtime_cfg.get("command_role") or "stage").strip()
+    command_role = str(
+        runtime_cfg.get("command-role") or runtime_cfg.get("command_role") or "stage"
+    ).strip()
     if command_role != "stage":
         return None
 
@@ -115,7 +129,9 @@ def resolve_stage_command(*, agent_cfg: dict[str, Any], runtime_cfg: dict[str, A
     return _ensure_argv(command)
 
 
-def materialize_prompt(*, worktree: Path, stage_name: str, prompt: str, prompt_path: Path | None = None) -> Path:
+def materialize_prompt(
+    *, worktree: Path, stage_name: str, prompt: str, prompt_path: Path | None = None
+) -> Path:
     if prompt_path is None:
         out_dir = Path(worktree) / ".sprints" / "dispatch"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -128,7 +144,9 @@ def materialize_prompt(*, worktree: Path, stage_name: str, prompt: str, prompt_p
     return prompt_path
 
 
-def runtime_result_path(*, worktree: Path, stage_name: str, prompt: str, prompt_path: Path | None = None) -> Path:
+def runtime_result_path(
+    *, worktree: Path, stage_name: str, prompt: str, prompt_path: Path | None = None
+) -> Path:
     if prompt_path is not None:
         return Path(prompt_path).with_suffix(".result.json")
     out_dir = Path(worktree) / ".sprints" / "dispatch"
@@ -137,7 +155,9 @@ def runtime_result_path(*, worktree: Path, stage_name: str, prompt: str, prompt_
     return out_dir / f"{stage_name}-{digest}.result.json"
 
 
-def substitute_command_placeholders(argv: list[str], values: dict[str, str]) -> list[str]:
+def substitute_command_placeholders(
+    argv: list[str], values: dict[str, str]
+) -> list[str]:
     resolved = []
     for arg in argv:
         text = str(arg)
@@ -230,10 +250,9 @@ def run_runtime_stage(
             output = raw_output_from_runtime_result(
                 runtime.run_command(worktree=worktree, command_argv=argv, env=stage_env)
             )
-            runtime_result = (
-                load_structured_result(resolved_result_path, fallback_output=output)
-                or command_output_result(output)
-            )
+            runtime_result = load_structured_result(
+                resolved_result_path, fallback_output=output
+            ) or command_output_result(output)
             return RuntimeStageResult(
                 output=runtime_result.output,
                 prompt_path=resolved_prompt_path,
@@ -275,11 +294,15 @@ def run_runtime_stage(
 
 def _ensure_argv(command: Any) -> list[str]:
     if not isinstance(command, list) or not command:
-        raise RuntimeError("agent.command and runtime command must be a non-empty argv list")
+        raise RuntimeError(
+            "agent.command and runtime command must be a non-empty argv list"
+        )
     return [str(part) for part in command]
 
 
-def _first_str(primary: dict[str, Any], secondary: dict[str, Any], *keys: str) -> str | None:
+def _first_str(
+    primary: dict[str, Any], secondary: dict[str, Any], *keys: str
+) -> str | None:
     for key in keys:
         value = primary.get(key)
         if value is None:

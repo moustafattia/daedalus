@@ -13,7 +13,9 @@ from workflows.loader import (
 )
 
 DEFAULT_WORKFLOW_ROOT_ENV_VARS = ("SPRINTS_WORKFLOW_ROOT",)
-REPO_LOCAL_WORKFLOW_POINTER_RELATIVE_PATH = Path(".hermes") / "sprints" / "workflow-root"
+REPO_LOCAL_WORKFLOW_POINTER_RELATIVE_PATH = (
+    Path(".hermes") / "sprints" / "workflow-root"
+)
 
 _PROJECT_KEY_CHARS_RE = re.compile(r"[^a-z0-9._-]+")
 _PROJECT_KEY_SEPARATORS_RE = re.compile(r"[-._]{2,}")
@@ -43,7 +45,9 @@ def derive_workflow_instance_name(*, repo_slug: str, workflow_name: str) -> str:
     repo = normalize_workflow_instance_segment(repo_raw)
     workflow = normalize_workflow_instance_segment(workflow_name)
     if not owner or not repo or not workflow:
-        raise ValueError("workflow instance name requires non-empty owner, repo, and workflow segments")
+        raise ValueError(
+            "workflow instance name requires non-empty owner, repo, and workflow segments"
+        )
     return f"{owner}-{repo}-{workflow}"
 
 
@@ -73,10 +77,14 @@ def workflow_instance_name(workflow_root: Path) -> str:
     config = load_workflow_config(workflow_root)
     instance = config.get("instance")
     if not isinstance(instance, dict):
-        raise ValueError(f"{workflow_contract_path(workflow_root)} is missing required instance config")
+        raise ValueError(
+            f"{workflow_contract_path(workflow_root)} is missing required instance config"
+        )
     name = str(instance.get("name") or "").strip()
     if not name:
-        raise ValueError(f"{workflow_contract_path(workflow_root)} is missing instance.name")
+        raise ValueError(
+            f"{workflow_contract_path(workflow_root)} is missing instance.name"
+        )
     return name
 
 
@@ -85,11 +93,16 @@ def project_key_for_workflow_root(workflow_root: Path) -> str:
 
 
 def _has_project_runtime_layout(workflow_root: Path) -> bool:
-    return any((workflow_root / name).exists() for name in ("runtime", "config", "workspace", "docs"))
+    return any(
+        (workflow_root / name).exists()
+        for name in ("runtime", "config", "workspace", "docs")
+    )
 
 
 def _is_discoverable_markdown_workflow_root(workflow_root: Path) -> bool:
-    return any((workflow_root / name).exists() for name in ("runtime", "memory", "state"))
+    return any(
+        (workflow_root / name).exists() for name in ("runtime", "memory", "state")
+    )
 
 
 def runtime_base_dir(workflow_root: Path) -> Path:
@@ -139,7 +152,9 @@ def plugin_root_path(*, plugin_dir: Path | None = None) -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def plugin_entrypoint_path(workflow_root: Path | None = None, *, plugin_dir: Path | None = None) -> Path:
+def plugin_entrypoint_path(
+    workflow_root: Path | None = None, *, plugin_dir: Path | None = None
+) -> Path:
     del workflow_root
     return plugin_root_path(plugin_dir=plugin_dir) / "workflows" / "__main__.py"
 
@@ -154,7 +169,9 @@ def workflow_cli_argv(workflow_root: Path, *command_args: str) -> list[str]:
 def _find_workflow_root(start: Path) -> Path | None:
     path = start.expanduser().resolve()
     for candidate in (path, *path.parents):
-        if workflow_markdown_path(candidate).exists() and _is_discoverable_markdown_workflow_root(candidate):
+        if workflow_markdown_path(
+            candidate
+        ).exists() and _is_discoverable_markdown_workflow_root(candidate):
             return candidate
         pointer_path = repo_local_workflow_pointer_path(candidate)
         if pointer_path.exists():
@@ -194,6 +211,8 @@ def resolve_default_workflow_root(
 
     plugin_dir = plugin_root_path(plugin_dir=plugin_dir)
     repo_parent = plugin_dir.parent.resolve()
-    if workflow_markdown_path(repo_parent).exists() and _is_discoverable_markdown_workflow_root(repo_parent):
+    if workflow_markdown_path(
+        repo_parent
+    ).exists() and _is_discoverable_markdown_workflow_root(repo_parent):
         return repo_parent
     return cwd_path

@@ -1,4 +1,5 @@
 """Cream parchment background — baked once, reused on every frame."""
+
 from __future__ import annotations
 
 import math
@@ -34,8 +35,7 @@ def make_parchment(w: int = config.W, h: int = config.H) -> Image.Image:
         cy2 = rng.randint(0, h)
         r2 = rng.randint(40, 140)
         a = rng.randint(4, 12)
-        sd.ellipse((cx2 - r2, cy2 - r2, cx2 + r2, cy2 + r2),
-                   fill=(110, 90, 60, a))
+        sd.ellipse((cx2 - r2, cy2 - r2, cx2 + r2, cy2 + r2), fill=(110, 90, 60, a))
     smudge = smudge.filter(ImageFilter.GaussianBlur(radius=18))
     base.paste(smudge, (0, 0), smudge)
     return base

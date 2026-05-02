@@ -16,10 +16,12 @@ if _PLUGIN_DIR_STR not in sys.path:
 try:
     from .schemas import setup_cli
     from . import sprints_cli as _cli
+
     execute_raw_args = _cli.execute_raw_args
     execute_workflow_command = _cli.execute_workflow_command
     sys.modules.setdefault(f"{__name__}.tools", _cli)
 except ImportError:
+
     def _load_local_module(module_name: str):
         module_path = PLUGIN_DIR / f"{module_name}.py"
         spec = spec_from_file_location(f"sprints_{module_name}", module_path)
@@ -55,4 +57,6 @@ def register(ctx):
 
     skill_md = PLUGIN_DIR / "skills" / "operator" / "SKILL.md"
     if skill_md.exists():
-        ctx.register_skill("operator", skill_md, description="Operate the Sprints engine.")
+        ctx.register_skill(
+            "operator", skill_md, description="Operate the Sprints engine."
+        )

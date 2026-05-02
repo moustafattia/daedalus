@@ -22,7 +22,9 @@ class ClaudeCliRuntime:
     def last_activity_ts(self) -> float | None:
         return self._last_activity
 
-    def _run_process(self, command: list[str], *, worktree: Path, env: dict | None = None):
+    def _run_process(
+        self, command: list[str], *, worktree: Path, env: dict | None = None
+    ):
         kwargs = {"cwd": worktree, "timeout": self._timeout}
         if env is not None:
             kwargs["env"] = env
@@ -38,7 +40,11 @@ class ClaudeCliRuntime:
             supported_kwargs = (
                 kwargs
                 if accepts_var_kwargs
-                else {key: value for key, value in kwargs.items() if key in signature.parameters}
+                else {
+                    key: value
+                    for key, value in kwargs.items()
+                    if key in signature.parameters
+                }
             )
         return self._run(command, **supported_kwargs)
 

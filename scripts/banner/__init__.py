@@ -11,6 +11,7 @@ The package is split so each visual element lives in one module and
 can be modified or replaced without touching the others. See module
 docstrings for the responsibilities of each piece.
 """
+
 from __future__ import annotations
 
 from . import config

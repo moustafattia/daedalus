@@ -91,7 +91,9 @@ class AcpxCodexRuntime:
         now_epoch: int | None = None,
     ) -> SessionHealth:
         if session_meta is None:
-            return SessionHealth(healthy=False, reason="missing-session-meta", last_used_at=None)
+            return SessionHealth(
+                healthy=False, reason="missing-session-meta", last_used_at=None
+            )
         if session_meta.get("closed"):
             return SessionHealth(
                 healthy=False,
