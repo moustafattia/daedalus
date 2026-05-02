@@ -15,7 +15,7 @@ The default managed path is for the bundled `issue-runner` workflow. Use
 
 The bundled `change-delivery` template defaults to:
 
-- `acpx-codex` for the coder runtime
+- `acpx-codex` for the implementation actor runtime
 - `claude-cli` for the internal reviewer runtime
 
 If your host does not have those runtimes, edit `WORKFLOW.md` before starting the service.

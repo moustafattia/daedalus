@@ -498,8 +498,8 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     internal_review_freeze_coder_while_running = bool(True if freeze_internal_review is None else freeze_internal_review)
 
     agent_labels = config.get("agentLabels", {}) or {}
-    internal_coder_agent_name = str(agent_labels.get("internalCoderAgent", "Internal_Coder_Agent"))
-    escalation_coder_agent_name = str(agent_labels.get("escalationCoderAgent", "Escalation_Coder_Agent"))
+    default_implementation_actor_name = str(agent_labels.get("internalCoderAgent", "Internal_Coder_Agent"))
+    escalated_implementation_actor_name = str(agent_labels.get("escalationCoderAgent", "Escalation_Coder_Agent"))
     internal_reviewer_agent_name = str(agent_labels.get("internalReviewerAgent", "Internal_Reviewer_Agent"))
     external_reviewer_agent_name = str(agent_labels.get("externalReviewerAgent", "External_Reviewer_Agent"))
     advisory_reviewer_agent_name = str(agent_labels.get("advisoryReviewerAgent", "Advisory_Reviewer_Agent"))
@@ -677,8 +677,8 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         INTERNAL_REVIEW_TIMEOUT_SECONDS=internal_review_timeout_seconds,
         INTERNAL_REVIEW_FREEZE_CODER_WHILE_RUNNING=internal_review_freeze_coder_while_running,
         AGENT_LABELS=agent_labels,
-        INTERNAL_CODER_AGENT_NAME=internal_coder_agent_name,
-        ESCALATION_CODER_AGENT_NAME=escalation_coder_agent_name,
+        INTERNAL_CODER_AGENT_NAME=default_implementation_actor_name,
+        ESCALATION_CODER_AGENT_NAME=escalated_implementation_actor_name,
         INTERNAL_REVIEWER_AGENT_NAME=internal_reviewer_agent_name,
         EXTERNAL_REVIEWER_AGENT_NAME=external_reviewer_agent_name,
         ADVISORY_REVIEWER_AGENT_NAME=advisory_reviewer_agent_name,
@@ -1296,7 +1296,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         ns.save_scheduler(scheduler)
         return True
 
-    def _record_coder_runtime_result(*, issue, session_name, runtime_name, runtime_kind, result, metrics, at):
+    def _record_implementation_runtime_result(*, issue, session_name, runtime_name, runtime_kind, result, metrics, at):
         metrics = dict(metrics or {})
         if runtime_kind != "codex-app-server":
             return metrics
@@ -1341,7 +1341,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         ns.save_scheduler(scheduler)
         return metrics
 
-    def _record_coder_runtime_progress(*, issue_number, session_name, runtime_name, runtime_kind, worktree, result):
+    def _record_implementation_runtime_progress(*, issue_number, session_name, runtime_name, runtime_kind, worktree, result):
         if runtime_kind != "codex-app-server":
             return None
         metrics = ns._runtime_metrics_payload(result)
@@ -1382,7 +1382,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         ns.save_scheduler(scheduler)
         return metrics
 
-    def _interrupt_active_coder_turn(*, issue_number=None, reason="cancel-requested"):
+    def _interrupt_active_implementation_turn(*, issue_number=None, reason="cancel-requested"):
         scheduler = ns.load_scheduler()
         threads = dict(scheduler.get("codex_threads") or {})
         key = ns._scheduler_issue_key(issue_number) if issue_number is not None else None
@@ -1436,11 +1436,11 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             "reason": reason,
         }
 
-    def _coder_agent_tiers():
+    def _implementation_actor_tiers():
         return (((getattr(ns, "WORKFLOW_YAML", {}) or {}).get("agents") or {}).get("coder") or {})
 
     def _coder_runtime_name_for_model(model):
-        tiers = ns._coder_agent_tiers()
+        tiers = ns._implementation_actor_tiers()
         model_text = str(model or "")
         for tier in tiers.values():
             if not isinstance(tier, dict):
@@ -1537,26 +1537,50 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             escalate_postpublish_finding_count=ns.CODEX_ESCALATE_POSTPUBLISH_FINDING_COUNT,
         )
 
-    def _coder_agent_name_for_model(model):
-        return ns._load_adapter_sessions_module().coder_agent_name_for_model(
+    def _implementation_actor_name_for_model(model):
+        return ns._load_adapter_sessions_module().implementation_actor_name_for_model(
             model,
             escalated_model=ns.CODEX_MODEL_ESCALATED,
-            internal_coder_agent_name=ns.INTERNAL_CODER_AGENT_NAME,
-            escalation_coder_agent_name=ns.ESCALATION_CODER_AGENT_NAME,
+            default_actor_name=ns.INTERNAL_CODER_AGENT_NAME,
+            escalated_actor_name=ns.ESCALATION_CODER_AGENT_NAME,
         )
 
-    def _actor_labels_payload(current_coder_model):
+    def _actor_labels_payload(current_implementation_model):
         return ns._load_adapter_sessions_module().actor_labels_payload(
-            current_coder_model=current_coder_model,
+            current_implementation_model=current_implementation_model,
             default_model=ns.CODEX_MODEL_DEFAULT,
             escalated_model=ns.CODEX_MODEL_ESCALATED,
-            internal_coder_agent_name=ns.INTERNAL_CODER_AGENT_NAME,
-            escalation_coder_agent_name=ns.ESCALATION_CODER_AGENT_NAME,
+            default_implementation_actor_name=ns.INTERNAL_CODER_AGENT_NAME,
+            escalated_implementation_actor_name=ns.ESCALATION_CODER_AGENT_NAME,
             internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
             internal_reviewer_model=ns.INTERNAL_REVIEW_MODEL,
             external_reviewer_agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
             advisory_reviewer_agent_name=ns.ADVISORY_REVIEWER_AGENT_NAME,
         )
+
+    def _workflow_actors_payload(implementation_actor):
+        actor = dict(implementation_actor or {})
+        return {
+            "implementationActor": {
+                "key": actor.get("key"),
+                "name": actor.get("name"),
+                "model": actor.get("model"),
+                "runtimeName": actor.get("runtimeName"),
+                "runtimeKind": actor.get("runtimeKind"),
+            },
+            "internalReviewerAgent": {
+                "name": ns.INTERNAL_REVIEWER_AGENT_NAME,
+                "model": ns.INTERNAL_REVIEW_MODEL,
+            },
+            "externalReviewerAgent": {
+                "name": ns.EXTERNAL_REVIEWER_AGENT_NAME,
+                "model": None,
+            },
+            "advisoryReviewerAgent": {
+                "name": ns.ADVISORY_REVIEWER_AGENT_NAME,
+                "model": None,
+            },
+        }
 
     def _ensure_acpx_session(*, worktree, session_name, codex_model, resume_session_id=None):
         runtime_name = ns._coder_runtime_name_for_model(codex_model)
@@ -1623,7 +1647,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             resume_session_id=resume_session_id,
             cancel_event=ns.ACTIVE_CANCEL_EVENT,
             progress_callback=(
-                lambda result: ns._record_coder_runtime_progress(
+                lambda result: ns._record_implementation_runtime_progress(
                     issue_number=issue_number,
                     session_name=session_name,
                     runtime_name=runtime_name,
@@ -1655,7 +1679,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             model=codex_model,
             cancel_event=ns.ACTIVE_CANCEL_EVENT,
             progress_callback=(
-                lambda result: ns._record_coder_runtime_progress(
+                lambda result: ns._record_implementation_runtime_progress(
                     issue_number=issue_number,
                     session_name=session_name,
                     runtime_name=runtime_name,
@@ -1753,14 +1777,18 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _normalize_implementation_for_active_lane(implementation, *, active_lane, open_pr):
-        selected_codex_model = ns._codex_model_for_issue(
-            active_lane,
-            lane_state=(implementation or {}).get("laneState"),
-            workflow_state=(implementation or {}).get("status"),
+        actor = ns._implementation_actor_for_status(
+            {
+                "activeLane": active_lane,
+                "implementation": implementation or {},
+                "ledger": {"workflowState": (implementation or {}).get("status")},
+                "reviews": {},
+            }
         )
-        session_runtime = ns._coder_runtime_kind_for_model(selected_codex_model)
+        actor_cfg = dict(actor.get("config") or {})
+        runtime_kind = actor.get("runtime_kind")
         resume_session_id = None
-        if session_runtime == "codex-app-server":
+        if runtime_kind == "codex-app-server":
             resume_session_id = ns._codex_thread_for_issue_number((active_lane or {}).get("number"))
         impl = dict(implementation or {})
         if not active_lane:
@@ -1769,8 +1797,16 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             impl,
             active_lane=active_lane,
             open_pr=open_pr,
-            selected_codex_model=selected_codex_model,
-            session_runtime=session_runtime,
+            implementation_actor={
+                "key": actor.get("name"),
+                "name": actor_cfg.get("name") or actor.get("name"),
+                "model": actor_cfg.get("model"),
+                "role": "implementation_actor",
+                "runtimeName": actor.get("runtime_name"),
+                "runtimeKind": runtime_kind,
+            },
+            runtime_name=actor.get("runtime_name"),
+            runtime_kind=runtime_kind,
             resume_session_id=resume_session_id,
         )
 
@@ -2305,7 +2341,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             run_inter_review_agent_review_fn=lambda **kw: ns._run_inter_review_agent_review(**kw),
             now_iso_fn=ns._now_iso,
             new_inter_review_agent_run_id_fn=ns._new_inter_review_agent_run_id,
-            actor_labels_payload_fn=ns._actor_labels_payload,
+            workflow_actors_payload_fn=ns._workflow_actors_payload,
             inter_review_agent_model=ns.INTERNAL_REVIEW_MODEL,
             internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
         )
@@ -2384,7 +2420,6 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             implementation_actor_name=actor["name"],
             implementation_actor_cfg=actor["config"],
             get_issue_details_fn=ns._get_issue_details,
-            actor_labels_payload_fn=ns._actor_labels_payload,
             load_ledger_fn=ns.load_ledger,
             save_ledger_fn=ns.save_ledger,
             reconcile_fn=ns.reconcile,
@@ -2392,7 +2427,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             render_implementation_dispatch_prompt_fn=ns._render_implementation_dispatch_prompt,
             runtime_name=actor["runtime_name"],
             runtime_kind=actor["runtime_kind"],
-            record_runtime_result_fn=ns._record_coder_runtime_result,
+            workflow_actors_payload_fn=ns._workflow_actors_payload,
+            record_runtime_result_fn=ns._record_implementation_runtime_result,
         )
 
     def dispatch_implementation_turn_raw():

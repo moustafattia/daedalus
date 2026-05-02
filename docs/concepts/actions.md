@@ -13,7 +13,7 @@ This page describes the `change-delivery` action queue. `issue-runner` uses shar
 | `run_internal_review` | `request_internal_review` |
 | `publish_ready_pr` | `publish_pr` |
 | `merge_and_promote` | `merge_pr` |
-| `dispatch_codex_turn` | `dispatch_implementation_turn` |
+| `dispatch_implementation_turn` | `dispatch_implementation_turn` |
 | `restart_actor_session` | `restart_actor_session` |
 | `dispatch_repair_handoff` | `dispatch_repair_handoff` |
 
@@ -23,12 +23,12 @@ That translation boundary is deliberate. The workflow package speaks **workflow 
 
 ## Action types
 
-### Coder actions
+### Implementation actor actions
 
 | Action | When dispatched |
 |---|---|
-| `dispatch_implementation_turn` | Lane has an active issue, no PR yet, and the coder session is ready. |
-| `dispatch_repair_handoff` | Reviewer (internal or external) returned findings; the coder must repair. |
+| `dispatch_implementation_turn` | Lane has an active issue, no PR yet, and the implementation actor session is ready. |
+| `dispatch_repair_handoff` | Reviewer (internal or external) returned findings; the implementation actor must repair. |
 | `restart_actor_session` | Session is stale, wedged, or the operator requested a fresh start. |
 
 ### Review actions
@@ -91,7 +91,7 @@ lane:220:request_internal_review:abc123def...
 This prevents:
 - Double-dispatching the same review on the same head
 - Re-running `merge_pr` after the PR is already merged
-- Spawning infinite coder sessions for a single issue
+- Spawning infinite implementation actor sessions for a single issue
 
 ---
 

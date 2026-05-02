@@ -145,7 +145,7 @@ def test_derive_next_action_dispatches_turn_when_no_progress_budget_is_reached()
         }
     )
 
-    assert result["type"] == "dispatch_codex_turn"
+    assert result["type"] == "dispatch_implementation_turn"
     assert result["mode"] == "implementation"
     assert result["reason"] == "no-progress-budget-reached"
 
@@ -173,7 +173,7 @@ def test_derive_next_action_dispatches_retry_turn_when_failure_budget_is_reached
         }
     )
 
-    assert result["type"] == "dispatch_codex_turn"
+    assert result["type"] == "dispatch_implementation_turn"
     assert result["mode"] == "postpublish_repair"
     assert result["reason"] == "failure-retry-budget-reached"
 
@@ -209,7 +209,7 @@ def test_derive_next_action_dispatches_internal_review_repair_handoff_when_revie
         }
     )
 
-    assert result["type"] == "dispatch_codex_turn"
+    assert result["type"] == "dispatch_implementation_turn"
     assert result["mode"] == "internal_review_repair_handoff"
     assert result["reason"] == "internal-review-findings-need-repair"
 
@@ -245,7 +245,7 @@ def test_derive_next_action_dispatches_external_review_repair_handoff_when_revie
         }
     )
 
-    assert result["type"] == "dispatch_codex_turn"
+    assert result["type"] == "dispatch_implementation_turn"
     assert result["mode"] == "external_review_repair_handoff"
     assert result["reason"] == "external-review-findings-need-repair"
 
@@ -280,7 +280,7 @@ def test_derive_next_action_dispatches_postpublish_repair_when_codex_findings_re
         }
     )
 
-    assert result["type"] == "dispatch_codex_turn"
+    assert result["type"] == "dispatch_implementation_turn"
     assert result["mode"] == "postpublish_repair"
     assert result["reason"] == "external-review-findings-need-repair"
 

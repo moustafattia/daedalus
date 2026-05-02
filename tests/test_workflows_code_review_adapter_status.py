@@ -175,20 +175,24 @@ def test_normalize_implementation_for_active_lane_preserves_matching_lane_and_se
             "worktree": "/tmp/old",
             "branch": "codex/issue-224-old",
             "laneState": {"issue": {"number": 224}},
-            "sessionRuntime": "acpx-codex",
+            "runtimeKind": "acpx-codex",
+            "runtimeName": "acpx-codex",
             "sessionName": "lane-224",
         },
         active_lane={"number": 224, "title": "[A07] Active lane"},
         open_pr={"headRefName": "codex/issue-224-pr-head"},
-        selected_codex_model="gpt-5.4",
+        implementation_actor={"key": "implementer", "name": "Implementer", "model": "gpt-5.4", "role": "implementation_actor"},
+        runtime_name="acpx-codex",
+        runtime_kind="acpx-codex",
     )
 
     assert result["session"] == "keep-me"
     assert result["worktree"] == "/tmp/issue-224"
     assert result["branch"] == "codex/issue-224-pr-head"
-    assert result["sessionRuntime"] == "acpx-codex"
+    assert result["runtimeKind"] == "acpx-codex"
+    assert result["runtimeName"] == "acpx-codex"
     assert result["sessionName"] == "lane-224"
-    assert result["codexModel"] == "gpt-5.4"
+    assert result["actorModel"] == "gpt-5.4"
 
 
 def test_normalize_implementation_for_active_lane_resets_mismatched_lane_to_fresh_expected_shape():
@@ -204,7 +208,9 @@ def test_normalize_implementation_for_active_lane_resets_mismatched_lane_to_fres
         },
         active_lane={"number": 224, "title": "[A07] Active lane"},
         open_pr=None,
-        selected_codex_model="gpt-5.3-codex",
+        implementation_actor={"key": "implementer", "name": "Implementer", "model": "gpt-5.3-codex", "role": "implementation_actor"},
+        runtime_name="acpx-codex",
+        runtime_kind="acpx-codex",
     )
 
     assert result == {
@@ -214,9 +220,13 @@ def test_normalize_implementation_for_active_lane_resets_mismatched_lane_to_fres
         "updatedAt": None,
         "branch": "codex/issue-224-active-lane",
         "status": "implementing",
-        "sessionRuntime": "acpx-codex",
+        "runtimeName": "acpx-codex",
+        "runtimeKind": "acpx-codex",
         "sessionName": "lane-224",
-        "codexModel": "gpt-5.3-codex",
+        "actorKey": "implementer",
+        "actorName": "Implementer",
+        "actorModel": "gpt-5.3-codex",
+        "actorRole": "implementation_actor",
         "resumeSessionId": None,
     }
 
@@ -228,15 +238,17 @@ def test_normalize_implementation_for_active_lane_accepts_codex_app_server_runti
         {"worktree": "/tmp/issue-224", "branch": "codex/issue-224-old"},
         active_lane={"number": 224, "title": "[A07] Active lane"},
         open_pr=None,
-        selected_codex_model="gpt-5.5",
-        session_runtime="codex-app-server",
+        implementation_actor={"key": "implementer", "name": "Implementer", "model": "gpt-5.5", "role": "implementation_actor"},
+        runtime_name="coder-runtime",
+        runtime_kind="codex-app-server",
         resume_session_id="thread-224",
     )
 
-    assert result["sessionRuntime"] == "codex-app-server"
+    assert result["runtimeKind"] == "codex-app-server"
+    assert result["runtimeName"] == "coder-runtime"
     assert result["sessionName"] == "lane-224"
     assert result["resumeSessionId"] == "thread-224"
-    assert result["codexModel"] == "gpt-5.5"
+    assert result["actorModel"] == "gpt-5.5"
 
 
 def test_collect_worktree_repo_facts_reads_branch_commit_count_and_head_sha(tmp_path):
@@ -351,7 +363,7 @@ def test_load_implementation_session_meta_prefers_acpx_session_lookup_for_acpx_r
         return {"name": session_name, "last_used_at": "2026-04-23T00:00:00Z"}
 
     result = status_module.load_implementation_session_meta(
-        {"sessionRuntime": "acpx-codex", "sessionName": "lane-224", "session": "legacy-key"},
+        {"runtimeKind": "acpx-codex", "sessionName": "lane-224", "session": "legacy-key"},
         worktree,
         show_acpx_session_fn=fake_show,
         load_latest_session_meta_fn=lambda _session: (_ for _ in ()).throw(AssertionError("legacy lookup should not run")),
@@ -371,7 +383,7 @@ def test_load_implementation_session_meta_falls_back_to_legacy_session_lookup_wh
         return {"name": session_name, "closed": False}
 
     result = status_module.load_implementation_session_meta(
-        {"sessionRuntime": "legacy", "session": "session-123"},
+        {"runtimeKind": "legacy", "session": "session-123"},
         None,
         show_acpx_session_fn=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("acpx lookup should not run")),
         load_latest_session_meta_fn=fake_load_latest,
@@ -387,7 +399,7 @@ def test_load_implementation_session_meta_synthesizes_codex_app_server_thread_me
 
     result = status_module.load_implementation_session_meta(
         {
-            "sessionRuntime": "codex-app-server",
+            "runtimeKind": "codex-app-server",
             "sessionName": "lane-224",
             "session": "thread-224",
             "resumeSessionId": "thread-224",
@@ -896,10 +908,14 @@ def test_assemble_status_payload_returns_fully_shaped_status_dict():
         "worktree": "/tmp/worktree",
         "branch": "issue-224",
         "session": "session-224",
-        "sessionRuntime": "acpx-codex",
+        "runtimeName": "acpx-codex",
+        "runtimeKind": "acpx-codex",
         "sessionName": "lane-224",
         "resumeSessionId": "sess-abc",
-        "codexModel": "gpt-5.3-codex",
+        "actorKey": "implementer",
+        "actorName": "Implementer",
+        "actorModel": "gpt-5.3-codex",
+        "actorRole": "implementation_actor",
         "updatedAt": "2026-04-23T00:00:00Z",
         "laneState": {},
     }
@@ -930,8 +946,7 @@ def test_assemble_status_payload_returns_fully_shaped_status_dict():
         nudge_preflight={"shouldNudge": False},
         acp_session_strategy={},
         publish_status="not_published",
-        preferred_codex_model="gpt-5.3-codex",
-        coder_agent_name="Internal_Coder_Agent",
+        implementation_actor={"key": "implementer", "name": "Implementer", "model": "gpt-5.3-codex", "role": "implementation_actor", "runtimeName": "acpx-codex", "runtimeKind": "acpx-codex"},
         actor_labels={},
         reviews=reviews,
         review_loop_state="awaiting_reviews",
@@ -972,9 +987,9 @@ def test_apply_ledger_reviews_and_header_writes_expected_keys():
     status_module.apply_ledger_reviews_and_header(
         ledger,
         review_loop_state="awaiting_reviews",
-        codex_model="gpt-5.3-codex",
+        implementation_actor={"key": "implementer", "name": "Implementer", "model": "gpt-5.3-codex"},
         inter_review_agent_model="claude-sonnet-4-6",
-        actor_labels={"coder": "x"},
+        actor_labels={"implementationActor": {"name": "Implementer"}},
         reviews={"rockClaw": {"a": 1}, "internalReview": {"b": 2}, "externalReview": {"c": 3}},
     )
     assert ledger["schemaVersion"] == 6
@@ -982,8 +997,8 @@ def test_apply_ledger_reviews_and_header_writes_expected_keys():
     assert ledger["internalReviewerModel"] == "claude-sonnet-4-6"
     assert "claudeModel" not in ledger
     assert "interReviewAgentModel" not in ledger
-    assert ledger["codexModel"] == "gpt-5.3-codex"
-    assert ledger["workflowActors"] == {"coder": "x"}
+    assert ledger["implementationActor"]["model"] == "gpt-5.3-codex"
+    assert ledger["workflowActors"] == {"implementationActor": {"name": "Implementer"}}
     assert ledger["approval"] == {}
     assert ledger["reviews"] == {"rockClaw": {"a": 1}, "internalReview": {"b": 2}, "externalReview": {"c": 3}}
 
@@ -998,9 +1013,13 @@ def test_apply_ledger_implementation_merge_preserves_prior_ledger_keys():
         implementation={
             "session": "session-224",
             "previousSession": None,
-            "sessionRuntime": "acpx-codex",
+            "runtimeName": "acpx-codex",
+            "runtimeKind": "acpx-codex",
             "sessionName": "lane-224",
-            "codexModel": "gpt-5.3-codex",
+            "actorKey": "implementer",
+            "actorName": "Implementer",
+            "actorModel": "gpt-5.3-codex",
+            "actorRole": "implementation_actor",
             "resumeSessionId": "sess-abc",
             "worktree": "/tmp/worktree",
             "localHeadSha": "localsha",
@@ -1014,16 +1033,15 @@ def test_apply_ledger_implementation_merge_preserves_prior_ledger_keys():
             "lastRestartAt": None,
             "laneState": {},
         },
-        codex_model_fallback="gpt-5.3-codex",
-        coder_agent_name="Internal_Coder_Agent",
+        implementation_actor={"key": "implementer", "name": "Implementer", "model": "gpt-5.3-codex", "role": "implementation_actor"},
     )
     impl = ledger["implementation"]
     # Prior extra key is preserved.
     assert impl["persistedExtra"] == "x"
     # Updated fields overwrite.
     assert impl["lastDispatchAt"] == "2026-04-23T00:00:00Z"
-    assert impl["agentName"] == "Internal_Coder_Agent"
-    assert impl["agentRole"] == "coder_agent"
+    assert impl["actorName"] == "Implementer"
+    assert impl["actorRole"] == "implementation_actor"
     assert impl["status"] == "implementing_local"
 
 
@@ -1037,9 +1055,13 @@ def test_apply_ledger_implementation_merge_falls_back_to_implementing_for_active
         implementation={
             "session": None,
             "previousSession": None,
-            "sessionRuntime": "acpx-codex",
+            "runtimeName": "acpx-codex",
+            "runtimeKind": "acpx-codex",
             "sessionName": "lane-224",
-            "codexModel": None,
+            "actorKey": None,
+            "actorName": None,
+            "actorModel": None,
+            "actorRole": None,
             "resumeSessionId": None,
             "worktree": None,
             "localHeadSha": None,
@@ -1053,12 +1075,11 @@ def test_apply_ledger_implementation_merge_falls_back_to_implementing_for_active
             "lastRestartAt": None,
             "laneState": {},
         },
-        codex_model_fallback="gpt-5.3-codex",
-        coder_agent_name="Internal_Coder_Agent",
+        implementation_actor={"key": "implementer", "name": "Implementer", "model": "gpt-5.3-codex", "role": "implementation_actor"},
     )
     # With active lane + no PR + implementation.status falsy, status defaults to "implementing".
     assert ledger["implementation"]["status"] == "implementing"
-    assert ledger["implementation"]["codexModel"] == "gpt-5.3-codex"
+    assert ledger["implementation"]["actorModel"] == "gpt-5.3-codex"
 
 
 def test_write_lane_state_skips_when_missing_worktree_or_issue(tmp_path):

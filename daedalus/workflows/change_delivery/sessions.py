@@ -169,39 +169,45 @@ def codex_model_for_issue(
 
 
 
-def coder_agent_name_for_model(model: str | None, *, escalated_model: str, internal_coder_agent_name: str, escalation_coder_agent_name: str) -> str:
+def implementation_actor_name_for_model(
+    model: str | None,
+    *,
+    escalated_model: str,
+    default_actor_name: str,
+    escalated_actor_name: str,
+) -> str:
     if model == escalated_model:
-        return escalation_coder_agent_name
-    return internal_coder_agent_name
+        return escalated_actor_name
+    return default_actor_name
 
 
 
 def actor_labels_payload(
     *,
-    current_coder_model: str | None,
+    current_implementation_model: str | None,
     default_model: str,
     escalated_model: str,
-    internal_coder_agent_name: str,
-    escalation_coder_agent_name: str,
+    default_implementation_actor_name: str,
+    escalated_implementation_actor_name: str,
     internal_reviewer_agent_name: str,
     internal_reviewer_model: str,
     external_reviewer_agent_name: str,
     advisory_reviewer_agent_name: str,
 ) -> dict[str, Any]:
     return {
-        "internalCoderAgent": {"name": internal_coder_agent_name, "model": default_model},
-        "escalationCoderAgent": {"name": escalation_coder_agent_name, "model": escalated_model},
+        "defaultImplementationActor": {"name": default_implementation_actor_name, "model": default_model},
+        "escalatedImplementationActor": {"name": escalated_implementation_actor_name, "model": escalated_model},
         "internalReviewerAgent": {"name": internal_reviewer_agent_name, "model": internal_reviewer_model},
         "externalReviewerAgent": {"name": external_reviewer_agent_name, "model": None},
         "advisoryReviewerAgent": {"name": advisory_reviewer_agent_name, "model": None},
-        "currentCoderAgent": {
-            "name": coder_agent_name_for_model(
-                current_coder_model,
+        "currentImplementationActor": {
+            "name": implementation_actor_name_for_model(
+                current_implementation_model,
                 escalated_model=escalated_model,
-                internal_coder_agent_name=internal_coder_agent_name,
-                escalation_coder_agent_name=escalation_coder_agent_name,
+                default_actor_name=default_implementation_actor_name,
+                escalated_actor_name=escalated_implementation_actor_name,
             ),
-            "model": current_coder_model,
+            "model": current_implementation_model,
         },
     }
 

@@ -139,18 +139,18 @@ def test_actor_labels_payload_uses_escalation_name_for_escalated_model():
     sessions_module = load_module("daedalus_workflows_change_delivery_sessions_test", "workflows/change_delivery/sessions.py")
 
     result = sessions_module.actor_labels_payload(
-        current_coder_model='gpt-5.4',
+        current_implementation_model='gpt-5.4',
         default_model='gpt-5.3-codex',
         escalated_model='gpt-5.4',
-        internal_coder_agent_name='Internal_Coder_Agent',
-        escalation_coder_agent_name='Escalation_Coder_Agent',
+        default_implementation_actor_name='Internal_Coder_Agent',
+        escalated_implementation_actor_name='Escalation_Coder_Agent',
         internal_reviewer_agent_name='Internal_Reviewer_Agent',
         internal_reviewer_model='claude-sonnet-4-6',
         external_reviewer_agent_name='External_Reviewer_Agent',
         advisory_reviewer_agent_name='Advisory_Reviewer_Agent',
     )
 
-    assert result['currentCoderAgent'] == {'name': 'Escalation_Coder_Agent', 'model': 'gpt-5.4'}
+    assert result['currentImplementationActor'] == {'name': 'Escalation_Coder_Agent', 'model': 'gpt-5.4'}
 
 
 def test_build_and_record_session_nudge_payload_capture_session_issue_and_pr_context(tmp_path):

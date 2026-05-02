@@ -119,7 +119,7 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
         implementation_session_key=implementation.get("session"),
         session_action=session_action_recommendation,
         lane_state=lane_state,
-        session_runtime=implementation.get("sessionRuntime"),
+        session_runtime=implementation.get("runtimeKind"),
         session_name=implementation.get("sessionName"),
         resume_session_id=implementation.get("resumeSessionId"),
     )
@@ -200,7 +200,7 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
             implementation_session_key=implementation.get("session"),
             session_action=session_action_recommendation,
             lane_state=lane_state,
-            session_runtime=implementation.get("sessionRuntime"),
+            session_runtime=implementation.get("runtimeKind"),
             session_name=implementation.get("sessionName"),
             resume_session_id=implementation.get("resumeSessionId"),
         )
@@ -243,12 +243,14 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
         broken_watchers=broken_watchers,
     )
 
-    preferred_codex_model = ws._codex_model_for_issue(
-        active_lane,
-        lane_state=implementation.get("laneState"),
-        workflow_state=ledger.get("workflowState"),
-        reviews=reviews,
-    )
+    implementation_actor = {
+        "key": implementation.get("actorKey"),
+        "name": implementation.get("actorName"),
+        "model": implementation.get("actorModel"),
+        "role": implementation.get("actorRole") or "implementation_actor",
+        "runtimeName": implementation.get("runtimeName"),
+        "runtimeKind": implementation.get("runtimeKind"),
+    }
     legacy_watchdog_mode = ws._legacy_watchdog_mode(managed_job_names=managed_job_names, job_map=job_map)
     adapter_status = ws._load_adapter_status_module()
     publish_status = adapter_status.derive_publish_status(open_pr, publish_ready=publish_ready)
@@ -305,9 +307,8 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
         nudge_preflight=nudge_preflight,
         acp_session_strategy=acp_session_strategy,
         publish_status=publish_status,
-        preferred_codex_model=preferred_codex_model,
-        coder_agent_name=ws._coder_agent_name_for_model(implementation.get("codexModel") or preferred_codex_model),
-        actor_labels=ws._actor_labels_payload(implementation.get("codexModel") or preferred_codex_model),
+        implementation_actor=implementation_actor,
+        actor_labels=ws._workflow_actors_payload(implementation_actor),
         reviews=reviews,
         review_loop_state=review_loop_state,
         merge_blocked=merge_blocked,
@@ -349,12 +350,14 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
     merge_blocked = bool(status.get("derivedMergeBlocked"))
     pre_publish_review_preflight = ((status.get("preflight") or {}).get("prePublishReview") or {})
     now_iso = status["updatedAt"]
-    codex_model = impl.get("codexModel") or ws._codex_model_for_issue(
-        active_lane,
-        lane_state=impl.get("laneState"),
-        workflow_state=(status.get("ledger") or {}).get("workflowState"),
-        reviews=reviews,
-    )
+    implementation_actor = {
+        "key": impl.get("actorKey"),
+        "name": impl.get("actorName"),
+        "model": impl.get("actorModel"),
+        "role": impl.get("actorRole") or "implementation_actor",
+        "runtimeName": impl.get("runtimeName"),
+        "runtimeKind": impl.get("runtimeKind"),
+    }
 
     if (
         open_pr
@@ -374,12 +377,14 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
         merge_blocked = bool(status.get("derivedMergeBlocked"))
         pre_publish_review_preflight = ((status.get("preflight") or {}).get("prePublishReview") or {})
         now_iso = status["updatedAt"]
-        codex_model = impl.get("codexModel") or ws._codex_model_for_issue(
-            active_lane,
-            lane_state=impl.get("laneState"),
-            workflow_state=(status.get("ledger") or {}).get("workflowState"),
-            reviews=reviews,
-        )
+        implementation_actor = {
+            "key": impl.get("actorKey"),
+            "name": impl.get("actorName"),
+            "model": impl.get("actorModel"),
+            "role": impl.get("actorRole") or "implementation_actor",
+            "runtimeName": impl.get("runtimeName"),
+            "runtimeKind": impl.get("runtimeKind"),
+        }
         changed["ledger"] = True
 
     latest_progress = ws._derive_latest_progress(
@@ -396,9 +401,9 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
     adapter_status.apply_ledger_reviews_and_header(
         ledger,
         review_loop_state=review_loop_state,
-        codex_model=codex_model,
+        implementation_actor=implementation_actor,
         inter_review_agent_model=ws.INTERNAL_REVIEW_MODEL,
-        actor_labels=ws._actor_labels_payload(codex_model),
+        actor_labels=ws._workflow_actors_payload(implementation_actor),
         reviews=reviews,
     )
     ws._audit_inter_review_agent_transition(previous_internal_review, get_review(reviews, "internalReview"))
@@ -407,13 +412,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
         active_lane=active_lane,
         open_pr=open_pr,
         implementation=impl,
-        codex_model_fallback=ws._codex_model_for_issue(
-            active_lane,
-            lane_state=impl.get("laneState"),
-            workflow_state=ledger.get("workflowState"),
-            reviews=reviews,
-        ),
-        coder_agent_name=ws._coder_agent_name_for_model(impl.get("codexModel") or codex_model),
+        implementation_actor=implementation_actor,
     )
 
     if active_lane:

@@ -25,6 +25,13 @@ BANNED_TERMS = (
     "CLAUDE_REVIEW_",
     "CLAUDE_PASS_",
     "CODEX_CLOUD_",
+    "dispatch_codex_turn",
+    "sessionRuntime",
+    "coder_agent",
+    "Codex implementation session",
+    "persistent Codex implementation",
+    "active coder session",
+    "active Codex session",
 )
 
 SCAN_ROOTS = (

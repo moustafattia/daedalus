@@ -370,7 +370,7 @@ def run_dispatch_lane_turn(
     implementation_actor_name: str,
     implementation_actor_cfg: dict[str, Any],
     get_issue_details_fn: Callable[[Any], dict[str, Any] | None],
-    actor_labels_payload_fn: Callable[[str | None], dict[str, Any]],
+    workflow_actors_payload_fn: Callable[[dict[str, Any]], dict[str, Any]],
     load_ledger_fn: Callable[[], dict[str, Any]],
     save_ledger_fn: Callable[[dict[str, Any]], Any],
     reconcile_fn: Callable[..., dict[str, Any]],
@@ -494,25 +494,29 @@ def run_dispatch_lane_turn(
         or session_meta.get('session_id')
         or ensured_session_id
     )
+    implementation_actor = {
+        "key": actor_key,
+        "name": actor_display_name,
+        "model": actor_model,
+        "role": "implementation_actor",
+        "runtimeName": runtime_name,
+        "runtimeKind": runtime_kind or "acpx-codex",
+    }
     ledger = load_ledger_fn()
     ledger.setdefault('implementation', {})
-    ledger['actorModel'] = actor_model
-    ledger['codexModel'] = actor_model
-    ledger['workflowActors'] = actor_labels_payload_fn(actor_model)
+    ledger['implementationActor'] = implementation_actor
+    ledger['workflowActors'] = workflow_actors_payload_fn(implementation_actor)
     ledger['implementation'] = {
         **ledger.get('implementation', {}),
         'session': session_record_id,
         'previousSession': ledger.get('implementation', {}).get('previousSession'),
-        'sessionRuntime': runtime_kind or 'acpx-codex',
         'runtimeName': runtime_name,
+        'runtimeKind': runtime_kind or 'acpx-codex',
         'sessionName': session_name,
         'actorKey': actor_key,
         'actorName': actor_display_name,
         'actorModel': actor_model,
         'actorRole': 'implementation_actor',
-        'codexModel': actor_model,
-        'agentName': actor_display_name,
-        'agentRole': 'coder_agent',
         'resumeSessionId': resume_session_id,
         'threadId': runtime_metrics.get("thread_id"),
         'turnId': runtime_metrics.get("turn_id"),
@@ -534,13 +538,12 @@ def run_dispatch_lane_turn(
         'dispatched': True,
         'action': action,
         'issueNumber': issue.get('number'),
-        'sessionRuntime': runtime_kind or 'acpx-codex',
         'runtimeName': runtime_name,
+        'runtimeKind': runtime_kind or 'acpx-codex',
         'sessionName': session_name,
         'actorKey': actor_key,
         'actorName': actor_display_name,
         'actorModel': actor_model,
-        'codexModel': actor_model,
         'sessionRecordId': session_record_id,
         'resumeSessionId': resume_session_id,
         'threadId': runtime_metrics.get("thread_id"),
@@ -575,7 +578,7 @@ def run_dispatch_inter_review_agent_review(
     run_inter_review_agent_review_fn: Callable[..., dict[str, Any]],
     now_iso_fn: Callable[[], str],
     new_inter_review_agent_run_id_fn: Callable[[], str],
-    actor_labels_payload_fn: Callable[[str | None], dict[str, Any]],
+    workflow_actors_payload_fn: Callable[[dict[str, Any]], dict[str, Any]],
     inter_review_agent_model: str,
     internal_reviewer_agent_name: str,
     pending_summary: str = "Pending local unpublished branch review before publication.",
@@ -625,7 +628,7 @@ def run_dispatch_inter_review_agent_review(
         agent_role=agent_role,
     )
     ledger['internalReviewerModel'] = inter_review_agent_model
-    ledger['workflowActors'] = actor_labels_payload_fn(impl.get('codexModel'))
+    ledger['workflowActors'] = workflow_actors_payload_fn(ledger.get("implementationActor") or {})
     save_ledger_fn(ledger)
     audit_inter_review_agent_transition_fn(previous, ledger['reviews']['internalReview'])
     memo_path = Path(impl['laneMemoPath']) if impl.get('laneMemoPath') else lane_memo_path(worktree)
@@ -659,7 +662,7 @@ def run_dispatch_inter_review_agent_review(
             agent_role=agent_role,
         )
         ledger['internalReviewerModel'] = inter_review_agent_model
-        ledger['workflowActors'] = actor_labels_payload_fn(impl.get('codexModel'))
+        ledger['workflowActors'] = workflow_actors_payload_fn(ledger.get("implementationActor") or {})
         save_ledger_fn(ledger)
         audit_inter_review_agent_transition_fn(previous, ledger['reviews']['internalReview'])
         raise
@@ -680,7 +683,7 @@ def run_dispatch_inter_review_agent_review(
     previous = get_review(ledger['reviews'], 'internalReview').copy()
     ledger['reviews']['internalReview'] = final_review
     ledger['internalReviewerModel'] = inter_review_agent_model
-    ledger['workflowActors'] = actor_labels_payload_fn(impl.get('codexModel'))
+    ledger['workflowActors'] = workflow_actors_payload_fn(ledger.get("implementationActor") or {})
     save_ledger_fn(ledger)
     audit_inter_review_agent_transition_fn(previous, final_review)
     after = reconcile_fn(fix_watchers=True)
@@ -716,7 +719,7 @@ def run_tick_raw(
     action_type = action.get('type')
     if action_type == 'run_internal_review':
         executed = dispatch_inter_review_agent_review_fn()
-    elif action_type == 'dispatch_codex_turn':
+    elif action_type == 'dispatch_implementation_turn':
         executed = dispatch_implementation_turn_fn()
     elif action_type == 'publish_ready_pr':
         executed = publish_ready_pr_fn()

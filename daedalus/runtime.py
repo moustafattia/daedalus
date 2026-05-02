@@ -1020,8 +1020,7 @@ def _required_review_flags(legacy_status: dict[str, Any]) -> tuple[int, int]:
 
 def _implementation_backend_type(impl: dict[str, Any]) -> str:
     return str(
-        impl.get("sessionRuntime")
-        or impl.get("runtimeKind")
+        impl.get("runtimeKind")
         or impl.get("backendType")
         or "acpx-codex"
     )
@@ -1149,8 +1148,8 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
               updated_at=excluded.updated_at
             """,
             (
-                actor_id, lane_id, "Internal_Coder_Agent", "Internal_Coder_Agent", implementation_backend,
-                impl.get("sessionName"), impl.get("resumeSessionId"), impl.get("codexModel"),
+                actor_id, lane_id, impl.get("actorName") or "Implementation_Actor", impl.get("actorRole") or "implementation_actor", implementation_backend,
+                impl.get("sessionName"), impl.get("resumeSessionId"), impl.get("actorModel"),
                 "healthy" if (impl.get("activeSessionHealth") or {}).get("healthy") else "unhealthy",
                 (impl.get("sessionActionRecommendation") or {}).get("action"), now_iso,
                 (impl.get("activeSessionHealth") or {}).get("lastUsedAt") or now_iso,
@@ -3593,11 +3592,11 @@ def compare_with_legacy_status(*, workflow_root: Path, legacy_status: dict[str, 
         ("publish_ready_pr", "publish_pr"),
         ("merge_and_promote", "merge_pr"),
         ("run_internal_review", "request_internal_review"),
-        ("dispatch_codex_turn", "dispatch_implementation_turn"),
+        ("dispatch_implementation_turn", "dispatch_implementation_turn"),
         ("noop", "noop"),
         ("noop", None),
         ("push_pr_update", "push_pr_update"),
-        ("dispatch_codex_turn", "dispatch_repair_handoff"),
+        ("dispatch_implementation_turn", "dispatch_repair_handoff"),
     }
     relay_action_type = relay_action.get("action_type") if relay_action else None
     compatible = (legacy_action.get("type"), relay_action_type) in compatibility
@@ -4049,7 +4048,7 @@ def _interrupt_active_loop_codex_turn(
 ) -> dict[str, Any] | None:
     try:
         workspace = _load_legacy_workflow_module(workflow_root)
-        interrupter = getattr(workspace, "_interrupt_active_coder_turn", None)
+        interrupter = getattr(workspace, "_interrupt_active_implementation_turn", None)
         if not callable(interrupter):
             return None
         return interrupter(issue_number=supervised_iteration.get("issue_number"), reason=reason)

@@ -152,7 +152,7 @@ def test_ingest_legacy_status_preserves_active_action_operator_attention(runtime
         "openPr": None,
         "activeLaneError": None,
         "staleLaneReasons": [],
-        "nextAction": {"type": "dispatch_codex_turn", "reason": "implementation-in-progress"},
+        "nextAction": {"type": "dispatch_implementation_turn", "reason": "implementation-in-progress"},
     }
 
     runtime_module.ingest_legacy_status(workflow_root=workflow_root, legacy_status=legacy_status, now_iso="2026-04-22T00:01:00Z")
@@ -193,7 +193,7 @@ def test_ingest_legacy_status_uses_canonical_internal_review_for_active_request(
             "worktree": "/tmp/issue-221",
             "branch": "codex/issue-221-test",
             "localHeadSha": "abc123",
-            "sessionRuntime": "codex-app-server",
+            "runtimeKind": "codex-app-server",
             "laneState": {"implementation": {}, "pr": {"lastPublishedHeadSha": None}},
             "activeSessionHealth": {"healthy": False, "lastUsedAt": None},
             "sessionActionRecommendation": {"action": "restart-session"},
@@ -868,7 +868,7 @@ def _active_dispatch_legacy_status() -> dict:
         "openPr": None,
         "activeLaneError": None,
         "staleLaneReasons": [],
-        "nextAction": {"type": "dispatch_codex_turn", "reason": "implementation-in-progress"},
+        "nextAction": {"type": "dispatch_implementation_turn", "reason": "implementation-in-progress"},
     }
 
 

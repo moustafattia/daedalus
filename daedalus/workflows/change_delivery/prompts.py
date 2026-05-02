@@ -125,11 +125,11 @@ def render_implementation_dispatch_prompt(
         open_pr_block = "There is no open PR yet for this lane."
 
     if action == "restart-session":
-        action_line = "You are resuming ownership in a persistent Codex session after the previous owner was missing or stale."
+        action_line = "You are resuming ownership in the configured implementation actor session after the previous owner was missing or stale."
     elif action == "poke-session":
-        action_line = "The existing persistent Codex session went quiet; continue from the lane memo/state without re-scoping the task."
+        action_line = "The existing implementation actor session went quiet; continue from the lane memo/state without re-scoping the task."
     else:
-        action_line = "Continue the existing persistent Codex implementation session for this lane without re-reading the full issue brief unless the lane memo/state requires it."
+        action_line = "Continue the configured implementation actor session for this lane without re-reading the full issue brief unless the lane memo/state requires it."
 
     if workflow_state == "ready_to_publish":
         action_and_workflow_block = "\n".join([

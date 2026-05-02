@@ -281,7 +281,7 @@ order by requested_at desc;
 
 **Ask:**
 - Is the lane local/no-PR or published/PR-backed?
-- Is the coder session stale?
+- Is the implementation actor session stale?
 - Did a repair handoff already go out?
 - Is the local head ahead of PR head?
 - Are you looking at workflow-derived truth or Daedalus runtime truth?

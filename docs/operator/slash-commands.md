@@ -209,7 +209,7 @@ This is the opinionated managed SDLC workflow.
 || `/workflow change-delivery show-active-lane` | Current active GitHub issue |
 || `/workflow change-delivery show-lane-state` | `.lane-state.json` contents |
 || `/workflow change-delivery show-lane-memo` | `.lane-memo.md` contents |
-|| `/workflow change-delivery dispatch-implementation-turn` | Force a coder turn |
+|| `/workflow change-delivery dispatch-implementation-turn` | Force an implementation actor turn |
 || `/workflow change-delivery dispatch-internal-review` | Force an internal review |
 || `/workflow change-delivery publish-ready-pr` | Force PR publish |
 || `/workflow change-delivery merge-and-promote` | Force merge + promote next lane |

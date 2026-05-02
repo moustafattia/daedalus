@@ -126,12 +126,14 @@ def normalize_implementation_for_active_lane(
     *,
     active_lane: dict[str, Any] | None,
     open_pr: dict[str, Any] | None,
-    selected_codex_model: str | None,
-    session_runtime: str = "acpx-codex",
+    implementation_actor: dict[str, Any] | None,
+    runtime_name: str | None = None,
+    runtime_kind: str = "acpx-codex",
     session_name: str | None = None,
     resume_session_id: str | None = None,
 ) -> dict[str, Any]:
     impl = dict(implementation or {})
+    actor = dict(implementation_actor or {})
     if not active_lane:
         return impl
     lane_number = active_lane.get("number")
@@ -143,9 +145,13 @@ def normalize_implementation_for_active_lane(
             impl["worktree"] = str(expected_worktree)
         if expected_branch:
             impl["branch"] = expected_branch
-        impl["sessionRuntime"] = session_runtime or impl.get("sessionRuntime") or "acpx-codex"
+        impl["runtimeName"] = runtime_name or impl.get("runtimeName")
+        impl["runtimeKind"] = runtime_kind or impl.get("runtimeKind") or "acpx-codex"
         impl["sessionName"] = expected_session_name
-        impl["codexModel"] = selected_codex_model
+        impl["actorKey"] = actor.get("key")
+        impl["actorName"] = actor.get("name")
+        impl["actorModel"] = actor.get("model")
+        impl["actorRole"] = actor.get("role") or "implementation_actor"
         if resume_session_id:
             impl["resumeSessionId"] = resume_session_id
         return impl
@@ -156,9 +162,13 @@ def normalize_implementation_for_active_lane(
         "updatedAt": None,
         "branch": expected_branch,
         "status": "implementing" if not open_pr else impl.get("status"),
-        "sessionRuntime": session_runtime or "acpx-codex",
+        "runtimeName": runtime_name,
+        "runtimeKind": runtime_kind or "acpx-codex",
         "sessionName": expected_session_name,
-        "codexModel": selected_codex_model,
+        "actorKey": actor.get("key"),
+        "actorName": actor.get("name"),
+        "actorModel": actor.get("model"),
+        "actorRole": actor.get("role") or "implementation_actor",
         "resumeSessionId": resume_session_id,
     }
 
@@ -232,9 +242,9 @@ def load_implementation_session_meta(
     load_latest_session_meta_fn: Callable[[str | None], dict[str, Any] | None],
 ) -> dict[str, Any] | None:
     impl = implementation or {}
-    if impl.get("sessionRuntime") == "acpx-codex":
+    if impl.get("runtimeKind") == "acpx-codex":
         return show_acpx_session_fn(worktree=worktree, session_name=impl.get("sessionName"))
-    if impl.get("sessionRuntime") == "codex-app-server":
+    if impl.get("runtimeKind") == "codex-app-server":
         thread_id = impl.get("threadId") or impl.get("resumeSessionId") or impl.get("session")
         return {
             "name": impl.get("sessionName"),
@@ -404,8 +414,7 @@ def assemble_status_payload(
     nudge_preflight: dict[str, Any],
     acp_session_strategy: dict[str, Any],
     publish_status: str,
-    preferred_codex_model: str | None,
-    coder_agent_name: str,
+    implementation_actor: dict[str, Any],
     actor_labels: dict[str, Any],
     reviews: dict[str, Any],
     review_loop_state: str | None,
@@ -453,7 +462,7 @@ def assemble_status_payload(
             "externalReviewAutoResolved": get_ledger_field(ledger, "externalReviewAutoResolved"),
             "sessionNudge": ledger.get("sessionNudge"),
             "repairBrief": effective_repair_brief,
-            "codexModel": implementation.get("codexModel") or preferred_codex_model or (ledger.get("implementation") or {}).get("codexModel"),
+            "implementationActor": implementation_actor,
             "internalReviewerModel": (
                 get_ledger_field(ledger, "internalReviewerModel")
                 or (get_review(reviews, "internalReview").get("model"))
@@ -463,11 +472,13 @@ def assemble_status_payload(
         },
         "implementation": {
             "session": implementation.get("session"),
-            "sessionRuntime": implementation.get("sessionRuntime"),
+            "runtimeName": implementation.get("runtimeName"),
+            "runtimeKind": implementation.get("runtimeKind"),
             "sessionName": implementation.get("sessionName"),
-            "codexModel": implementation.get("codexModel") or preferred_codex_model,
-            "agentName": coder_agent_name,
-            "agentRole": "coder_agent",
+            "actorKey": implementation.get("actorKey"),
+            "actorName": implementation.get("actorName"),
+            "actorModel": implementation.get("actorModel"),
+            "actorRole": implementation.get("actorRole") or "implementation_actor",
             "resumeSessionId": implementation.get("resumeSessionId"),
             "threadId": implementation.get("threadId"),
             "turnId": implementation.get("turnId"),
@@ -553,7 +564,7 @@ def apply_ledger_reviews_and_header(
     ledger: dict[str, Any],
     *,
     review_loop_state: str | None,
-    codex_model: str | None,
+    implementation_actor: dict[str, Any],
     inter_review_agent_model: str,
     actor_labels: dict[str, Any],
     reviews: dict[str, Any],
@@ -566,7 +577,7 @@ def apply_ledger_reviews_and_header(
     ledger["schemaVersion"] = 6
     ledger["reviewLoopState"] = review_loop_state
     ledger["internalReviewerModel"] = inter_review_agent_model
-    ledger["codexModel"] = codex_model
+    ledger["implementationActor"] = implementation_actor
     ledger["workflowActors"] = actor_labels
     ledger.setdefault("approval", {})
     ledger.setdefault("reviews", {})
@@ -581,8 +592,7 @@ def apply_ledger_implementation_merge(
     active_lane: dict[str, Any] | None,
     open_pr: dict[str, Any] | None,
     implementation: dict[str, Any],
-    codex_model_fallback: str | None,
-    coder_agent_name: str,
+    implementation_actor: dict[str, Any],
 ) -> None:
     """Merge the canonical implementation sub-object into the ledger.
 
@@ -599,11 +609,13 @@ def apply_ledger_implementation_merge(
         **existing_impl,
         "session": impl.get("session"),
         "previousSession": impl.get("previousSession"),
-        "sessionRuntime": impl.get("sessionRuntime"),
+        "runtimeName": impl.get("runtimeName"),
+        "runtimeKind": impl.get("runtimeKind"),
         "sessionName": impl.get("sessionName"),
-        "codexModel": impl.get("codexModel") or codex_model_fallback,
-        "agentName": coder_agent_name,
-        "agentRole": "coder_agent",
+        "actorKey": impl.get("actorKey") or implementation_actor.get("key"),
+        "actorName": impl.get("actorName") or implementation_actor.get("name"),
+        "actorModel": impl.get("actorModel") or implementation_actor.get("model"),
+        "actorRole": impl.get("actorRole") or implementation_actor.get("role") or "implementation_actor",
         "resumeSessionId": impl.get("resumeSessionId"),
         "threadId": impl.get("threadId"),
         "turnId": impl.get("turnId"),

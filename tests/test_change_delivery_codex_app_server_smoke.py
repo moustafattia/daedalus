@@ -251,11 +251,11 @@ def test_live_change_delivery_codex_app_server_creates_issue_and_dispatches_lane
 
         status = workspace.reconcile(fix_watchers=True)
         assert status["activeLane"]["number"] == int(issue_number)
-        assert status["implementation"]["sessionRuntime"] == "codex-app-server"
+        assert status["implementation"]["runtimeKind"] == "codex-app-server"
 
         result = workspace.dispatch_implementation_turn()
         assert result["dispatched"] is True
-        assert result["sessionRuntime"] == "codex-app-server"
+        assert result["runtimeKind"] == "codex-app-server"
         assert result["issueNumber"] == int(issue_number)
         assert result["threadId"] or result["resumeSessionId"]
 

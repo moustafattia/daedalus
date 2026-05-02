@@ -152,7 +152,7 @@ lane:<id>:<action_type>:<head_sha>
 This prevents:
 - Double-dispatching the same review on the same head
 - Re-running `merge_pr` after the PR is already merged
-- Spawning infinite coder sessions for a single issue
+- Spawning infinite implementation actor sessions for a single issue
 
 ### 3. State Is Tracked, Not Guessed
 

@@ -9,7 +9,7 @@ stateDiagram-v2
     [*] --> shadow_observed: lane discovered
     shadow_observed --> active_pending: gate opens
     active_pending --> coding_dispatched: dispatch tick
-    coding_dispatched --> awaiting_internal_review: coder turn ends
+    coding_dispatched --> awaiting_internal_review: implementation actor turn ends
     awaiting_internal_review --> changes_requested: reviewer rejects
     changes_requested --> coding_dispatched: re-dispatch
     awaiting_internal_review --> awaiting_external_review: internal ✅

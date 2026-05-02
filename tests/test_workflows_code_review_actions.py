@@ -258,7 +258,7 @@ def test_run_ensure_active_lane_promotes_first_eligible_issue():
         return {
             "health": "healthy",
             "activeLane": {"number": 225},
-            "nextAction": {"type": "dispatch_codex_turn"},
+            "nextAction": {"type": "dispatch_implementation_turn"},
         }
 
     result = actions_module.run_ensure_active_lane(
@@ -274,7 +274,7 @@ def test_run_ensure_active_lane_promotes_first_eligible_issue():
     assert result["ok"] is True
     assert result["promoted"] is True
     assert result["issueNumber"] == 225
-    assert result["after"] == {"health": "healthy", "activeLane": 225, "nextAction": "dispatch_codex_turn"}
+    assert result["after"] == {"health": "healthy", "activeLane": 225, "nextAction": "dispatch_implementation_turn"}
     assert ("add", 225, "active-lane") in calls
     assert any(call[0] == "comment" and call[1] == 225 for call in calls)
     assert ("reconcile", True) in calls
@@ -358,8 +358,8 @@ def _dispatch_deps(tmp_path: Path):
     def get_issue_details_fn(number):
         return {"labels": []}
 
-    def actor_labels_payload_fn(model):
-        return {}
+    def workflow_actors_payload_fn(actor):
+        return {"implementationActor": actor}
 
     ledger = {"implementation": {}, "workflowState": "implementing_local"}
 
@@ -394,7 +394,7 @@ def _dispatch_deps(tmp_path: Path):
         "runtime_name": "acpx-codex",
         "runtime_kind": "acpx-codex",
         "get_issue_details_fn": get_issue_details_fn,
-        "actor_labels_payload_fn": actor_labels_payload_fn,
+        "workflow_actors_payload_fn": workflow_actors_payload_fn,
         "load_ledger_fn": load_ledger_fn,
         "save_ledger_fn": save_ledger_fn,
         "reconcile_fn": reconcile_fn,
@@ -425,7 +425,7 @@ def test_run_dispatch_lane_turn_executes_continue_session_when_healthy(tmp_path)
             "worktree": str(worktree),
             "branch": "issue-224",
             "sessionName": "lane-224",
-            "codexModel": "gpt-5.3-codex",
+            "actorModel": "gpt-5.3-codex",
             "resumeSessionId": "sess-abc",
             "sessionActionRecommendation": {"action": "continue-session"},
             "laneState": {},
@@ -462,7 +462,7 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
             "worktree": str(worktree),
             "branch": "issue-224",
             "sessionName": "lane-224",
-            "codexModel": "gpt-5.5",
+            "actorModel": "gpt-5.5",
             "resumeSessionId": "thread-existing",
             "sessionActionRecommendation": {"action": "continue-session"},
             "laneState": {},
@@ -512,7 +512,7 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
         },
     )
 
-    assert result["sessionRuntime"] == "codex-app-server"
+    assert result["runtimeKind"] == "codex-app-server"
     assert result["runtimeName"] == "coder-runtime"
     assert result["threadId"] == "thread-1"
     assert result["turnId"] == "turn-1"
@@ -520,7 +520,7 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
     assert result["metrics"]["tokens"]["total_tokens"] == 18
     assert recorded["issue"]["number"] == 224
     impl = state["save_ledger"][-1]["implementation"]
-    assert impl["sessionRuntime"] == "codex-app-server"
+    assert impl["runtimeKind"] == "codex-app-server"
     assert impl["session"] == "thread-1"
     assert impl["actorName"] == "Change_Implementer"
     assert impl["actorModel"] == "gpt-5.5"
@@ -537,7 +537,7 @@ def test_run_dispatch_lane_turn_reconciles_runtime_error_after_local_head(tmp_pa
             "worktree": str(worktree),
             "branch": "issue-224",
             "sessionName": "lane-224",
-            "codexModel": "gpt-5.5",
+            "actorModel": "gpt-5.5",
             "resumeSessionId": "thread-existing",
             "sessionActionRecommendation": {"action": "continue-session"},
             "laneState": {},
@@ -647,7 +647,7 @@ def _dispatch_review_deps(tmp_path: Path):
     def reconcile_fn(*, fix_watchers=False):
         return {
             "activeLane": {"number": 224, "title": "T", "url": "https://example.test/224"},
-            "implementation": {"worktree": str(worktree), "codexModel": "gpt-5.3-codex"},
+            "implementation": {"worktree": str(worktree), "actorModel": "gpt-5.3-codex"},
             "preflight": {"prePublishReview": {"shouldRun": True, "currentHeadSha": "head123"}},
         }
 
@@ -693,7 +693,7 @@ def _dispatch_review_deps(tmp_path: Path):
         "run_inter_review_agent_review_fn": run_review_fn,
         "now_iso_fn": now_iso_fn,
         "new_inter_review_agent_run_id_fn": new_run_id_fn,
-        "actor_labels_payload_fn": actor_labels_fn,
+        "workflow_actors_payload_fn": lambda actor: {"implementationActor": actor},
         "inter_review_agent_model": "claude-sonnet-4-6",
         "internal_reviewer_agent_name": "Internal_Reviewer_Agent",
     }

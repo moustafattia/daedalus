@@ -90,7 +90,7 @@ How code gets written, reviewed, and shipped by explicit actors with defined rol
 | Concept | One-Liner | Read This If... |
 |:---|:---|:---|
 | [**Runtimes**](./runtimes.md) | The thing Daedalus shells out to. Claude CLI, Codex, or any subprocess that speaks the session protocol. | ...you want to add a new AI backend or local tool. |
-| [**Sessions**](./sessions.md) | The runtime's handle to a persistent or one-shot execution context. | ...you want to understand how Daedalus manages long-lived coder sessions. |
+| [**Sessions**](./sessions.md) | The runtime's handle to a persistent or one-shot execution context. | ...you want to understand how Daedalus manages long-lived implementation actor sessions. |
 | [**Reviewers**](./reviewers.md) | Multi-stage review pipeline: internal, external (external review), advisory (optional). | ...you want to see how review gates are structured and enforced. |
 
 **The narrative arc:** *Runtimes* execute → *Sessions* persist state → *Reviewers* gate quality.

@@ -130,7 +130,7 @@ def derive_next_action(
 
     if int(budget_state.get("noProgressTicks") or 0) >= no_progress_tick_budget and workflow_state in {"implementing_local", "implementing"} and session_action.get("action") in {"continue-session", "poke-session", "restart-session"}:
         return {
-            "type": "dispatch_codex_turn",
+            "type": "dispatch_implementation_turn",
             "mode": "implementation",
             "reason": "no-progress-budget-reached",
             "issueNumber": active_lane.get("number"),
@@ -140,7 +140,7 @@ def derive_next_action(
 
     if int(failure_state.get("retryCount") or 0) >= failure_retry_budget and workflow_state in {"implementing_local", "implementing", "pre_publish_review_findings", "findings_open", "rework_required"} and session_action.get("action") in {"continue-session", "poke-session", "restart-session"}:
         return {
-            "type": "dispatch_codex_turn",
+            "type": "dispatch_implementation_turn",
             "mode": "implementation" if not open_pr else "postpublish_repair",
             "reason": "failure-retry-budget-reached",
             "issueNumber": active_lane.get("number"),
@@ -182,7 +182,7 @@ def derive_next_action(
         has_open_pr=bool(open_pr),
     ).get("shouldDispatch"):
         return {
-            "type": "dispatch_codex_turn",
+            "type": "dispatch_implementation_turn",
             "mode": "internal_review_repair_handoff",
             "reason": "internal-review-findings-need-repair",
             "issueNumber": active_lane.get("number"),
@@ -200,7 +200,7 @@ def derive_next_action(
         has_open_pr=bool(open_pr),
     ).get("shouldDispatch"):
         return {
-            "type": "dispatch_codex_turn",
+            "type": "dispatch_implementation_turn",
             "mode": "external_review_repair_handoff",
             "reason": "external-review-findings-need-repair",
             "issueNumber": active_lane.get("number"),
@@ -222,7 +222,7 @@ def derive_next_action(
         and (repair_brief.get("mustFix") or repair_brief.get("shouldFix"))
     ):
         return {
-            "type": "dispatch_codex_turn",
+            "type": "dispatch_implementation_turn",
             "mode": "postpublish_repair",
             "reason": "external-review-findings-need-repair",
             "issueNumber": active_lane.get("number"),
@@ -240,7 +240,7 @@ def derive_next_action(
                 "sessionName": session_action.get("sessionName"),
             }
         return {
-            "type": "dispatch_codex_turn",
+            "type": "dispatch_implementation_turn",
             "mode": "implementation",
             "reason": "implementation-in-progress",
             "issueNumber": active_lane.get("number"),
