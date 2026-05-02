@@ -30,7 +30,7 @@ the plugin-local `engine` package:
 | Module | Shared Primitive |
 |---|---|
 | `engine.db` | SQLite connection setup, table names, schema creation, and compatibility migrations. |
-| `engine.work_items` | Neutral work-item/result dataclasses plus issue/lane adapters. |
+| `engine.work` | Neutral work/result dataclasses plus tracker adapters. |
 | `engine.lifecycle` | Shared running, retry, clear, and restart-recovery mutation helpers. |
 | `engine.state` | Low-level SQL read/write projections for scheduler state, runs, and events. |
 | `engine.leases` | Shared lease acquire/release/status helpers for ownership and heartbeat checks. |

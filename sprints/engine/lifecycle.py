@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .work_items import RetryEntry, RunningWork, WorkItemRef
+from .work import RetryEntry, RunningWork, WorkItemRef
 
 
 def clear_work_entries(

@@ -25,7 +25,7 @@ from engine.state import (
     read_engine_runs,
     read_engine_scheduler_state,
 )
-from engine.work_items import work_item_from_issue
+from engine.work import work_item_from_issue
 from workflows.loader import WorkflowContractError, load_workflow_contract
 
 # Sibling-import boilerplate.

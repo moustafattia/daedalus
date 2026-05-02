@@ -51,7 +51,7 @@ from .state import (
     start_engine_run_to_connection,
 )
 from .store import EngineStore
-from .work_items import (
+from .work import (
     RetryEntry,
     RunningWork,
     WorkItemRef,
