@@ -1272,12 +1272,13 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
     repair_brief = _parse_json_blob(lane_row.get("repair_brief_json")) or {}
     internal_review_status = str((internal_review or {}).get("status") or "").strip()
     internal_review_head = (internal_review or {}).get("reviewed_head_sha") or (internal_review or {}).get("requested_head_sha")
+    requestable_internal_review_statuses = {"", "not_started", "pending", "failed", "timed_out", "superseded"}
     internal_review_needs_request = bool(
         current_head_sha
         and lane_row.get("required_internal_review")
         and (
             internal_review is None
-            or internal_review_status in {"", "not_started", "pending"}
+            or internal_review_status in requestable_internal_review_statuses
             or (
                 internal_review_status == "completed"
                 and internal_review_head != current_head_sha

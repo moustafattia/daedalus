@@ -357,6 +357,39 @@ def test_derive_shadow_actions_requests_internal_review_for_new_local_head(runti
     ]
 
 
+@pytest.mark.parametrize("review_status", ["failed", "timed_out", "superseded"])
+def test_derive_shadow_actions_requests_internal_review_after_terminal_review_status(runtime_module, review_status):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "workflow_state": "awaiting_pre_publish_review",
+            "required_internal_review": 1,
+            "active_pr_number": None,
+            "current_head_sha": "abc123",
+        },
+        reviews=[
+            {
+                "reviewer_scope": "internal",
+                "status": review_status,
+                "review_scope": "local-prepublish",
+                "requested_head_sha": "abc123",
+            }
+        ],
+        actor_row={},
+    )
+
+    assert actions == [
+        {
+            "action_type": "request_internal_review",
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "target_head_sha": "abc123",
+            "reason": "internal-review-pending",
+        }
+    ]
+
+
 def test_derive_shadow_actions_dispatches_local_review_repair_handoff_when_session_routable(runtime_module):
     actions = runtime_module.derive_shadow_actions_for_lane(
         lane_row={
@@ -655,6 +688,152 @@ def test_execute_requested_action_records_ambiguous_failure_without_name_error(r
 
     assert failure_row == ("request_internal_review_blocked", "mark_operator_attention")
     assert analysis_requested[-1]["project_key"] == "workflow-example"
+
+
+def test_active_iteration_executes_queued_internal_review_recovery_after_failed_review(runtime_module, tmp_path):
+    workflow_root = tmp_path / "workflow"
+    paths = runtime_module._runtime_paths(workflow_root)
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    runtime_module.bootstrap_runtime(
+        workflow_root=workflow_root,
+        project_key="workflow-example",
+        instance_id="active-test",
+        mode="active",
+        now_iso="2026-04-22T00:00:00Z",
+    )
+    legacy_status = {
+        "activeLane": {"number": 221, "url": "https://example.com/issues/221", "title": "Issue 221", "labels": []},
+        "repo": "/tmp/repo",
+        "implementation": {
+            "worktree": "/tmp/issue-221",
+            "branch": "codex/issue-221-test",
+            "localHeadSha": "abc123",
+            "sessionRuntime": "codex-app-server",
+            "laneState": {"implementation": {}, "pr": {"lastPublishedHeadSha": None}},
+            "activeSessionHealth": {"healthy": True, "lastUsedAt": "2026-04-22T00:00:00Z"},
+            "sessionActionRecommendation": {"action": "continue-session"},
+        },
+        "reviews": {
+            "internalReview": {
+                "required": True,
+                "status": "failed",
+                "reviewScope": "local-prepublish",
+                "requestedHeadSha": "abc123",
+                "failureClass": "transport_failed",
+                "summary": "timed out",
+            },
+            "externalReview": {"required": False, "status": "not_started"},
+        },
+        "ledger": {"workflowState": "awaiting_pre_publish_review", "reviewState": "awaiting_pre_publish_review", "repairBrief": None},
+        "derivedReviewLoopState": "awaiting_reviews",
+        "derivedMergeBlocked": False,
+        "derivedMergeBlockers": [],
+        "openPr": None,
+        "activeLaneError": None,
+        "staleLaneReasons": [],
+        "nextAction": {"type": "run_internal_review", "reason": "prepublish-review-required"},
+    }
+    runtime_module.ingest_legacy_status(
+        workflow_root=workflow_root,
+        legacy_status=legacy_status,
+        now_iso="2026-04-22T00:01:00Z",
+    )
+
+    conn = runtime_module._connect(paths["db_path"])
+    try:
+        conn.execute(
+            """
+            INSERT INTO lane_actions (
+              action_id, lane_id, action_type, action_reason, action_mode, requested_by,
+              target_actor_role, target_head_sha, idempotency_key, status, requested_at,
+              failed_at, request_payload_json, retry_count, recovery_attempt_count,
+              superseded_by_action_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "act:review:failed",
+                "lane:221",
+                "request_internal_review",
+                "internal-review-pending",
+                "active",
+                "Workflow_Orchestrator",
+                "Internal_Reviewer_Agent",
+                "abc123",
+                "active:request_internal_review:lane:221:abc123",
+                "failed",
+                "2026-04-22T00:01:00Z",
+                "2026-04-22T00:02:00Z",
+                json.dumps({"action_type": "request_internal_review"}, sort_keys=True),
+                0,
+                0,
+                "act:recovery:review:1",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO lane_actions (
+              action_id, lane_id, action_type, action_reason, action_mode, requested_by,
+              target_actor_role, target_head_sha, idempotency_key, status, requested_at,
+              request_payload_json, retry_count, recovery_attempt_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "act:recovery:review:1",
+                "lane:221",
+                "request_internal_review",
+                "automatic-retry-after-failure",
+                "active",
+                "Workflow_Orchestrator",
+                "Internal_Reviewer_Agent",
+                "abc123",
+                "active-recovery:request_internal_review:lane:221:abc123:1",
+                "requested",
+                "2026-04-22T00:02:00Z",
+                json.dumps(
+                    {
+                        "action_type": "request_internal_review",
+                        "prior_action_id": "act:review:failed",
+                        "target_head_sha": "abc123",
+                    },
+                    sort_keys=True,
+                ),
+                1,
+                1,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    calls = []
+
+    def retry_review():
+        calls.append("retry-review")
+        return {"dispatched": True, "after": legacy_status}
+
+    result = runtime_module.run_active_iteration(
+        workflow_root=workflow_root,
+        instance_id="active-test",
+        legacy_status=legacy_status,
+        now_iso="2026-04-22T00:03:00Z",
+        action_runners={"request_internal_review": retry_review},
+    )
+
+    assert result["iteration_status"] == "executed"
+    assert result["comparison"]["compatible"] is True
+    assert result["requested_actions"][0]["action_id"] == "act:recovery:review:1"
+    assert result["executed_action"]["action_type"] == "request_internal_review"
+    assert calls == ["retry-review"]
+
+    conn = sqlite3.connect(paths["db_path"])
+    try:
+        recovery_status = conn.execute(
+            "SELECT status FROM lane_actions WHERE action_id=?",
+            ("act:recovery:review:1",),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert recovery_status == "completed"
 
 
 def test_request_active_actions_event_payload_uses_retry_count(runtime_module, tmp_path, monkeypatch):
