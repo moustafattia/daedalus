@@ -4,13 +4,17 @@ schema-version: 1
 orchestrator:
   actor: orchestrator
 runtimes:
-  local:
-    kind: local
+  codex:
+    kind: codex-app-server
+    mode: external
+    endpoint: ws://127.0.0.1:4500
+    ephemeral: false
+    keep_alive: true
 actors:
   orchestrator:
-    runtime: local
+    runtime: codex
   implementer:
-    runtime: local
+    runtime: codex
 stages:
   entry:
     actors: [implementer]

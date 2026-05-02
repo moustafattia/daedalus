@@ -25,7 +25,7 @@ workflows/
 |-- actions.py               # deterministic action execution
 |-- paths.py                 # workflow root and runtime path helpers
 |-- schema.yaml              # agentic config schema
-|-- workflow.template.md     # minimal bootstrap smoke template
+|-- workflow.template.md     # minimal bootstrap template
 `-- templates/               # bundled WORKFLOW.md policy templates
     |-- issue-runner.md
     |-- change-delivery.md

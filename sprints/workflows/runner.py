@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import time
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Literal, Mapping, Protocol
@@ -131,7 +130,7 @@ def run_stage_actor(
         variables=actor_variables(config=config, state=state, inputs=inputs),
     )
     raw_output = build_actor_runtime(config=config, actor=actor).run(
-        actor=actor, prompt=prompt
+        actor=actor, prompt=prompt, stage_name=state.current_stage
     )
     try:
         parsed = json.loads(raw_output)
@@ -286,7 +285,7 @@ def _tick(config: AgenticConfig, *, orchestrator_output: str) -> int:
     policy = _load_policy(config)
     state = load_state(config.storage.state_path, first_stage=config.first_stage)
     validate_current_stage(config, state)
-    output = _read_output_arg(orchestrator_output) or _run_local_orchestrator(
+    output = _read_output_arg(orchestrator_output) or _run_orchestrator(
         config=config,
         policy=policy,
         state=state,
@@ -306,28 +305,16 @@ def _tick(config: AgenticConfig, *, orchestrator_output: str) -> int:
     return 0
 
 
-def _run_local_orchestrator(
+def _run_orchestrator(
     *, config: AgenticConfig, policy: WorkflowPolicy, state: WorkflowState
 ) -> str:
     prompt = build_orchestrator_prompt(
         config=config, policy=policy, state=state, facts={}
     )
     actor = config.actors[config.orchestrator_actor]
-    runtime = build_actor_runtime(config=config, actor=actor)
-    default_output = json.dumps(
-        {
-            "decision": "complete",
-            "stage": state.current_stage,
-            "target": None,
-            "reason": "local smoke complete",
-            "inputs": {},
-            "operator_message": None,
-        },
-        sort_keys=True,
+    return build_actor_runtime(config=config, actor=actor).run(
+        actor=actor, prompt=prompt, stage_name=state.current_stage
     )
-    if actor.raw.get("output") or config.runtimes[actor.runtime].raw.get("output"):
-        return runtime.run(actor=actor, prompt=prompt)
-    return default_output
 
 
 def _read_output_arg(value: str) -> str:

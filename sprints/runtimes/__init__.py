@@ -8,9 +8,12 @@ policies, and state machines.
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -107,6 +110,8 @@ def build_runtimes(
         return {}
 
     runtime_classes = _runtime_classes()
+    runner = run or _subprocess_run
+    json_runner = run_json or _subprocess_run_json
     out: dict[str, Runtime] = {}
     for profile_name, profile_cfg in runtimes_cfg.items():
         kind = profile_cfg.get("kind")
@@ -116,9 +121,42 @@ def build_runtimes(
                 f"supported kinds: {sorted(runtime_classes)}"
             )
         cls = runtime_classes[kind]
-        out[profile_name] = cls(profile_cfg, run=run, run_json=run_json)
+        out[profile_name] = cls(profile_cfg, run=runner, run_json=json_runner)
     return out
 
 
 def recognized_runtime_kinds() -> frozenset[str]:
     return frozenset(_runtime_classes())
+
+
+def _subprocess_run(
+    command: list[str], **kwargs: Any
+) -> subprocess.CompletedProcess[str]:
+    cwd = kwargs.pop("cwd", None)
+    timeout = kwargs.pop("timeout", None)
+    env = kwargs.pop("env", None)
+    process_env = None if env is None else {**os.environ, **env}
+    completed = subprocess.run(
+        [str(part) for part in command],
+        cwd=str(cwd) if cwd is not None else None,
+        timeout=timeout,
+        env=process_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise RuntimeError(
+            detail or f"runtime command failed with exit code {completed.returncode}"
+        )
+    return completed
+
+
+def _subprocess_run_json(command: list[str], **kwargs: Any) -> dict[str, Any]:
+    completed = _subprocess_run(command, **kwargs)
+    output = completed.stdout.strip()
+    payload = json.loads(output) if output else {}
+    if not isinstance(payload, dict):
+        raise RuntimeError("runtime JSON command must return a JSON object")
+    return payload
