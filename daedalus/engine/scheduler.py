@@ -13,6 +13,17 @@ class RestoredSchedulerState:
     codex_threads: dict[str, dict[str, Any]]
 
 
+def _value_or_default(value: Any, default: Any) -> Any:
+    return default if value in (None, "") else value
+
+
+def _first_value_or_default(default: Any, *values: Any) -> Any:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return default
+
+
 def retry_due_at(
     entry: dict[str, Any] | None,
     *,
@@ -44,7 +55,7 @@ def restore_scheduler_state(payload: dict[str, Any], *, now_epoch: float) -> Res
             "identifier": item.get("identifier"),
             "attempt": int(item.get("attempt") or 0),
             "error": item.get("error"),
-            "due_at_epoch": float(item.get("due_at_epoch") or item.get("dueAtEpoch") or now_epoch),
+            "due_at_epoch": float(_first_value_or_default(now_epoch, item.get("due_at_epoch"), item.get("dueAtEpoch"))),
             "current_attempt": item.get("current_attempt") or item.get("currentAttempt"),
             "run_id": item.get("run_id") or item.get("runId"),
         }
@@ -56,7 +67,9 @@ def restore_scheduler_state(payload: dict[str, Any], *, now_epoch: float) -> Res
         issue_id = str(item.get("issue_id") or item.get("issueId") or "").strip()
         if not issue_id:
             continue
-        started_at_epoch = float(item.get("started_at_epoch") or item.get("startedAtEpoch") or now_epoch)
+        started_at_epoch = float(
+            _first_value_or_default(now_epoch, item.get("started_at_epoch"), item.get("startedAtEpoch"))
+        )
         recovered_running.append(
             {
                 "issue_id": issue_id,
@@ -67,9 +80,11 @@ def restore_scheduler_state(payload: dict[str, Any], *, now_epoch: float) -> Res
                 "worker_status": item.get("worker_status") or item.get("workerStatus") or "recovered",
                 "started_at_epoch": started_at_epoch,
                 "heartbeat_at_epoch": float(
-                    item.get("heartbeat_at_epoch")
-                    or item.get("heartbeatAtEpoch")
-                    or started_at_epoch
+                    _first_value_or_default(
+                        started_at_epoch,
+                        item.get("heartbeat_at_epoch"),
+                        item.get("heartbeatAtEpoch"),
+                    )
                 ),
                 "cancel_requested": bool(item.get("cancel_requested") or item.get("cancelRequested") or False),
                 "cancel_reason": item.get("cancel_reason") or item.get("cancelReason"),
@@ -92,8 +107,8 @@ def running_snapshot(
 ) -> list[dict[str, Any]]:
     running = []
     for issue_id, entry in running_entries.items():
-        started_at_epoch = float(entry.get("started_at_epoch") or now_epoch)
-        heartbeat_at_epoch = float(entry.get("heartbeat_at_epoch") or started_at_epoch)
+        started_at_epoch = float(_value_or_default(entry.get("started_at_epoch"), now_epoch))
+        heartbeat_at_epoch = float(_value_or_default(entry.get("heartbeat_at_epoch"), started_at_epoch))
         running.append(
             {
                 "issue_id": issue_id,

@@ -76,6 +76,17 @@ def test_engine_scheduler_restores_legacy_shapes_and_snapshots():
     assert payload["running"][0]["running_for_ms"] == 100000
     assert payload["codex_threads"]["42"]["thread_id"] == "thread-1"
 
+    restored_zero = restore_scheduler_state(
+        {
+            "retryQueue": [{"issueId": "zero-retry", "dueAtEpoch": 0.0}],
+            "running": [{"issueId": "zero-running", "startedAtEpoch": 0.0, "heartbeatAtEpoch": 0.0}],
+        },
+        now_epoch=200.0,
+    )
+    assert restored_zero.retry_entries["zero-retry"]["due_at_epoch"] == 0.0
+    assert restored_zero.recovered_running[0]["started_at_epoch"] == 0.0
+    assert restored_zero.recovered_running[0]["heartbeat_at_epoch"] == 0.0
+
 
 def test_engine_work_items_and_lifecycle_helpers():
     from engine.lifecycle import clear_work_entries, mark_running_work, recover_running_as_retry, schedule_retry_entry
@@ -254,6 +265,49 @@ def test_engine_state_persists_scheduler_snapshot_in_sqlite(tmp_path):
     assert readonly == loaded
 
 
+def test_engine_state_preserves_zero_epoch_scheduler_values(tmp_path):
+    from engine.state import load_engine_scheduler_state, save_engine_scheduler_state
+
+    db_path = tmp_path / "runtime" / "state" / "daedalus.db"
+    save_engine_scheduler_state(
+        db_path,
+        workflow="issue-runner",
+        running_entries={
+            "ISSUE-0": {
+                "issue_id": "ISSUE-0",
+                "identifier": "DAE-0",
+                "started_at_epoch": 0.0,
+                "heartbeat_at_epoch": 0.0,
+            }
+        },
+        retry_entries={
+            "ISSUE-RETRY-0": {
+                "issue_id": "ISSUE-RETRY-0",
+                "identifier": "DAE-R0",
+                "due_at_epoch": 0.0,
+                "error": "immediate retry",
+            }
+        },
+        codex_threads={},
+        codex_totals={},
+        now_iso="2026-04-30T00:00:00Z",
+        now_epoch=120.0,
+    )
+
+    loaded = load_engine_scheduler_state(
+        db_path,
+        workflow="issue-runner",
+        now_iso="2026-04-30T00:00:10Z",
+        now_epoch=125.0,
+    )
+
+    assert loaded["running"][0]["started_at_epoch"] == 0.0
+    assert loaded["running"][0]["heartbeat_at_epoch"] == 0.0
+    assert loaded["running"][0]["running_for_ms"] == 125000
+    assert loaded["retry_queue"][0]["due_at_epoch"] == 0.0
+    assert loaded["retry_queue"][0]["due_in_ms"] == 0
+
+
 def test_engine_store_wraps_scheduler_state_and_doctor(tmp_path):
     from engine.store import EngineStore
 
@@ -379,6 +433,93 @@ def test_engine_store_tracks_event_ledger_and_doctor_orphans(tmp_path):
 
     assert checks["engine-events"]["status"] == "warn"
     assert orphaned["event_id"] in checks["engine-events"]["items"]
+
+
+def test_engine_run_and_event_ids_are_workflow_scoped_after_schema_migration(tmp_path):
+    from engine.store import EngineStore
+
+    db_path = tmp_path / "runtime" / "state" / "daedalus.db"
+    db_path.parent.mkdir(parents=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE engine_runs (
+              workflow TEXT NOT NULL,
+              run_id TEXT PRIMARY KEY,
+              mode TEXT NOT NULL,
+              status TEXT NOT NULL,
+              started_at TEXT NOT NULL,
+              started_at_epoch REAL NOT NULL,
+              completed_at TEXT,
+              completed_at_epoch REAL,
+              selected_count INTEGER NOT NULL DEFAULT 0,
+              completed_count INTEGER NOT NULL DEFAULT 0,
+              error TEXT,
+              metadata_json TEXT
+            );
+
+            CREATE TABLE engine_events (
+              workflow TEXT NOT NULL,
+              event_id TEXT PRIMARY KEY,
+              run_id TEXT,
+              work_id TEXT,
+              event_type TEXT NOT NULL,
+              severity TEXT NOT NULL DEFAULT 'info',
+              created_at TEXT NOT NULL,
+              created_at_epoch REAL NOT NULL,
+              payload_json TEXT
+            );
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    clock = {"iso": "2026-04-30T00:00:00Z", "epoch": 100.0}
+    issue_runner = EngineStore(
+        db_path=db_path,
+        workflow="issue-runner",
+        now_iso=lambda: clock["iso"],
+        now_epoch=lambda: clock["epoch"],
+    )
+    change_delivery = EngineStore(
+        db_path=db_path,
+        workflow="change-delivery",
+        now_iso=lambda: clock["iso"],
+        now_epoch=lambda: clock["epoch"],
+    )
+
+    issue_run = issue_runner.start_run(mode="tick", run_id="shared-run")
+    change_run = change_delivery.start_run(mode="tick", run_id="shared-run")
+    issue_event = issue_runner.append_event(
+        event_id="shared-event",
+        event_type="issue.event",
+        payload={"run_id": issue_run["run_id"]},
+    )
+    change_event = change_delivery.append_event(
+        event_id="shared-event",
+        event_type="change.event",
+        payload={"run_id": change_run["run_id"]},
+    )
+
+    assert issue_run["workflow"] == "issue-runner"
+    assert change_run["workflow"] == "change-delivery"
+    assert issue_event["inserted"] is True
+    assert change_event["inserted"] is True
+    assert issue_runner.get_run("shared-run")["workflow"] == "issue-runner"
+    assert change_delivery.get_run("shared-run")["workflow"] == "change-delivery"
+    assert issue_runner.events_for_run("shared-run")[0]["event_type"] == "issue.event"
+    assert change_delivery.events_for_run("shared-run")[0]["event_type"] == "change.event"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        run_pk = [row[1] for row in conn.execute("PRAGMA table_info(engine_runs)") if row[5]]
+        event_pk = [row[1] for row in conn.execute("PRAGMA table_info(engine_events)") if row[5]]
+    finally:
+        conn.close()
+    assert run_pk == ["workflow", "run_id"]
+    assert event_pk == ["workflow", "event_id"]
 
 
 def test_engine_store_filters_and_prunes_events(tmp_path):

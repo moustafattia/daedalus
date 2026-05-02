@@ -44,6 +44,17 @@ def _json_loads(value: Any) -> Any:
     return None
 
 
+def _value_or_default(value: Any, default: Any) -> Any:
+    return default if value in (None, "") else value
+
+
+def _first_value_or_default(default: Any, *values: Any) -> Any:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return default
+
+
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
@@ -64,6 +75,40 @@ def _ensure_column(conn: sqlite3.Connection, table_name: str, column_sql: str) -
     column_name = column_sql.split()[0]
     if _table_exists(conn, table_name) and not _column_exists(conn, table_name, column_name):
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
+
+
+def _primary_key_columns(conn: sqlite3.Connection, table_name: str) -> list[str]:
+    try:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    except sqlite3.OperationalError:
+        return []
+    pk_rows = sorted((row for row in rows if int(row[5] or 0) > 0), key=lambda row: int(row[5] or 0))
+    return [str(row[1]) for row in pk_rows]
+
+
+def _rebuild_table_for_primary_key(
+    conn: sqlite3.Connection,
+    *,
+    table_name: str,
+    expected_primary_key: list[str],
+    create_sql: str,
+    copy_columns: list[str],
+    indexes: list[str],
+) -> None:
+    if not _table_exists(conn, table_name):
+        return
+    if _primary_key_columns(conn, table_name) == expected_primary_key:
+        return
+    for index_name in indexes:
+        conn.execute(f"DROP INDEX IF EXISTS {index_name}")
+    old_table_name = f"{table_name}__old_primary_key_{uuid.uuid4().hex}"
+    conn.execute(f"ALTER TABLE {table_name} RENAME TO {old_table_name}")
+    conn.execute(create_sql)
+    columns = ", ".join(copy_columns)
+    conn.execute(
+        f"INSERT OR IGNORE INTO {table_name} ({columns}) SELECT {columns} FROM {old_table_name}"
+    )
+    conn.execute(f"DROP TABLE {old_table_name}")
 
 
 def engine_state_tables_exist(conn: sqlite3.Connection) -> bool:
@@ -160,7 +205,7 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
 
         CREATE TABLE IF NOT EXISTS engine_runs (
           workflow TEXT NOT NULL,
-          run_id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
           mode TEXT NOT NULL,
           status TEXT NOT NULL,
           started_at TEXT NOT NULL,
@@ -170,19 +215,21 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
           selected_count INTEGER NOT NULL DEFAULT 0,
           completed_count INTEGER NOT NULL DEFAULT 0,
           error TEXT,
-          metadata_json TEXT
+          metadata_json TEXT,
+          PRIMARY KEY (workflow, run_id)
         );
 
         CREATE TABLE IF NOT EXISTS engine_events (
           workflow TEXT NOT NULL,
-          event_id TEXT PRIMARY KEY,
+          event_id TEXT NOT NULL,
           run_id TEXT,
           work_id TEXT,
           event_type TEXT NOT NULL,
           severity TEXT NOT NULL DEFAULT 'info',
           created_at TEXT NOT NULL,
           created_at_epoch REAL NOT NULL,
-          payload_json TEXT
+          payload_json TEXT,
+          PRIMARY KEY (workflow, event_id)
         );
 
         CREATE INDEX IF NOT EXISTS idx_engine_running_workflow_status
@@ -205,11 +252,102 @@ def init_engine_state(conn: sqlite3.Connection) -> None:
           ON engine_events(workflow, created_at_epoch);
         """
     )
+    _rebuild_table_for_primary_key(
+        conn,
+        table_name="engine_runs",
+        expected_primary_key=["workflow", "run_id"],
+        create_sql="""
+        CREATE TABLE engine_runs (
+          workflow TEXT NOT NULL,
+          run_id TEXT NOT NULL,
+          mode TEXT NOT NULL,
+          status TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          started_at_epoch REAL NOT NULL,
+          completed_at TEXT,
+          completed_at_epoch REAL,
+          selected_count INTEGER NOT NULL DEFAULT 0,
+          completed_count INTEGER NOT NULL DEFAULT 0,
+          error TEXT,
+          metadata_json TEXT,
+          PRIMARY KEY (workflow, run_id)
+        )
+        """,
+        copy_columns=[
+            "workflow",
+            "run_id",
+            "mode",
+            "status",
+            "started_at",
+            "started_at_epoch",
+            "completed_at",
+            "completed_at_epoch",
+            "selected_count",
+            "completed_count",
+            "error",
+            "metadata_json",
+        ],
+        indexes=["idx_engine_runs_workflow_started", "idx_engine_runs_workflow_status"],
+    )
+    _rebuild_table_for_primary_key(
+        conn,
+        table_name="engine_events",
+        expected_primary_key=["workflow", "event_id"],
+        create_sql="""
+        CREATE TABLE engine_events (
+          workflow TEXT NOT NULL,
+          event_id TEXT NOT NULL,
+          run_id TEXT,
+          work_id TEXT,
+          event_type TEXT NOT NULL,
+          severity TEXT NOT NULL DEFAULT 'info',
+          created_at TEXT NOT NULL,
+          created_at_epoch REAL NOT NULL,
+          payload_json TEXT,
+          PRIMARY KEY (workflow, event_id)
+        )
+        """,
+        copy_columns=[
+            "workflow",
+            "event_id",
+            "run_id",
+            "work_id",
+            "event_type",
+            "severity",
+            "created_at",
+            "created_at_epoch",
+            "payload_json",
+        ],
+        indexes=[
+            "idx_engine_events_workflow_run",
+            "idx_engine_events_workflow_work",
+            "idx_engine_events_workflow_type",
+            "idx_engine_events_workflow_created",
+        ],
+    )
     _ensure_column(conn, "engine_running_work", "run_id TEXT")
     _ensure_column(conn, "engine_retry_queue", "run_id TEXT")
     _ensure_column(conn, "engine_runtime_sessions", "run_id TEXT")
     conn.executescript(
         """
+        CREATE INDEX IF NOT EXISTS idx_engine_running_workflow_status
+          ON engine_running_work(workflow, worker_status);
+        CREATE INDEX IF NOT EXISTS idx_engine_retry_workflow_due
+          ON engine_retry_queue(workflow, due_at_epoch);
+        CREATE INDEX IF NOT EXISTS idx_engine_runtime_sessions_thread
+          ON engine_runtime_sessions(workflow, thread_id);
+        CREATE INDEX IF NOT EXISTS idx_engine_runs_workflow_started
+          ON engine_runs(workflow, started_at_epoch);
+        CREATE INDEX IF NOT EXISTS idx_engine_runs_workflow_status
+          ON engine_runs(workflow, status);
+        CREATE INDEX IF NOT EXISTS idx_engine_events_workflow_run
+          ON engine_events(workflow, run_id, created_at_epoch);
+        CREATE INDEX IF NOT EXISTS idx_engine_events_workflow_work
+          ON engine_events(workflow, work_id, created_at_epoch);
+        CREATE INDEX IF NOT EXISTS idx_engine_events_workflow_type
+          ON engine_events(workflow, event_type, created_at_epoch);
+        CREATE INDEX IF NOT EXISTS idx_engine_events_workflow_created
+          ON engine_events(workflow, created_at_epoch);
         CREATE INDEX IF NOT EXISTS idx_engine_running_workflow_run
           ON engine_running_work(workflow, run_id);
         CREATE INDEX IF NOT EXISTS idx_engine_retry_workflow_run
@@ -317,8 +455,14 @@ def save_engine_scheduler_state_to_connection(
                 entry.get("worker_id"),
                 int(entry.get("attempt") or 0),
                 entry.get("worker_status") or "running",
-                float(entry.get("started_at_epoch") or now_epoch),
-                float(entry.get("heartbeat_at_epoch") or entry.get("started_at_epoch") or now_epoch),
+                float(_value_or_default(entry.get("started_at_epoch"), now_epoch)),
+                float(
+                    _first_value_or_default(
+                        now_epoch,
+                        entry.get("heartbeat_at_epoch"),
+                        entry.get("started_at_epoch"),
+                    )
+                ),
                 1 if entry.get("cancel_requested") else 0,
                 entry.get("cancel_reason"),
                 entry.get("thread_id"),
@@ -344,7 +488,7 @@ def save_engine_scheduler_state_to_connection(
                 workflow,
                 work_id,
                 int(entry.get("attempt") or 0),
-                float(entry.get("due_at_epoch") or now_epoch),
+                float(_value_or_default(entry.get("due_at_epoch"), now_epoch)),
                 entry.get("error"),
                 entry.get("current_attempt"),
                 entry.get("delay_type") or "failure",
@@ -508,8 +652,8 @@ def _scheduler_state_from_connection(
             "worker_id": worker_id,
             "attempt": int(attempt or 0),
             "worker_status": worker_status or "running",
-            "started_at_epoch": float(started_at_epoch or now_epoch),
-            "heartbeat_at_epoch": float(heartbeat_at_epoch or started_at_epoch or now_epoch),
+            "started_at_epoch": float(_value_or_default(started_at_epoch, now_epoch)),
+            "heartbeat_at_epoch": float(_first_value_or_default(now_epoch, heartbeat_at_epoch, started_at_epoch)),
             "cancel_requested": bool(cancel_requested),
             "cancel_reason": cancel_reason,
             "thread_id": thread_id,
@@ -533,7 +677,7 @@ def _scheduler_state_from_connection(
             "issue_id": str(work_id),
             "identifier": identifier,
             "attempt": int(attempt or 0),
-            "due_at_epoch": float(due_at_epoch or now_epoch),
+            "due_at_epoch": float(_value_or_default(due_at_epoch, now_epoch)),
             "error": error,
             "current_attempt": current_attempt,
             "delay_type": delay_type or "failure",
@@ -998,9 +1142,9 @@ def append_engine_event_to_connection(
             SELECT workflow, event_id, run_id, work_id, event_type, severity,
                    created_at, created_at_epoch, payload_json
             FROM engine_events
-            WHERE event_id=?
+            WHERE workflow=? AND event_id=?
             """,
-            (safe_event_id,),
+            (workflow, safe_event_id),
         ).fetchone()
         if row is not None:
             return {**_event_row_to_dict(row), "inserted": False}

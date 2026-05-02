@@ -497,7 +497,7 @@ class EngineStore:
                     "run_id": row[0],
                     "mode": row[1],
                     "started_at": row[2],
-                    "age_seconds": max(int(now_epoch - float(row[3] or now_epoch)), 0),
+                    "age_seconds": max(int(now_epoch - float(now_epoch if row[3] in (None, "") else row[3])), 0),
                     "suggested_recovery": f"inspect with `hermes daedalus runs show {row[0]}`",
                 }
                 for row in stale_runs
