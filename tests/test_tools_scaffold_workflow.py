@@ -53,8 +53,10 @@ def test_scaffold_workflow_writes_config_and_layout(tmp_path):
     assert cfg["instance"]["name"] == "attmous-daedalus-change-delivery"
     assert cfg["instance"]["engine-owner"] == "hermes"
     assert cfg["repository"]["slug"] == "attmous/daedalus"
-    assert cfg["repository"]["github-slug"] == "attmous/daedalus"
+    assert "github-slug" not in cfg["repository"]
     assert cfg["tracker"]["kind"] == "github"
+    assert cfg["tracker"]["github_slug"] == "attmous/daedalus"
+    assert cfg["code-host"] == {"kind": "github", "github_slug": "attmous/daedalus"}
     assert cfg["repository"]["active-lane-label"] == "ready-for-daedalus"
     assert cfg["triggers"]["lane-selector"]["label"] == "ready-for-daedalus"
     assert cfg["repository"]["local-path"] == str(repo.resolve())
@@ -115,29 +117,6 @@ def test_scaffold_workflow_force_replaces_existing_config(tmp_path):
     assert cfg["instance"]["engine-owner"] == "openclaw"
     assert cfg["repository"]["local-path"] == str(repo.resolve())
     assert (repo / "WORKFLOW-old.md").exists()
-
-
-def test_scaffold_workflow_force_retires_legacy_yaml_when_present(tmp_path):
-    tools = _tools()
-    root = tmp_path / "attmous-daedalus-change-delivery"
-    repo = tmp_path / "repo"
-    _init_git_repo(repo)
-    legacy_path = root / "config" / "workflow.yaml"
-    legacy_path.parent.mkdir(parents=True)
-    legacy_path.write_text("workflow: change-delivery\nschema-version: 1\n", encoding="utf-8")
-
-    tools.scaffold_workflow_root(
-        workflow_root=root,
-        workflow_name="change-delivery",
-        repo_path=repo,
-        repo_slug="attmous/daedalus",
-        active_lane_label="active-lane",
-        engine_owner="hermes",
-        force=True,
-    )
-
-    assert (repo / "WORKFLOW.md").exists()
-    assert not legacy_path.exists()
 
 
 def test_scaffold_workflow_requires_owner_repo_workflow_root_name(tmp_path):

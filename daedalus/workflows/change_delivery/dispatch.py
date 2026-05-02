@@ -5,16 +5,21 @@ loads and renders the resolved prompt template, materializes the rendered
 text to a file inside the worktree, fills placeholders in the command argv,
 and invokes the runtime.
 
-Phase A only — no model-tied call sites. The dispatcher itself owns
-template loading + rendering so that the workspace prompt-override surface
-(``agents.<role>.prompt`` or ``<workspace>/config/prompts/<role>.md``)
-actually drives what the agent sees.
+The dispatcher consumes the private compiled execution view. Operators use
+`actors.<name>.prompt` in `WORKFLOW.md`; `change-delivery` compiles that into
+the role/tier shape used here before dispatch.
 """
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
+
+from runtimes.stages import (
+    materialize_prompt,
+    resolve_stage_command,
+    run_runtime_stage,
+    substitute_command_placeholders,
+)
 
 _BUNDLED_PROMPTS = Path(__file__).parent / "prompts"
 
@@ -131,36 +136,22 @@ def _compose_with_workflow_policy(prompt_text: str, workflow_policy: str | None)
 def _materialize_prompt(*, worktree: Path, role: str, tier: str | None, rendered_text: str) -> Path:
     """Write the already-rendered prompt to a deterministic file under
     <worktree>/.daedalus/dispatch/, return the path."""
-    out_dir = Path(worktree) / ".daedalus" / "dispatch"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha256(rendered_text.encode("utf-8")).hexdigest()[:12]
-    label = f"{role}-{tier}" if tier else role
-    out = out_dir / f"{label}-{digest}.txt"
-    out.write_text(rendered_text, encoding="utf-8")
-    return out
+    return materialize_prompt(
+        worktree=Path(worktree),
+        stage_name=f"{role}-{tier}" if tier else role,
+        prompt=rendered_text,
+    )
 
 
 def _resolve_command(*, agent_cfg: dict, runtime_cfg: dict) -> list[str] | None:
     """Agent command wins; falls back to runtime profile command; None if neither."""
-    cmd = agent_cfg.get("command")
-    if cmd:
-        return list(cmd)
-    cmd = runtime_cfg.get("command")
-    if cmd:
-        return list(cmd)
-    return None
+    return resolve_stage_command(agent_cfg=agent_cfg, runtime_cfg=runtime_cfg)
 
 
 def _substitute(argv: list[str], values: dict[str, str]) -> list[str]:
     """Replace {key} placeholders in each argv element. Unknown placeholders
     pass through unchanged so adapters can interpret them."""
-    out = []
-    for a in argv:
-        s = a
-        for k, v in values.items():
-            s = s.replace("{" + k + "}", v)
-        out.append(s)
-    return out
+    return substitute_command_placeholders(argv, values)
 
 
 def dispatch_agent(
@@ -194,7 +185,6 @@ def dispatch_agent(
     runtime = workspace.runtime(runtime_name)
     runtimes_cfg = (workspace.config or {}).get("runtimes") or {}
     runtime_cfg = runtimes_cfg.get(runtime_name) or {}
-    model = cfg.get("model") or ""
 
     # Resolve + load + render the template (the dispatcher, not the caller,
     # owns this so workspace/agent overrides actually take effect).
@@ -214,28 +204,18 @@ def dispatch_agent(
     )
     rendered_text = template_text.format(**(prompt_kwargs or {}))
 
-    command = _resolve_command(agent_cfg=cfg, runtime_cfg=runtime_cfg)
-
-    if command is None:
-        # Legacy path: runtime owns the invocation.
-        return runtime.run_prompt(
-            worktree=worktree,
-            session_name=session_name,
-            prompt=rendered_text,
-            model=model,
-        )
-
-    prompt_path = _materialize_prompt(
-        worktree=worktree, role=role, tier=tier, rendered_text=rendered_text,
-    )
-    placeholders = {
-        "model": model,
-        "prompt_path": str(prompt_path),
-        "worktree": str(worktree),
-        "session_name": session_name,
-    }
+    placeholders = {}
     if extra_placeholders:
         placeholders.update(extra_placeholders)
 
-    argv = _substitute(command, placeholders)
-    return runtime.run_command(worktree=worktree, command_argv=argv)
+    result = run_runtime_stage(
+        runtime=runtime,
+        runtime_cfg=runtime_cfg,
+        agent_cfg=cfg,
+        stage_name=f"{role}-{tier}" if tier else role,
+        worktree=Path(worktree),
+        session_name=session_name,
+        prompt=rendered_text,
+        placeholders=placeholders,
+    )
+    return result.output

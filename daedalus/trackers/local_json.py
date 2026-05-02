@@ -89,6 +89,7 @@ class LocalJsonTrackerClient:
         summary: str,
         state: str | None = None,
         metadata: dict[str, Any] | None = None,
+        comment_mode: str | None = None,
     ) -> dict[str, Any]:
         path = resolve_tracker_path(workflow_root=self._workflow_root, tracker_cfg=self._tracker_cfg)
         target_id = str(issue_id or "").strip()
@@ -116,7 +117,28 @@ class LocalJsonTrackerClient:
                 if state:
                     raw_issue["state"] = state
                     comment["state"] = state
-                comments.append(comment)
+                action = "created"
+                mode = str(comment_mode or "append").strip().lower()
+                if mode == "upsert":
+                    workflow = str((metadata or {}).get("workflow") or "").strip()
+                    for index, existing in enumerate(comments):
+                        if not isinstance(existing, dict) or existing.get("event") != event:
+                            continue
+                        existing_metadata = existing.get("metadata")
+                        existing_workflow = (
+                            str(existing_metadata.get("workflow") or "").strip()
+                            if isinstance(existing_metadata, dict)
+                            else ""
+                        )
+                        if workflow and existing_workflow and workflow != existing_workflow:
+                            continue
+                        comments[index] = comment
+                        action = "updated"
+                        break
+                    else:
+                        comments.append(comment)
+                else:
+                    comments.append(comment)
                 raw_issue["comments"] = comments
                 raw_issue["updated_at"] = now_iso
                 _write_issue_payload(path, payload)
@@ -126,6 +148,8 @@ class LocalJsonTrackerClient:
                     "issue_id": target_id,
                     "event": event,
                     "state": state,
+                    "comment_mode": "upsert" if mode == "upsert" else "append",
+                    "comment_action": action,
                     "comment_count": len(comments),
                 }
 

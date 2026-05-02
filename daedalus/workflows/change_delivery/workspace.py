@@ -16,9 +16,14 @@ from engine.storage import append_jsonl as _append_jsonl
 from engine.storage import load_optional_json as _load_optional_json
 from engine.storage import write_json_atomic as _write_json
 from engine.storage import write_text_atomic as _write_text
+from workflows.change_delivery.contract_model import compile_change_delivery_contract
 from workflows.change_delivery.migrations import get_ledger_field
+from workflows.change_delivery.storage import ensure_change_delivery_state_files
 from workflows.change_delivery.runtimes import build_runtimes
 from workflows.shared.paths import runtime_paths
+from code_hosts import build_code_host_client
+from trackers import build_tracker_client
+from trackers.feedback import feedback_enabled, publish_tracker_feedback
 
 
 def _derive_lane_selection_cfg(yaml_cfg, *, active_lane_label):
@@ -39,6 +44,26 @@ def _derive_lane_selection_cfg(yaml_cfg, *, active_lane_label):
         _spec.loader.exec_module(_mod)
         parse_config = _mod.parse_config
     return parse_config(workflow_yaml=yaml_cfg or {}, active_lane_label=active_lane_label)
+
+
+def _workflow_section(yaml_cfg: dict | None, key: str) -> dict[str, Any]:
+    section = (yaml_cfg or {}).get(key) or {}
+    return dict(section) if isinstance(section, dict) else {}
+
+
+def _change_delivery_tracker_cfg(yaml_cfg: dict | None) -> dict[str, Any]:
+    return _workflow_section(yaml_cfg, "tracker")
+
+
+def _code_host_github_slug(yaml_cfg: dict | None) -> str:
+    code_host = _workflow_section(yaml_cfg, "code-host")
+    if code_host.get("kind") != "github":
+        return ""
+    return str(code_host.get("github_slug") or "").strip()
+
+
+def _change_delivery_code_host_cfg(yaml_cfg: dict | None) -> dict[str, Any]:
+    return _workflow_section(yaml_cfg, "code-host")
 
 
 def _yaml_to_legacy_view(yaml_cfg: dict, workspace_root: "Path | None" = None) -> dict:
@@ -122,8 +147,8 @@ def _yaml_to_legacy_view(yaml_cfg: dict, workspace_root: "Path | None" = None) -
             "reviewHeadMissingMinutes": 20,
         },
         "reviewCache": {
-            "codexCloudSeconds": ext_reviewer.get("cache-seconds", 1800),
-            "claudeReviewRequestCooldownSeconds": internal_review_gate.get("request-cooldown-seconds", 1200),
+            "externalReviewSeconds": ext_reviewer.get("cache-seconds", 1800),
+            "internalReviewRequestCooldownSeconds": internal_review_gate.get("request-cooldown-seconds", 1200),
         },
         "sessionPolicy": {
             "codexModel": coder_default.get("model", "gpt-5.3-codex-spark/high"),
@@ -142,11 +167,11 @@ def _yaml_to_legacy_view(yaml_cfg: dict, workspace_root: "Path | None" = None) -
             "codexSessionNudgeCooldownSeconds": acpx.get("session-nudge-cooldown-seconds", 600),
         },
         "reviewPolicy": {
-            "interReviewAgentPassWithFindingsReviews": internal_review_gate.get("pass-with-findings-tolerance", 1),
+            "internalReviewPassWithFindingsReviews": internal_review_gate.get("pass-with-findings-tolerance", 1),
             "internalReviewerModel": int_reviewer.get("model", "claude-sonnet-4-6"),
-            "interReviewAgentMaxTurns": claude_cli.get("max-turns-per-invocation", 24),
-            "interReviewAgentTimeoutSeconds": claude_cli.get("timeout-seconds", 1200),
-            "freezeCoderWhileInterReviewAgentRunning": int_reviewer.get("freeze-coder-while-running", True),
+            "internalReviewMaxTurns": claude_cli.get("max-turns-per-invocation", 24),
+            "internalReviewTimeoutSeconds": claude_cli.get("timeout-seconds", 1200),
+            "freezeCoderWhileInternalReviewRunning": int_reviewer.get("freeze-coder-while-running", True),
         },
         "agentLabels": {
             "internalCoderAgent": coder_default.get("name", "Internal_Coder_Agent"),
@@ -170,30 +195,16 @@ Two factories are provided:
   ``orchestrator``, etc.) looks up workspace attributes by name, so any
   duck-typed accessor works.
 * :func:`load_workspace_from_config` — convenience wrapper that reads the
-  project workflow contract from either ``config/workflow.yaml`` or
-  ``WORKFLOW.md`` and applies the same derived constants the workspace uses
-  internally.
+  project workflow contract from ``WORKFLOW.md`` / ``WORKFLOW-<name>.md`` and
+  applies the same derived constants the workspace uses internally.
 """
 
 
-DEFAULT_YAML_CONFIG_FILENAME = "config/workflow.yaml"
 DEFAULT_WORKFLOW_MARKDOWN_FILENAME = "WORKFLOW.md"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _load_yaml(path: Path) -> dict[str, Any]:
-    """Load a YAML mapping file."""
-    import yaml  # type: ignore[import]
-
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError(
-            f"{path} must contain a YAML mapping at the top level"
-        )
-    return data
 
 
 def _now_ms() -> int:
@@ -304,8 +315,8 @@ def _make_audit_fn(
 
       1. Always appends a JSONL row to ``audit_log_path``.
       2. If ``publisher`` is provided, calls ``publisher(action=..., summary=..., extra=...)``
-         after the write. Publisher exceptions are swallowed — observability
-         must never break workflow execution.
+         after the write. Publisher exceptions are swallowed so tracker feedback
+         and webhook fanout never break workflow execution.
     """
     event_sink = None
     if engine_store is not None:
@@ -330,82 +341,51 @@ def _make_audit_fn(
     )
 
 
-def _make_comment_publisher(
+def _make_tracker_feedback_publisher(
     *,
     workflow_root,
-    repo_slug,
+    tracker_cfg,
+    repo_path,
     workflow_yaml,
     get_active_issue_number,
     get_workflow_state,
     get_is_operator_attention,
-    run_fn=None,
+    tracker_client=None,
 ):
-    """Build the ``publisher`` callable consumed by ``_make_audit_fn``.
-
-    Returns ``None`` when github-comments is disabled — the caller
-    (``build_workspace``) wires that None into ``_make_audit_fn`` so
-    nothing happens at the audit hook.
-    """
-    # Lazy import to avoid hard-coupling workspace.py to comments_publisher
-    # before the rest of the workspace bootstrap is happy.
-    try:
-        from . import observability as _obs
-        from . import comments_publisher as _pub
-    except ImportError:
-        _here = Path(__file__).resolve().parent
-        import importlib.util as _ilu
-
-        def _load(name):
-            spec = _ilu.spec_from_file_location(
-                f"daedalus_workflow_change_delivery_{name}", _here / f"{name}.py"
-            )
-            mod = _ilu.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return mod
-        _obs = _load("observability")
-        _pub = _load("comments_publisher")
-
+    """Build the tracker-feedback subscriber consumed by ``_make_audit_fn``."""
     workflow_root = Path(workflow_root)
-    override_dir = workflow_root / "runtime" / "state" / "daedalus"
-    state_dir = workflow_root / "runtime" / "state" / "lane-comments"
-
-    # Always return a publisher callable so a later
-    # ``/daedalus set-observability --github-comments on`` override can take
-    # effect at the next audit event without a service restart. The publisher
-    # below re-resolves the effective config on every call and short-circuits
-    # when the result is disabled — that is the gate, not this bootstrap-time
-    # lookup. (Earlier versions short-circuited here when initially-disabled,
-    # which permanently severed the audit hook from the publisher and made
-    # runtime overrides ineffective until a process restart.)
+    tracker_cfg = dict(tracker_cfg or {})
+    if tracker_client is None and tracker_cfg and feedback_enabled(workflow_yaml or {}):
+        tracker_client = build_tracker_client(
+            workflow_root=workflow_root,
+            tracker_cfg=tracker_cfg,
+            repo_path=Path(repo_path) if repo_path else None,
+        )
 
     def publisher(*, action, summary, extra):
-        # Re-resolve the config every call so a /daedalus set-observability
-        # toggle takes effect immediately, without restarting the service.
-        eff = _obs.resolve_effective_config(
-            workflow_yaml=workflow_yaml or {},
-            override_dir=override_dir,
-            workflow_name="change-delivery",
-        )
-        if not eff["github-comments"].get("enabled"):
+        if tracker_client is None:
             return
         issue_number = get_active_issue_number()
         if issue_number is None:
             return
-        audit_event = {
-            "at": _now_iso(),
-            "action": action,
-            "summary": summary,
-            **(extra or {}),
-        }
-        _pub.publish_event(
-            repo_slug=repo_slug,
-            issue_number=issue_number,
-            workflow_state=get_workflow_state(),
-            is_operator_attention=get_is_operator_attention(),
-            audit_event=audit_event,
-            effective_config=eff,
-            state_dir=state_dir,
-            **({"run_fn": run_fn} if run_fn is not None else {}),
+        workflow_state = get_workflow_state()
+        publish_tracker_feedback(
+            tracker_client=tracker_client,
+            workflow_config=workflow_yaml or {},
+            issue={
+                "id": str(issue_number),
+                "identifier": f"#{issue_number}",
+                "state": workflow_state,
+            },
+            event=str(action or ""),
+            summary=str(summary or "Daedalus recorded a change-delivery update."),
+            metadata={
+                "workflow": "change-delivery",
+                "workflow_state": workflow_state,
+                "operator_attention": bool(get_is_operator_attention()),
+                "action": action,
+                **(extra or {}),
+            },
         )
 
     return publisher
@@ -420,12 +400,15 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
 
     workspace_root = Path(workspace_root).resolve()
 
-    # Detect workflow-contract shape (top-level `workflow:` + `runtimes:` +
-    # `agents:`) and project it onto the internal config view the existing
-    # implementation body still consumes.
-    if "workflow" in config and "runtimes" in config and "agents" in config:
-        yaml_cfg = config
-        config = _yaml_to_legacy_view(config, workspace_root=workspace_root)
+    # Detect workflow-contract shape and project it onto the private engine
+    # view the existing implementation body still consumes. For the public
+    # actor/stage/gate contract this compiler produces the internal coder/
+    # reviewer view; operators never need to configure that private shape.
+    if "workflow" in config and "runtimes" in config:
+        if "actors" not in config:
+            raise ValueError("change-delivery workflow contracts require top-level actors:")
+        yaml_cfg = compile_change_delivery_contract(config)
+        config = _yaml_to_legacy_view(yaml_cfg, workspace_root=workspace_root)
     else:
         yaml_cfg = None
     workflow_policy = str((yaml_cfg or {}).get("workflow-policy") or "").strip()
@@ -436,6 +419,15 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     hermes_cron_jobs_path = Path(config.get("hermesCronJobsPath") or (Path.home() / ".hermes/cron/jobs.json"))
     ledger_path = Path(config["ledgerPath"])
     from workflows.change_delivery.migrations import migrate_persisted_ledger
+    fallback_storage_config = {
+        "storage": {
+            "ledger": str(ledger_path),
+            "health": str(config["healthPath"]),
+            "audit-log": str(config["auditLogPath"]),
+            "scheduler": str(config.get("schedulerPath") or (workspace_root / "memory/workflow-scheduler.json")),
+        }
+    }
+    ensure_change_delivery_state_files(workspace_root, yaml_cfg or fallback_storage_config)
     migrate_persisted_ledger(ledger_path)
     health_path = Path(config["healthPath"])
     audit_log_path = Path(config["auditLogPath"])
@@ -467,8 +459,8 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     review_head_missing_minutes = int(staleness.get("reviewHeadMissingMinutes", 20))
 
     review_cache = config.get("reviewCache", {}) or {}
-    codex_cloud_cache_seconds = int(review_cache.get("codexCloudSeconds", 1800))
-    claude_review_request_cooldown_seconds = int(review_cache.get("claudeReviewRequestCooldownSeconds", 1200))
+    external_review_cache_seconds = int(review_cache.get("externalReviewSeconds", 1800))
+    internal_review_request_cooldown_seconds = int(review_cache.get("internalReviewRequestCooldownSeconds", 1200))
     internal_review_job_name = str(job_names.get("internalReviewRunner") or "internal-review-runner")
     workflow_checker_job_name = str(job_names.get("workflowChecker") or "workflow-checker")
     workflow_watchdog_job_name = str(job_names.get("workflowWatchdog") or "workflow-watchdog")
@@ -495,34 +487,15 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     codex_session_nudge_cooldown_seconds = int(session_policy.get("codexSessionNudgeCooldownSeconds", 600))
 
     review_policy = config.get("reviewPolicy", {}) or {}
-    inter_review_agent_pass_with_findings_reviews = int(
-        review_policy.get("interReviewAgentPassWithFindingsReviews")
-        or review_policy.get("internalReviewerAgentPassWithFindingsReviews")
-        or review_policy.get("claudePassWithFindingsReviews", 1)
-    )
-    inter_review_agent_model = str(
+    internal_review_pass_with_findings_reviews = int(review_policy.get("internalReviewPassWithFindingsReviews", 1))
+    internal_review_model = str(
         review_policy.get("internalReviewerModel")
         or "claude-sonnet-4-6"
     )
-    inter_review_agent_max_turns = int(
-        review_policy.get("interReviewAgentMaxTurns")
-        or review_policy.get("internalReviewerAgentMaxTurns")
-        or review_policy.get("claudeReviewMaxTurns", 12)
-    )
-    inter_review_agent_timeout_seconds = int(
-        review_policy.get("interReviewAgentTimeoutSeconds")
-        or review_policy.get("internalReviewerAgentTimeoutSeconds")
-        or review_policy.get("claudeReviewTimeoutSeconds", 1200)
-    )
-    inter_review_agent_freeze_coder_while_running = bool(
-        review_policy.get(
-            "freezeCoderWhileInterReviewAgentRunning",
-            review_policy.get(
-                "freezeCoderWhileInternalReviewAgentRunning",
-                review_policy.get("freezeCoderWhileClaudeReviewRunning", True),
-            ),
-        )
-    )
+    internal_review_max_turns = int(review_policy.get("internalReviewMaxTurns", 12))
+    internal_review_timeout_seconds = int(review_policy.get("internalReviewTimeoutSeconds", 1200))
+    freeze_internal_review = review_policy.get("freezeCoderWhileInternalReviewRunning")
+    internal_review_freeze_coder_while_running = bool(True if freeze_internal_review is None else freeze_internal_review)
 
     agent_labels = config.get("agentLabels", {}) or {}
     internal_coder_agent_name = str(agent_labels.get("internalCoderAgent", "Internal_Coder_Agent"))
@@ -535,7 +508,10 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         return hermes_cron_jobs_path if engine_owner == "hermes" else cron_jobs_path
 
     def load_jobs() -> dict[str, Any]:
-        return _load_json(_jobs_store_path())
+        try:
+            return _load_json(_jobs_store_path())
+        except FileNotFoundError:
+            return {"jobs": []}
 
     def load_ledger() -> dict[str, Any]:
         return _load_json(ledger_path)
@@ -560,8 +536,8 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         )
         _write_json(scheduler_path, payload)
 
-    # Wire the comment publisher (returns None when observability is disabled —
-    # the audit hook then becomes a pure log-write with no GitHub I/O).
+    # Wire tracker feedback through the shared tracker client. The audit hook
+    # still writes locally first; tracker publishing is best-effort fanout.
     _ns_holder: dict[str, Any] = {}
 
     def _ns_load_ledger() -> dict[str, Any]:
@@ -573,10 +549,24 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         except Exception:
             return {}
 
-    _repo_slug = ((yaml_cfg or {}).get("repository") or {}).get("github-slug") or ""
-    _publisher = _make_comment_publisher(
+    _tracker_cfg = _change_delivery_tracker_cfg(yaml_cfg)
+    _code_host_cfg = _change_delivery_code_host_cfg(yaml_cfg)
+    _code_host_slug = _code_host_github_slug(yaml_cfg)
+    _code_host_client = (
+        build_code_host_client(
+            workflow_root=workspace_root,
+            code_host_cfg=_code_host_cfg,
+            repo_path=repo_path,
+            run=_run,
+            run_json=_run_json,
+        )
+        if _code_host_cfg
+        else None
+    )
+    _tracker_feedback_publisher = _make_tracker_feedback_publisher(
         workflow_root=workspace_root,
-        repo_slug=_repo_slug,
+        tracker_cfg=_tracker_cfg,
+        repo_path=repo_path,
         workflow_yaml=yaml_cfg or {},
         get_active_issue_number=lambda: (_ns_load_ledger().get("activeLane") or {}).get("number"),
         get_workflow_state=lambda: _ns_load_ledger().get("workflowState") or "unknown",
@@ -588,13 +578,13 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
 
     _webhooks = build_webhooks((yaml_cfg or {}).get("webhooks") or [], run_fn=_run)
 
-    def _adapt_legacy_publisher(legacy_pub):
-        """The legacy comments publisher takes (action=, summary=, extra=).
+    def _adapt_tracker_feedback_publisher(feedback_pub):
+        """Tracker feedback takes (action=, summary=, extra=).
         Compose-style subscribers receive a single audit_event dict. Adapt."""
-        if legacy_pub is None:
+        if feedback_pub is None:
             return None
         def _sub(audit_event):
-            legacy_pub(
+            feedback_pub(
                 action=audit_event.get("action") or "",
                 summary=audit_event.get("summary") or "",
                 extra={k: v for k, v in audit_event.items() if k not in ("action", "summary", "at")},
@@ -610,9 +600,9 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         return _sub
 
     _subscribers = []
-    _legacy = _adapt_legacy_publisher(_publisher)
-    if _legacy is not None:
-        _subscribers.append(_legacy)
+    _tracker_feedback = _adapt_tracker_feedback_publisher(_tracker_feedback_publisher)
+    if _tracker_feedback is not None:
+        _subscribers.append(_tracker_feedback)
     for _wh in _webhooks:
         _subscribers.append(_adapt_webhook(_wh))
 
@@ -636,7 +626,8 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         DEFAULT_CONFIG_PATH=workspace_root / DEFAULT_WORKFLOW_MARKDOWN_FILENAME,
         SESSIONS_STATE_PATH=sessions_state_path,
         REPO_PATH=repo_path,
-        REPO_SLUG=_repo_slug,
+        CODE_HOST_SLUG=_code_host_slug,
+        CODE_HOST=_code_host_client,
         CRON_JOBS_PATH=cron_jobs_path,
         HERMES_CRON_JOBS_PATH=hermes_cron_jobs_path,
         LEDGER_PATH=ledger_path,
@@ -655,14 +646,14 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         MISS_MULTIPLIER=miss_multiplier,
         LANE_NO_PR_MINUTES=lane_no_pr_minutes,
         REVIEW_HEAD_MISSING_MINUTES=review_head_missing_minutes,
-        CLAUDE_REVIEW_JOB_NAME=internal_review_job_name,
+        INTERNAL_REVIEW_JOB_NAME=internal_review_job_name,
         WORKFLOW_CHECKER_JOB_NAME=workflow_checker_job_name,
         WORKFLOW_WATCHDOG_JOB_NAME=workflow_watchdog_job_name,
         CODEX_WATCHDOG_JOB_NAME=workflow_watchdog_job_name,
         TELEGRAM_JOB_NAME=milestone_notifier_job_name,
-        CLAUDE_TRIGGER_STATES={"under_review", "findings_open", "revalidating"},
-        CODEX_CLOUD_CACHE_SECONDS=codex_cloud_cache_seconds,
-        CLAUDE_REVIEW_REQUEST_COOLDOWN_SECONDS=claude_review_request_cooldown_seconds,
+        INTERNAL_REVIEW_TRIGGER_STATES={"under_review", "findings_open", "revalidating"},
+        EXTERNAL_REVIEW_CACHE_SECONDS=external_review_cache_seconds,
+        INTERNAL_REVIEW_REQUEST_COOLDOWN_SECONDS=internal_review_request_cooldown_seconds,
         CODEX_SESSION_POLICY=session_policy,
         CODEX_MODEL_DEFAULT=codex_model_default,
         CODEX_MODEL_HIGH_EFFORT=codex_model_high_effort,
@@ -680,17 +671,11 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         CODEX_SESSION_POKE_GRACE_SECONDS=codex_session_poke_grace_seconds,
         CODEX_SESSION_NUDGE_COOLDOWN_SECONDS=codex_session_nudge_cooldown_seconds,
         REVIEW_POLICY=review_policy,
-        INTER_REVIEW_AGENT_PASS_WITH_FINDINGS_REVIEWS=inter_review_agent_pass_with_findings_reviews,
-        INTER_REVIEW_AGENT_MODEL=inter_review_agent_model,
-        INTER_REVIEW_AGENT_MAX_TURNS=inter_review_agent_max_turns,
-        INTER_REVIEW_AGENT_TIMEOUT_SECONDS=inter_review_agent_timeout_seconds,
-        INTER_REVIEW_AGENT_FREEZE_CODER_WHILE_RUNNING=inter_review_agent_freeze_coder_while_running,
-        # Back-compat aliases for older call-sites still using "CLAUDE" names.
-        CLAUDE_MODEL=inter_review_agent_model,
-        CLAUDE_REVIEW_MAX_TURNS=inter_review_agent_max_turns,
-        CLAUDE_REVIEW_TIMEOUT_SECONDS=inter_review_agent_timeout_seconds,
-        CLAUDE_REVIEW_FREEZE_CODER_WHILE_RUNNING=inter_review_agent_freeze_coder_while_running,
-        CLAUDE_PASS_WITH_FINDINGS_REVIEWS=inter_review_agent_pass_with_findings_reviews,
+        INTERNAL_REVIEW_PASS_WITH_FINDINGS_REVIEWS=internal_review_pass_with_findings_reviews,
+        INTERNAL_REVIEW_MODEL=internal_review_model,
+        INTERNAL_REVIEW_MAX_TURNS=internal_review_max_turns,
+        INTERNAL_REVIEW_TIMEOUT_SECONDS=internal_review_timeout_seconds,
+        INTERNAL_REVIEW_FREEZE_CODER_WHILE_RUNNING=internal_review_freeze_coder_while_running,
         AGENT_LABELS=agent_labels,
         INTERNAL_CODER_AGENT_NAME=internal_coder_agent_name,
         ESCALATION_CODER_AGENT_NAME=escalation_coder_agent_name,
@@ -734,19 +719,18 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     # Build the external reviewer once; downstream shims delegate to it.
     from workflows.change_delivery.reviewers import ReviewerContext, build_reviewer
 
-    # Resolve config from agents.external-reviewer. The legacy top-level
-    # codex-bot block fallback was removed in Phase D-2; operators must use
-    # the modern agents.external-reviewer.{logins,clean-reactions,pending-reactions}
-    # form.
+    # Resolve the private compiled reviewer config. Operators configure this
+    # through a public `pr-comment-approval` gate in WORKFLOW.md.
     _yaml_agents = (yaml_cfg or {}).get("agents", {}) or {}
     ext_reviewer_cfg = dict(_yaml_agents.get("external-reviewer") or {})
 
-    ext_reviewer_cfg["repo-slug"] = ext_reviewer_cfg.get("repo-slug") or _repo_slug
+    ext_reviewer_cfg["repo-slug"] = ext_reviewer_cfg.get("repo-slug") or _code_host_slug
 
     reviewer_ctx = ReviewerContext(
         run_json=ns._run_json,
         repo_path=ns.REPO_PATH,
         repo_slug=ext_reviewer_cfg["repo-slug"],
+        code_host_client=ns.CODE_HOST,
         iso_to_epoch=ns._iso_to_epoch,
         now_epoch=time.time,
         extract_severity=ns._extract_severity,
@@ -756,14 +740,14 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     ns.reviewer = build_reviewer(ext_reviewer_cfg, ws_context=reviewer_ctx)
 
     # -- runtimes -------------------------------------------------------
-    # Legacy JSON configs synthesize runtime profiles from session/review
-    # policy fields. Repo-owned WORKFLOW.md configs use their top-level
-    # runtimes block directly, so shared runtimes such as codex-app-server are
-    # configured in one place and selected by agents.*.runtime.
+    # Default runtime profiles are derived from workflow policy fields.
+    # Repo-owned WORKFLOW.md configs can override the top-level runtimes block
+    # directly, so shared runtimes are configured once and selected by
+    # actors.*.runtime.
     _session_policy = config.get("sessionPolicy", {}) or {}
     _review_policy = config.get("reviewPolicy", {}) or {}
 
-    _legacy_runtimes_cfg = {
+    _default_runtimes_cfg = {
         "acpx-codex": {
             "kind": "acpx-codex",
             "session-idle-freshness-seconds": int(
@@ -778,21 +762,13 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
         },
         "claude-cli": {
             "kind": "claude-cli",
-            "max-turns-per-invocation": int(
-                _review_policy.get("interReviewAgentMaxTurns")
-                or _review_policy.get("internalReviewerAgentMaxTurns")
-                or _review_policy.get("claudeReviewMaxTurns", 24)
-            ),
-            "timeout-seconds": int(
-                _review_policy.get("interReviewAgentTimeoutSeconds")
-                or _review_policy.get("internalReviewerAgentTimeoutSeconds")
-                or _review_policy.get("claudeReviewTimeoutSeconds", 1200)
-            ),
+            "max-turns-per-invocation": int(_review_policy.get("internalReviewMaxTurns", 24)),
+            "timeout-seconds": int(_review_policy.get("internalReviewTimeoutSeconds", 1200)),
         },
     }
     _runtimes_cfg = {
         str(name): dict(profile or {})
-        for name, profile in (((yaml_cfg or {}).get("runtimes") or _legacy_runtimes_cfg).items())
+        for name, profile in (((yaml_cfg or {}).get("runtimes") or _default_runtimes_cfg).items())
     }
 
     _runtimes = build_runtimes(_runtimes_cfg, run=ns._run, run_json=ns._run_json)
@@ -814,26 +790,21 @@ def make_workspace(*, workspace_root: Path, config: dict[str, Any]) -> SimpleNam
     ns.runtime = _runtime_accessor
     ns.close = _close_runtimes
 
-    # YAML-shape cross-reference validation: every agent's runtime: field must
+    # YAML-shape cross-reference validation: every actor runtime: field must
     # name a key in the top-level runtimes: mapping. The schema doesn't enforce
     # this (it's a structural-vs-referential distinction); the factory does.
     if yaml_cfg is not None:
-        yaml_agents = yaml_cfg.get("agents", {}) or {}
         known_runtimes = set((yaml_cfg.get("runtimes", {}) or {}).keys())
-        for tier_name, tier in (yaml_agents.get("coder") or {}).items():
-            rt = tier.get("runtime")
+        yaml_actors = yaml_cfg.get("actors", {}) or {}
+        for actor_name, actor in yaml_actors.items():
+            if not isinstance(actor, dict):
+                continue
+            rt = actor.get("runtime")
             if rt and rt not in known_runtimes:
                 raise ValueError(
-                    f"agents.coder.{tier_name}.runtime={rt!r} not defined in runtimes: "
+                    f"actors.{actor_name}.runtime={rt!r} not defined in runtimes: "
                     f"{sorted(known_runtimes)}"
                 )
-        int_rev = yaml_agents.get("internal-reviewer", {}) or {}
-        rt = int_rev.get("runtime")
-        if rt and rt not in known_runtimes:
-            raise ValueError(
-                f"agents.internal-reviewer.runtime={rt!r} not defined in runtimes: "
-                f"{sorted(known_runtimes)}"
-            )
 
     return ns
 
@@ -1044,7 +1015,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
 
     def _inter_review_agent_pending_seed():
         return ns._load_adapter_reviews_module().inter_review_agent_pending_seed(
-            model=ns.INTER_REVIEW_AGENT_MODEL,
+            model=ns.INTERNAL_REVIEW_MODEL,
         )
 
     def _session_record_files(session_name):
@@ -1094,6 +1065,17 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             issue_number, comment, repo_path=ns.REPO_PATH, run=ns._run,
         )
 
+    def ensure_active_lane():
+        return ns._load_adapter_actions_module().run_ensure_active_lane(
+            build_status_fn=ns.build_status,
+            reconcile_fn=ns.reconcile,
+            audit_fn=ns.audit,
+            issue_add_label_fn=ns._issue_add_label,
+            issue_comment_fn=ns._issue_comment,
+            pick_next_lane_issue_fn=ns._pick_next_lane_issue,
+            active_lane_label=ns.ACTIVE_LANE_LABEL,
+        )
+
     def publish_ready_pr():
         return ns._load_adapter_actions_module().publish_ready_pr(ns.WORKSPACE)
 
@@ -1105,9 +1087,6 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
 
     def dispatch_inter_review_agent_review():
         return ns._load_adapter_actions_module().dispatch_inter_review_agent_review(ns.WORKSPACE)
-
-    def dispatch_claude_review():
-        return ns._load_adapter_actions_module().dispatch_claude_review(ns.WORKSPACE)
 
     def dispatch_repair_handoff():
         return ns._load_adapter_actions_module().dispatch_repair_handoff(ns.WORKSPACE)
@@ -1230,12 +1209,16 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _get_open_pr_for_issue(issue_number):
-        return ns._load_adapter_github_module().get_open_pr_for_issue(
-            issue_number,
-            repo_path=ns.REPO_PATH,
-            run_json=ns._run_json,
-            issue_number_from_branch_fn=ns._issue_number_from_branch,
+        if issue_number is None:
+            return None
+        prs = ns._require_code_host().list_open_pull_requests(
+            limit=50,
+            fields="number,title,url,headRefName,headRefOid,isDraft,updatedAt",
         )
+        for pr in prs:
+            if ns._issue_number_from_branch(pr.get("headRefName")) == issue_number:
+                return pr
+        return None
 
     # -----------------------------------------------------------------
     # ACPX / codex-session helpers.
@@ -1258,43 +1241,6 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             "session_id": payload.get("acpSessionId") or payload.get("acpxSessionId"),
             "record_id": payload.get("acpxRecordId") or payload.get("acpx_record_id"),
         }
-
-    def _acpx_session_stream_path(acpx_record_id):
-        if not acpx_record_id:
-            return None
-        return Path.home() / ".acpx" / "sessions" / f"{acpx_record_id}.stream.ndjson"
-
-    def _latest_acpx_prompt_error(acpx_record_id):
-        path = ns._acpx_session_stream_path(acpx_record_id)
-        if path is None or not path.exists():
-            return None
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except Exception:
-            return None
-        for raw_line in reversed(lines):
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except Exception:
-                continue
-            error = payload.get("error")
-            if isinstance(error, dict):
-                return error
-        return None
-
-    def _fallback_codex_model_for_prompt_error(*, acpx_record_id, codex_model, exc):
-        error = ns._latest_acpx_prompt_error(acpx_record_id)
-        error_data = error.get("data") if isinstance(error, dict) else None
-        codex_error_info = (error_data or {}).get("codex_error_info") if isinstance(error_data, dict) else None
-        if codex_error_info == "usage_limit_exceeded" and codex_model != ns.CODEX_MODEL_ESCALATED:
-            return ns.CODEX_MODEL_ESCALATED
-        combined_output = "\n".join(part for part in [exc.stdout or "", exc.stderr or ""] if part).lower()
-        if "usage limit" in combined_output and codex_model != ns.CODEX_MODEL_ESCALATED:
-            return ns.CODEX_MODEL_ESCALATED
-        return None
 
     def _load_latest_session_meta(session_name):
         files = ns._session_record_files(session_name)
@@ -1512,6 +1458,61 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
     def _coder_runtime_kind_for_model(model):
         return ns._runtime_kind(ns._coder_runtime_name_for_model(model))
 
+    def _implementation_stage_cfg():
+        stages = (getattr(ns, "WORKFLOW_YAML", {}) or {}).get("stages") or {}
+        stage = stages.get("implement") if isinstance(stages, dict) else {}
+        return dict(stage) if isinstance(stage, dict) else {}
+
+    def _workflow_actor_cfg(actor_name):
+        actors = (getattr(ns, "WORKFLOW_YAML", {}) or {}).get("actors") or {}
+        actor = actors.get(actor_name) if isinstance(actors, dict) else None
+        if not isinstance(actor, dict):
+            raise KeyError(f"unknown change-delivery actor {actor_name!r}")
+        return dict(actor)
+
+    def _should_escalate_implementation_actor(*, issue=None, lane_state=None, workflow_state=None, reviews=None):
+        labels = ns._load_adapter_sessions_module().issue_label_names(issue)
+        if "effort:large" in labels or "effort:high" in labels:
+            return True
+        return ns._should_escalate_codex_model(
+            lane_state=lane_state,
+            workflow_state=workflow_state,
+            reviews=reviews,
+        )
+
+    def _implementation_actor_name_for_status(status):
+        impl = (status or {}).get("implementation") or {}
+        stage = ns._implementation_stage_cfg()
+        actor_name = str(stage.get("actor") or "").strip()
+        escalation = stage.get("escalation") if isinstance(stage.get("escalation"), dict) else {}
+        escalation_actor = str((escalation or {}).get("actor") or "").strip()
+        if (
+            escalation_actor
+            and ns._should_escalate_implementation_actor(
+                issue=(status or {}).get("activeLane"),
+                lane_state=impl.get("laneState"),
+                workflow_state=((status or {}).get("ledger") or {}).get("workflowState"),
+                reviews=(status or {}).get("reviews") or {},
+            )
+        ):
+            return escalation_actor
+        if actor_name:
+            return actor_name
+        raise KeyError("stages.implement.actor is required")
+
+    def _implementation_actor_for_status(status):
+        actor_name = ns._implementation_actor_name_for_status(status)
+        actor_cfg = ns._workflow_actor_cfg(actor_name)
+        runtime_name = str(actor_cfg.get("runtime") or "").strip()
+        if not runtime_name:
+            raise KeyError(f"actors.{actor_name}.runtime is required")
+        return {
+            "name": actor_name,
+            "config": actor_cfg,
+            "runtime_name": runtime_name,
+            "runtime_kind": ns._runtime_kind(runtime_name),
+        }
+
     def _should_escalate_codex_model(*, lane_state=None, workflow_state=None, reviews=None):
         return ns._load_adapter_sessions_module().should_escalate_codex_model(
             lane_state=lane_state,
@@ -1552,7 +1553,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             internal_coder_agent_name=ns.INTERNAL_CODER_AGENT_NAME,
             escalation_coder_agent_name=ns.ESCALATION_CODER_AGENT_NAME,
             internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
-            internal_reviewer_model=ns.INTER_REVIEW_AGENT_MODEL,
+            internal_reviewer_model=ns.INTERNAL_REVIEW_MODEL,
             external_reviewer_agent_name=ns.EXTERNAL_REVIEWER_AGENT_NAME,
             advisory_reviewer_agent_name=ns.ADVISORY_REVIEWER_AGENT_NAME,
         )
@@ -1570,6 +1571,75 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             session_name=session_name,
             model=codex_model,
             resume_session_id=resume_session_id,
+        )
+
+    def _show_actor_session(*, worktree, session_name, runtime_name=None, runtime_kind=None):
+        runtime_kind = runtime_kind or ns._runtime_kind(runtime_name)
+        if runtime_kind == "codex-app-server":
+            issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
+            thread_id = ns._codex_thread_for_issue_number(issue_number)
+            if thread_id:
+                entry = ((ns.load_scheduler().get("codex_threads") or {}).get(ns._scheduler_issue_key(issue_number)) or {})
+                return {
+                    "name": session_name,
+                    "closed": False,
+                    "cwd": str(worktree) if worktree is not None else None,
+                    "last_used_at": entry.get("updated_at"),
+                    "session_id": thread_id,
+                    "record_id": thread_id,
+                }
+            return None
+        if runtime_kind == "acpx-codex":
+            return ns._show_acpx_session(worktree=worktree, session_name=session_name)
+        return None
+
+    def _close_actor_session(*, worktree, session_name, runtime_name=None, runtime_kind=None):
+        runtime_kind = runtime_kind or ns._runtime_kind(runtime_name)
+        issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
+        if runtime_kind == "codex-app-server":
+            ns._clear_codex_thread_for_issue_number(issue_number)
+        if runtime_name:
+            closer = getattr(ns.runtime(runtime_name), "close_session", None)
+            if callable(closer):
+                return closer(worktree=worktree, session_name=session_name)
+        if runtime_kind == "acpx-codex":
+            return ns._close_acpx_session(worktree=worktree, session_name=session_name)
+        return None
+
+    def _run_implementation_stage(*, worktree, session_name, prompt, actor_name, actor_cfg, runtime_name, runtime_kind, resume_session_id=None):
+        from runtimes.stages import run_runtime_stage
+
+        issue_number = ns._scheduler_issue_number_from_session(worktree=worktree, session_name=session_name)
+        if runtime_kind == "codex-app-server":
+            resume_session_id = ns._codex_thread_for_issue_number(issue_number) or resume_session_id
+        return run_runtime_stage(
+            runtime=ns.runtime(runtime_name),
+            runtime_cfg=dict(((getattr(ns, "RUNTIME_PROFILES", {}) or {}).get(runtime_name) or {})),
+            agent_cfg=dict(actor_cfg or {}),
+            stage_name="implement",
+            worktree=Path(worktree),
+            session_name=session_name,
+            prompt=prompt,
+            resume_session_id=resume_session_id,
+            cancel_event=ns.ACTIVE_CANCEL_EVENT,
+            progress_callback=(
+                lambda result: ns._record_coder_runtime_progress(
+                    issue_number=issue_number,
+                    session_name=session_name,
+                    runtime_name=runtime_name,
+                    runtime_kind=runtime_kind,
+                    worktree=worktree,
+                    result=result,
+                )
+                if runtime_kind == "codex-app-server"
+                else None
+            ),
+            placeholders={
+                "actor": str(actor_name or ""),
+                "issue_number": str(issue_number or ""),
+                "runtime": str(runtime_name or ""),
+                "workflow_root": str(ns.WORKSPACE),
+            },
         )
 
     def _run_acpx_prompt(*, worktree, session_name, prompt, codex_model):
@@ -1604,7 +1674,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
 
     def _new_inter_review_agent_run_id():
         import uuid as _uuid
-        return f"inter-review-agent:{_uuid.uuid4()}"
+        return f"internal-review:{_uuid.uuid4()}"
 
     def _extract_inter_review_agent_payload(raw_output):
         return ns._load_adapter_reviews_module().extract_inter_review_agent_payload(
@@ -1625,16 +1695,29 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
 
     def _run_inter_review_agent_review(*, issue, worktree, lane_memo_path, lane_state_path, head_sha):
         adapter_reviews = ns._load_adapter_reviews_module()
+        agent_cfg = {
+            "name": ns.INTERNAL_REVIEWER_AGENT_NAME,
+            "model": ns.INTERNAL_REVIEW_MODEL,
+            "runtime": "claude-cli",
+        }
+        agent_cfg.update(
+            (((getattr(ns, "WORKFLOW_YAML", {}) or {}).get("agents") or {}).get("internal-reviewer") or {})
+        )
+        runtime_name = str(agent_cfg.get("runtime") or "claude-cli")
+        runtime_cfg = dict(((getattr(ns, "RUNTIME_PROFILES", {}) or {}).get(runtime_name) or {}))
+        session_name = f"internal-review-{(issue or {}).get('number') or str(head_sha or '')[:12] or 'lane'}"
         try:
-            return adapter_reviews.run_inter_review_agent_review(
+            return adapter_reviews.run_inter_review_agent_review_via_runtime(
                 issue=issue,
                 worktree=worktree,
                 lane_memo_path=lane_memo_path,
                 lane_state_path=lane_state_path,
                 head_sha=head_sha,
-                run_fn=ns._run,
-                inter_review_agent_model=ns.INTER_REVIEW_AGENT_MODEL,
-                inter_review_agent_max_turns=ns.INTER_REVIEW_AGENT_MAX_TURNS,
+                runtime=ns.runtime(runtime_name),
+                runtime_cfg=runtime_cfg,
+                agent_cfg=agent_cfg,
+                session_name=session_name,
+                render_prompt_fn=ns._render_inter_review_agent_prompt,
                 error_cls=subprocess.CalledProcessError,
             )
         except adapter_reviews.InterReviewAgentError as exc:
@@ -1719,12 +1802,12 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         epochs = [epoch for epoch in (ns._iso_to_epoch(value) for value in candidates if value) if epoch is not None]
         return max(epochs) if epochs else None
 
-    def _single_pass_local_claude_gate_satisfied(review, local_head_sha, lane_state=None):
-        return ns._load_adapter_reviews_module().single_pass_local_claude_gate_satisfied(
+    def _single_pass_local_internal_review_gate_satisfied(review, local_head_sha, lane_state=None):
+        return ns._load_adapter_reviews_module().single_pass_local_internal_review_gate_satisfied(
             review,
             local_head_sha,
             lane_state,
-            pass_with_findings_reviews=ns.CLAUDE_PASS_WITH_FINDINGS_REVIEWS,
+            pass_with_findings_reviews=ns.INTERNAL_REVIEW_PASS_WITH_FINDINGS_REVIEWS,
         )
 
     def _fetch_external_review_pr_body_signal(pr_number):
@@ -1771,8 +1854,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             review,
             local_head_sha=local_head_sha,
             now_iso=now_iso,
-            model=ns.INTER_REVIEW_AGENT_MODEL,
-            timeout_seconds=ns.INTER_REVIEW_AGENT_TIMEOUT_SECONDS,
+            model=ns.INTERNAL_REVIEW_MODEL,
+            timeout_seconds=ns.INTERNAL_REVIEW_TIMEOUT_SECONDS,
             target_head_fn=ns._inter_review_agent_target_head,
             started_epoch_fn=ns._inter_review_agent_started_epoch,
             now_epoch_fn=lambda: int(time.time()),
@@ -1844,8 +1927,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             write_json_fn=ns._write_json,
         )
 
-    def should_dispatch_claude_repair_handoff(*, lane_state, session_action, internal_review, repair_brief, workflow_state, current_head_sha, has_open_pr):
-        return ns._load_adapter_reviews_module().should_dispatch_claude_repair_handoff(
+    def should_dispatch_internal_review_repair_handoff(*, lane_state, session_action, internal_review, repair_brief, workflow_state, current_head_sha, has_open_pr):
+        return ns._load_adapter_reviews_module().should_dispatch_internal_review_repair_handoff(
             lane_state=lane_state,
             session_action=session_action,
             internal_review=internal_review,
@@ -1898,8 +1981,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             workflow_policy=ns.WORKFLOW_POLICY,
         )
 
-    def build_claude_repair_handoff_payload(*, session_action, issue, internal_review, repair_brief, lane_memo_path, lane_state_path, now_iso):
-        return ns._load_adapter_reviews_module().build_claude_repair_handoff_payload(
+    def build_internal_review_repair_handoff_payload(*, session_action, issue, internal_review, repair_brief, lane_memo_path, lane_state_path, now_iso):
+        return ns._load_adapter_reviews_module().build_internal_review_repair_handoff_payload(
             session_action=session_action,
             issue=issue,
             internal_review=internal_review,
@@ -1909,8 +1992,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             now_iso=now_iso,
         )
 
-    def record_claude_repair_handoff(*, worktree, payload):
-        return ns._load_adapter_reviews_module().record_claude_repair_handoff(
+    def record_internal_review_repair_handoff(*, worktree, payload):
+        return ns._load_adapter_reviews_module().record_internal_review_repair_handoff(
             worktree=worktree,
             payload=payload,
             lane_state_path_fn=ns._lane_state_path,
@@ -1918,8 +2001,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             write_json_fn=ns._write_json,
         )
 
-    def _render_claude_repair_handoff_prompt(*, issue, internal_review, repair_brief, lane_memo_path, lane_state_path):
-        return ns._load_adapter_prompts_module().render_claude_repair_handoff_prompt(
+    def _render_internal_review_repair_handoff_prompt(*, issue, internal_review, repair_brief, lane_memo_path, lane_state_path):
+        return ns._load_adapter_prompts_module().render_internal_review_repair_handoff_prompt(
             issue=issue,
             internal_review=internal_review,
             repair_brief=repair_brief,
@@ -2007,19 +2090,21 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             acp_strategy=acp_strategy,
         )
 
+    def _require_code_host():
+        if ns.CODE_HOST is None:
+            raise RuntimeError("change-delivery PR operations require a code-host block in WORKFLOW.md")
+        return ns.CODE_HOST
+
     def _mark_pr_ready_for_review(pr_number):
         return ns._load_adapter_reviews_module().mark_pr_ready_for_review(
             pr_number,
-            run_fn=ns._run,
-            cwd=ns.REPO_PATH,
-            repo_slug=ns.REPO_SLUG,
+            code_host_client=ns._require_code_host(),
         )
 
     def _resolve_review_thread(thread_id):
         return ns._load_adapter_reviews_module().resolve_review_thread(
             thread_id,
-            run_json_fn=ns._run_json,
-            cwd=ns.REPO_PATH,
+            code_host_client=ns._require_code_host(),
         )
 
     def _resolve_codex_superseded_threads(review, *, current_head_sha):
@@ -2047,8 +2132,8 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             started_epoch_fn=ns._inter_review_agent_started_epoch,
             now_ms_fn=ns._now_ms,
             now_epoch_fn=lambda: int(time.time()),
-            timeout_seconds=ns.INTER_REVIEW_AGENT_TIMEOUT_SECONDS,
-            request_cooldown_seconds=ns.CLAUDE_REVIEW_REQUEST_COOLDOWN_SECONDS,
+            timeout_seconds=ns.INTERNAL_REVIEW_TIMEOUT_SECONDS,
+            request_cooldown_seconds=ns.INTERNAL_REVIEW_REQUEST_COOLDOWN_SECONDS,
         )
 
     def _derive_next_action(*, active_lane, open_pr, health, implementation, reviews, repair_brief, preflight, workflow_state, review_loop_state, merge_blocked):
@@ -2187,9 +2272,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             reconcile_fn=ns.reconcile,
             run_fn=ns._run,
             audit_fn=ns.audit,
-            mark_pr_ready_for_review_fn=ns._mark_pr_ready_for_review,
-            repo_slug=ns.REPO_SLUG,
-            repo_path=ns.REPO_PATH,
+            code_host_client=ns._require_code_host(),
         )
 
     def push_pr_update_raw():
@@ -2202,7 +2285,6 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
     def merge_and_promote_raw():
         return ns._load_adapter_actions_module().run_merge_and_promote(
             reconcile_fn=ns.reconcile,
-            run_fn=ns._run,
             audit_fn=ns.audit,
             issue_remove_label_fn=ns._issue_remove_label,
             issue_close_fn=ns._issue_close,
@@ -2211,8 +2293,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             pick_next_lane_issue_fn=ns._pick_next_lane_issue,
             now_iso_fn=ns._now_iso,
             active_lane_label=ns.ACTIVE_LANE_LABEL,
-            repo_slug=ns.REPO_SLUG,
-            repo_path=ns.REPO_PATH,
+            code_host_client=ns._require_code_host(),
         )
 
     def dispatch_inter_review_agent_review_raw():
@@ -2225,20 +2306,31 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
             now_iso_fn=ns._now_iso,
             new_inter_review_agent_run_id_fn=ns._new_inter_review_agent_run_id,
             actor_labels_payload_fn=ns._actor_labels_payload,
-            inter_review_agent_model=ns.INTER_REVIEW_AGENT_MODEL,
+            inter_review_agent_model=ns.INTERNAL_REVIEW_MODEL,
             internal_reviewer_agent_name=ns.INTERNAL_REVIEWER_AGENT_NAME,
         )
 
-    def dispatch_claude_review_raw():
-        return ns.dispatch_inter_review_agent_review_raw()
+    def _maybe_dispatch_repair_handoff(*, status, ledger, now_iso, lane_state_override=None):
+        actor = ns._implementation_actor_for_status(status)
 
-    def _maybe_dispatch_repair_handoff(*, status, ledger, now_iso, codex_model, lane_state_override=None):
+        def _run_repair_turn(*, worktree, session_name, prompt):
+            impl = (status or {}).get("implementation") or {}
+            return ns._run_implementation_stage(
+                worktree=worktree,
+                session_name=session_name,
+                prompt=prompt,
+                actor_name=actor["name"],
+                actor_cfg=actor["config"],
+                runtime_name=actor["runtime_name"],
+                runtime_kind=actor["runtime_kind"],
+                resume_session_id=impl.get("resumeSessionId"),
+            )
+
         return ns._load_adapter_reviews_module().maybe_dispatch_repair_handoff(
             status=status,
             ledger=ledger,
             now_iso=now_iso,
-            codex_model=codex_model,
-            run_prompt_fn=ns._run_acpx_prompt,
+            run_actor_turn_fn=_run_repair_turn,
             audit_fn=ns.audit,
             lane_state_override=lane_state_override,
             lane_state_path_fn=ns._lane_state_path,
@@ -2251,18 +2343,10 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
     def dispatch_repair_handoff_raw():
         status = ns.build_status()
         ledger = ns.load_ledger()
-        impl = status.get("implementation") or {}
-        codex_model = impl.get("codexModel") or ns._codex_model_for_issue(
-            status.get("activeLane"),
-            lane_state=impl.get("laneState"),
-            workflow_state=(status.get("ledger") or {}).get("workflowState"),
-            reviews=status.get("reviews") or {},
-        )
         result, changed = ns._maybe_dispatch_repair_handoff(
             status=status,
             ledger=ledger,
             now_iso=status.get("updatedAt") or ns._now_iso(),
-            codex_model=codex_model,
         )
         if changed:
             ns.save_ledger(ledger)
@@ -2287,38 +2371,28 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
         )
 
     def _dispatch_lane_turn(*, status, forced_action=None, audit_action="dispatch-implementation-turn"):
-        impl = status.get("implementation") or {}
-        codex_model = impl.get("codexModel") or ns._codex_model_for_issue(
-            status.get("activeLane"),
-            lane_state=impl.get("laneState"),
-            workflow_state=(status.get("ledger") or {}).get("workflowState"),
-            reviews=status.get("reviews") or {},
-        )
-        runtime_name = ns._coder_runtime_name_for_model(codex_model)
+        actor = ns._implementation_actor_for_status(status)
         return ns._load_adapter_actions_module().run_dispatch_lane_turn(
             status=status,
             forced_action=forced_action,
             audit_action=audit_action,
             now_iso_fn=ns._now_iso,
-            close_acpx_session_fn=ns._close_acpx_session,
-            ensure_acpx_session_fn=ns._ensure_acpx_session,
-            show_acpx_session_fn=ns._show_acpx_session,
-            run_prompt_fn=ns._run_acpx_prompt,
+            close_session_fn=ns._close_actor_session,
+            show_session_fn=ns._show_actor_session,
+            run_stage_fn=ns._run_implementation_stage,
             prepare_lane_worktree_fn=ns._prepare_lane_worktree,
-            codex_model_for_issue_fn=ns._codex_model_for_issue,
+            implementation_actor_name=actor["name"],
+            implementation_actor_cfg=actor["config"],
             get_issue_details_fn=ns._get_issue_details,
-            fallback_codex_model_for_prompt_error_fn=ns._fallback_codex_model_for_prompt_error,
-            coder_agent_name_for_model_fn=ns._coder_agent_name_for_model,
             actor_labels_payload_fn=ns._actor_labels_payload,
             load_ledger_fn=ns.load_ledger,
             save_ledger_fn=ns.save_ledger,
             reconcile_fn=ns.reconcile,
             audit_fn=ns.audit,
             render_implementation_dispatch_prompt_fn=ns._render_implementation_dispatch_prompt,
-            runtime_name=runtime_name,
-            runtime_kind=ns._runtime_kind(runtime_name),
+            runtime_name=actor["runtime_name"],
+            runtime_kind=actor["runtime_kind"],
             record_runtime_result_fn=ns._record_coder_runtime_result,
-            error_cls=subprocess.CalledProcessError,
         )
 
     def dispatch_implementation_turn_raw():
@@ -2352,9 +2426,6 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
 
     def dispatch_inter_review_agent_review():
         return ns.dispatch_inter_review_agent_review_raw()
-
-    def dispatch_claude_review():
-        return ns.dispatch_claude_review_raw()
 
     def dispatch_repair_handoff():
         return ns.dispatch_repair_handoff_raw()
@@ -2406,21 +2477,7 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
 
         return _normalize_status(ns.build_status_raw(), ns.WORKSPACE)
 
-    # Back-compat aliases ------------------------------------------------
-    # Reference local function variables directly — those are bound by `def`
-    # in the current scope; dereferencing via ``ns.`` would fail here because
-    # the ``setattr(ns, …)`` loop below hasn't run yet.
     _new_review_run_id = _new_inter_review_agent_run_id
-    _claude_review_target_head = _inter_review_agent_target_head
-    _claude_review_started_epoch = _inter_review_agent_started_epoch
-    _claude_review_is_running_on_head = _inter_review_agent_is_running_on_head
-    _classify_claude_review_failure_text = _classify_inter_review_agent_failure_text
-    _extract_claude_review_payload = _extract_inter_review_agent_payload
-    _claude_review_failure_message = _inter_review_agent_failure_message
-    _claude_review_failure_class = _inter_review_agent_failure_class
-    _render_claude_review_prompt = _render_inter_review_agent_prompt
-    _run_claude_change_delivery = _run_inter_review_agent_review
-    _audit_claude_review_transition = _audit_inter_review_agent_transition
 
     # Expose the InterReviewAgentError class so callers using
     # ``workspace.InterReviewAgentError`` can catch it. We bind lazily — if the
@@ -2429,7 +2486,6 @@ def _install_wrapper_adapter_shims(ns: SimpleNamespace) -> None:
     # call time via ``ns._load_adapter_reviews_module()`` instead.
     try:
         ns.InterReviewAgentError = ns._load_adapter_reviews_module().InterReviewAgentError
-        ns.ClaudeReviewError = ns.InterReviewAgentError
     except FileNotFoundError:
         pass
 
@@ -2451,8 +2507,8 @@ def load_workspace_from_config(
     workspace_root = Path(workspace_root)
     if config_path is not None:
         path = Path(config_path)
-        if path.suffix.lower() not in {".yaml", ".yml", ".md"}:
-            raise ValueError(f"workflow config must be YAML or WORKFLOW.md: {path}")
+        if path.suffix.lower() != ".md":
+            raise ValueError(f"workflow config must be WORKFLOW.md / WORKFLOW-<name>.md: {path}")
         config = load_workflow_contract_file(path).config
         return make_workspace(workspace_root=workspace_root, config=config)
 

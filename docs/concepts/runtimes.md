@@ -5,6 +5,9 @@ A **runtime** is the thing Daedalus shells out to when a turn happens. Daedalus 
 At the code level, these shared execution backends live under
 `daedalus/runtimes/`. The operator-facing contract also uses the `runtimes:`
 config block because workflows bind named runtime profiles to workflow roles.
+Every runtime-backed role must name a runtime profile. Command overrides are
+execution details on that role/profile; they are not fallback paths around the
+runtime contract.
 
 ## The Protocol
 
@@ -22,16 +25,69 @@ class Runtime(Protocol):
 
 `last_activity_ts()` is the Symphony §8.5 hook that lets [stall detection](stalls.md) work. Runtimes without it are skipped by the reconciler — they opt out silently.
 
+## Runtime Stages
+
+Workflow code does not invoke runtime adapters directly. It runs named stages
+through `daedalus/runtimes/stages.py`. The shared stage dispatcher owns the
+execution boundary:
+
+- receives the workflow-selected runtime profile and agent config
+- ensures/resumes the runtime session before dispatch
+- chooses `agent.command` or runtime `command` for command-backed runtimes
+- renders `{prompt_path}`, `{worktree}`, `{session_name}`, `{model}`, and workflow-specific placeholders
+- calls `run_prompt_result()` / `run_prompt()` for prompt-native runtimes
+- wires cancellation/progress callbacks when the runtime supports them
+- normalizes command output into a `PromptRunResult`-shaped metrics source
+
+The workflow still owns state, prompts, gates, and tracker/code-host effects.
+This is what lets `issue-runner`, `change-delivery`, and future workflows bind
+Codex app-server or Hermes Agent to any runtime-backed stage without hard-coded
+runtime names in the workflow logic.
+
+Important: for `codex-app-server`, `runtime.command` starts or connects the
+app-server transport. It is not treated as a per-stage command. Use
+`agent.command` only when a role should run a command-backed adapter.
+
 ## Adapter shape comparison
 
-|| | `claude-cli` | `acpx-codex` | `hermes-agent` | `codex-app-server` |
-|---|---|---|---|---|---|
-| Persistent session | ❌ one-shot | ✅ resumable | ❌ one-shot | ✅ resumable Codex thread |
-| `ensure_session` | no-op | `acpx codex sessions ensure` | no-op | no-op |
-| `run_prompt` | `claude --print …` | `acpx codex prompt -s <name>` | requires `command:` override | JSON-RPC over stdio to `codex app-server` |
-| `assess_health` | always healthy | freshness + grace window | always healthy | always healthy |
-| `close_session` | no-op | `acpx codex sessions close` | no-op | no-op |
-| Records `last_activity_ts` | yes (before + after `_run`) | yes | yes | yes |
+| Runtime kind | Execution model | Session behavior | Strongest capabilities |
+|---|---|---|---|
+| `hermes-agent` | `hermes -z` or `hermes chat --quiet -q` | one-shot from Daedalus' point of view | `prompt-turn`, `command-stage`, `one-shot`, `activity-heartbeat` |
+| `codex-app-server` | JSON-RPC over stdio or WebSocket | resumable Codex threads | `persistent-session`, `resume`, `cancel`, `structured-events`, `token-metrics`, `thread-visible` |
+| `claude-cli` | `claude --print ...` | one-shot | `prompt-turn`, `command-stage`, `one-shot`, `activity-heartbeat` |
+| `acpx-codex` | `acpx codex prompt -s <name>` | resumable ACPX sessions | `persistent-session`, `resume`, `activity-heartbeat` |
+
+External `codex-app-server` profiles also expose `service-required` because the
+listener must already be running.
+
+## Capability Validation
+
+Daedalus validates runtime bindings before dispatch. The checks cover:
+
+- runtime profile exists
+- `runtime.kind` is one of the registered adapters
+- workflow stages and gates reference declared actors
+- each bound actor/agent has the execution capability needed for its stage
+- explicit `required-capabilities` are supported by the selected runtime
+
+Use `required-capabilities` only when the workflow role truly depends on a
+runtime feature:
+
+```yaml
+actors:
+  implementer:
+    name: Change_Implementer
+    model: gpt-5.4
+    runtime: codex-service
+    required-capabilities:
+      - persistent-session
+      - resume
+      - token-metrics
+```
+
+If the selected runtime lacks one of those capabilities, `hermes daedalus
+validate`, `doctor`, `runtime-matrix`, and `configure-runtime` fail instead of
+silently falling back.
 
 ## Selection in `WORKFLOW.md`
 
@@ -47,30 +103,89 @@ runtimes:
     session-idle-grace-seconds: 1800
     session-nudge-cooldown-seconds: 600
 
-agents:
-  coder:
-    t1: { name: claude-coder, model: opus, runtime: coder-runtime }
-  internal-reviewer:
+actors:
+  implementer:
+    name: claude-implementer
+    model: opus
+    runtime: coder-runtime
+  reviewer:
     name: codex-reviewer
     model: gpt-5
     runtime: reviewer-runtime
 ```
 
-The preflight pass walks `runtimes.<name>.kind` and `agents.external-reviewer.kind` to confirm every referenced runtime resolves to a registered adapter before a tick dispatches.
+The preflight pass walks `runtimes.<name>.kind` and workflow-specific gate
+types to confirm the contract can dispatch safely before a tick runs.
+
+## Configure with Presets
+
+For common choices, let Daedalus edit the repo-owned workflow contract:
+
+```bash
+hermes daedalus configure-runtime --runtime hermes-final --role agent
+hermes daedalus configure-runtime --runtime hermes-chat --role reviewer
+hermes daedalus configure-runtime --runtime codex-service --role implementer
+```
+
+The command writes a named profile under `runtimes:` and updates the selected
+role under `agent:` or actor under `actors:`. Use `--runtime-name` if you want the profile
+key to be different from the preset name. Use `--dry-run --json` to inspect the
+change without writing the file.
+
+## Runtime Matrix Check
+
+After editing runtime bindings, inspect the workflow's role matrix:
+
+```bash
+hermes daedalus runtime-matrix
+hermes daedalus runtime-matrix --format json
+```
+
+This reports every runtime-backed role, the selected profile, adapter kind,
+binding health, and host availability. To exercise the shared stage boundary
+with a tiny prompt, run:
+
+```bash
+hermes daedalus runtime-matrix --execute
+hermes daedalus runtime-matrix --role agent --execute
+hermes daedalus runtime-matrix --runtime codex-service --execute --format json
+```
+
+`--execute` does not mutate trackers or code hosts. It only creates a temporary
+worktree under the workflow root and dispatches one minimal prompt through the
+configured runtime profile. For `codex-service`, start the shared Codex listener
+first with `hermes daedalus codex-app-server up`.
 
 ### `hermes-agent` runtime
 
-The `hermes-agent` runtime delegates turns to a local Hermes agent process. It is **one-shot** (no persistent session) and requires a `command:` override in `WORKFLOW.md` because the exact invocation depends on the agent's entry point.
+The `hermes-agent` runtime delegates turns to a local Hermes Agent CLI. By
+default it uses the documented scripted path, `hermes -z`, which returns only
+the final answer. Set `mode: chat` to use `hermes chat --quiet -q` when you need
+Hermes chat features such as `--source`, `--max-turns`, skills, toolsets, or
+session resume.
 
 ```yaml
 runtimes:
-  my-agent-runtime:
+  hermes-final:
     kind: hermes-agent
-    command: ["python3", "-m", "my_agent", "--workflow-root", "{{workflow_root}}"]
+    mode: final
+    provider: openrouter
     timeout-seconds: 1200
+
+  hermes-chat:
+    kind: hermes-agent
+    mode: chat
+    source: daedalus
+    max-turns: 90
+    toolsets: terminal,skills
 ```
 
-Because it is one-shot, `assess_health` always returns healthy and `last_activity_ts` records the subprocess start/end timestamps.
+Custom `command:` overrides still work. Command-backed stages receive
+`{prompt_path}`, `{result_path}`, `{worktree}`, `{session_name}`, and `{model}`
+placeholders plus `DAEDALUS_*` environment variables. If the command writes a
+JSON object to `{result_path}`, Daedalus records its `output`, `session_id`,
+`thread_id`, `turn_id`, `tokens`, `rate_limits`, and related fields as the
+runtime result.
 
 ### `codex-app-server` runtime
 
@@ -188,6 +303,7 @@ surfaces without changing the shared runtime protocol.
 ## Where this lives in code
 
 - Protocol: `daedalus/runtimes/__init__.py`
+- Stage dispatcher: `daedalus/runtimes/stages.py`
 - Adapters: `daedalus/runtimes/{claude_cli,acpx_codex,hermes_agent,codex_app_server}.py`
 - Workflow compatibility shims: `daedalus/workflows/change_delivery/runtimes/`
 - Preflight: `daedalus/workflows/change_delivery/preflight.py`

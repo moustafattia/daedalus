@@ -1,8 +1,10 @@
 # GitHub Smoke Test
 
-Use this only against a repository where temporary issues are acceptable. The
-test creates one labeled issue, lets `issue-runner` select and dispatch it, then
-closes the issue and verifies terminal cleanup.
+Use this only against a repository where temporary issues and comments are
+acceptable. The test creates one labeled issue, lets `issue-runner` select and
+dispatch it, forces one runtime failure, verifies retry recovery, writes
+upserted tracker feedback comments, closes the issue through
+`tracker-feedback`, and verifies terminal cleanup.
 
 ## Prerequisites
 
@@ -15,6 +17,13 @@ closes the issue and verifies terminal cleanup.
 ```bash
 export DAEDALUS_GITHUB_SMOKE_REPO=your-org/your-repo
 pytest tests/test_github_issue_runner_smoke.py -q
+```
+
+Or run it through the shared live-smoke harness:
+
+```bash
+export DAEDALUS_GITHUB_SMOKE_REPO=your-org/your-repo
+scripts/smoke-live.sh --only github-issue-runner
 ```
 
 Optional controls:
@@ -33,6 +42,11 @@ to be a git checkout.
 - `tracker.kind: github` can select issues via `gh`
 - `tracker.github_slug` is the GitHub repository source of truth
 - required-label filtering works against live GitHub data
-- a no-op runtime can dispatch from the selected issue
-- scheduler state records the continuation retry
+- a supervised worker dispatches from the selected issue
+- tracker feedback writes issue comments for selected, dispatched, running,
+  failed, retry scheduled, and completed stages
+- `tracker-feedback.comment-mode: upsert` avoids duplicate Daedalus comments
+  when selected/running stages repeat during retry recovery
+- scheduler state records failure retry/backoff and clears it after recovery
+- `tracker-feedback.state-updates.on-completed: closed` closes the GitHub issue
 - terminal GitHub state clears retry state and removes the issue workspace

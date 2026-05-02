@@ -39,12 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser = sub.add_parser("doctor", help="Check and attempt safe workflow repair.")
     doctor_parser.add_argument("--no-fix-watchers", action="store_true", help="Do not disable broken issue watchers during doctor.")
 
-    preflight_claude = sub.add_parser("preflight-claude-review", help="Run cheap deterministic preflight for the internal review agent.")
-    preflight_claude.add_argument("--json", action="store_true", help="Accepted for compatibility; preflight output is always JSON.")
-    preflight_claude.add_argument("--wake-if-needed", action="store_true", help="Wake the internal review runner when preflight says it should run soon.")
-    preflight_inter = sub.add_parser("preflight-inter-review-agent", help="Run cheap deterministic preflight for the internal review agent.")
-    preflight_inter.add_argument("--json", action="store_true", help="Accepted for compatibility; preflight output is always JSON.")
-    preflight_inter.add_argument("--wake-if-needed", action="store_true", help="Wake the internal review runner when preflight says it should run soon.")
+    preflight_internal = sub.add_parser("preflight-internal-review", help="Run cheap deterministic preflight for the internal review stage.")
+    preflight_internal.add_argument("--json", action="store_true", help="Accepted for scripting; preflight output is always JSON.")
+    preflight_internal.add_argument("--wake-if-needed", action="store_true", help="Wake the internal review runner when preflight says it should run soon.")
 
     wake_job = sub.add_parser("wake-job", help="Wake one named job now by pulling its next run forward.")
     wake_job.add_argument("name", help="Exact cron job name to wake.")
@@ -64,10 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     push_pr_update_parser.add_argument("--json", action="store_true", help="Print machine-readable push output.")
     merge_and_promote_parser = sub.add_parser("merge-and-promote", help="Merge the approved PR and promote the next lane.")
     merge_and_promote_parser.add_argument("--json", action="store_true", help="Print machine-readable merge output.")
-    claude_dispatch = sub.add_parser("dispatch-claude-review", help="Run the local pre-publish internal review directly from the wrapper.")
-    claude_dispatch.add_argument("--json", action="store_true", help="Print machine-readable dispatch output.")
-    inter_dispatch = sub.add_parser("dispatch-inter-review-agent", help="Run the local pre-publish internal review directly from the wrapper.")
-    inter_dispatch.add_argument("--json", action="store_true", help="Print machine-readable dispatch output.")
+    internal_dispatch = sub.add_parser("dispatch-internal-review", help="Run the local pre-publish internal review directly from the wrapper.")
+    internal_dispatch.add_argument("--json", action="store_true", help="Print machine-readable dispatch output.")
     restart_actor = sub.add_parser("restart-actor-session", help="Force-close and recreate the active coder session before dispatching the next lane turn.")
     restart_actor.add_argument("--json", action="store_true", help="Print machine-readable restart output.")
     repair_dispatch = sub.add_parser("dispatch-repair-handoff", help="Send the current repair brief back into the active Codex session.")
@@ -179,9 +174,9 @@ def main(workspace: Any, argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         return 0
 
-    if args.command in {"preflight-claude-review", "preflight-inter-review-agent"}:
+    if args.command == "preflight-internal-review":
         status = workspace.build_status()
-        preflight = ((status.get("preflight") or {}).get("interReviewAgent") or (status.get("preflight") or {}).get("claudeReview") or {})
+        preflight = ((status.get("preflight") or {}).get("prePublishReview") or {})
         if args.wake_if_needed and preflight.get("wakeSuggested"):
             workspace.wake_named_jobs([workspace.WORKFLOW_WATCHDOG_JOB_NAME])
             preflight = {**preflight, "woken": True, "wokenJob": workspace.WORKFLOW_WATCHDOG_JOB_NAME}
@@ -251,7 +246,7 @@ def main(workspace: Any, argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         return 0
 
-    if args.command in {"dispatch-claude-review", "dispatch-inter-review-agent"}:
+    if args.command == "dispatch-internal-review":
         result = workspace.dispatch_inter_review_agent_review()
         print(json.dumps(result, indent=2))
         return 0

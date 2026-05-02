@@ -76,7 +76,7 @@ class ConfigWatcher:
     def __post_init__(self) -> None:
         snap = self.snapshot_ref.get()
         # Codex P2 on PR #19: seed _last_key from the snapshot's recorded
-        # (mtime, size), NOT the live file. If workflow.yaml changed between
+        # (mtime, size), NOT the live file. If WORKFLOW.md changed between
         # bootstrap parse and watcher construction, the snapshot still holds
         # the OLD config; seeding from the LIVE file would convince poll()
         # the new bytes are "current" and the watcher would never reload
@@ -102,7 +102,7 @@ class ConfigWatcher:
         # Codex P1 on PR #19: catch the full set of failures parse_and_validate
         # can raise. OSError covers "file disappeared between stat() and
         # read_text()", UnicodeDecodeError covers binary content / encoding
-        # mismatch, ParseError/ValidationError cover YAML syntax + schema.
+        # mismatch, ParseError/ValidationError cover front-matter syntax + schema.
         # An uncaught exception here would propagate out of poll() and crash
         # the watcher loop instead of preserving last-known-good config.
         try:

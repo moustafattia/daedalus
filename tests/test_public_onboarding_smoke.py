@@ -76,6 +76,57 @@ def test_public_onboarding_path_install_bootstrap_defaults_to_issue_runner_and_s
     assert status_payload["contractPath"] == str(repo / "WORKFLOW.md")
     assert status_payload["tracker"]["kind"] == "local-json"
     assert status_payload["tracker"]["issueCount"] >= 1
+    assert status_payload["tracker"]["eligibleCount"] == 1
+
+    validate_payload = json.loads(tools.execute_raw_args("validate --json"))
+    assert validate_payload["ok"] is True
+    assert validate_payload["workflow"] == "issue-runner"
+
+    doctor_payload = json.loads(tools.execute_raw_args("doctor --json"))
+    assert doctor_payload["ok"] is True
+    assert doctor_payload["workflow"] == "issue-runner"
+
+    service_loop_out = tools.execute_raw_args("service-loop --max-iterations 2 --interval-seconds 1 --json")
+    service_loop_payload = json.loads(service_loop_out)
+    assert service_loop_payload["workflow"] == "issue-runner"
+    assert service_loop_payload["service_mode"] == "active"
+    assert service_loop_payload["loop_status"] == "completed"
+    assert service_loop_payload["iterations"] == 2
+    assert service_loop_payload["last_result"]["ok"] is True
+
+    issues_payload = json.loads((workflow_root / "config" / "issues.json").read_text(encoding="utf-8"))
+    issue = issues_payload["issues"][0]
+    assert issue["id"] == "ISSUE-1"
+    assert issue["state"] == "done"
+    feedback_events = [comment["event"] for comment in issue["comments"]]
+    assert feedback_events[0] == "issue.selected"
+    assert set(feedback_events) == {
+        "issue.selected",
+        "issue.dispatched",
+        "issue.running",
+        "issue.completed",
+    }
+    assert feedback_events[-1] == "issue.completed"
+    completed_comment = issue["comments"][-1]
+    assert completed_comment["state"] == "done"
+    assert "completed this issue run successfully" in completed_comment["summary"]
+
+    completed_status = json.loads(tools.execute_raw_args("status --format json"))
+    assert completed_status["tracker"]["eligibleCount"] == 0
+    assert completed_status["selectedIssue"] is None
+    assert completed_status["lastRun"]["ok"] is True
+    assert completed_status["lastRun"]["issue"]["id"] == "ISSUE-1"
+    assert completed_status["lastRun"]["results"][0]["runtimeKind"] == "hermes-agent"
+
+    runs_payload = json.loads(tools.execute_raw_args("runs --json"))
+    assert runs_payload["workflow"] == "issue-runner"
+    assert runs_payload["counts"]["running"] == 0
+    assert any(run["status"] == "completed" for run in runs_payload["runs"])
+
+    events_payload = json.loads(tools.execute_raw_args("events --type issue_runner.tick.completed --json"))
+    assert events_payload["workflow"] == "issue-runner"
+    assert events_payload["counts"]["shown"] >= 1
+    assert events_payload["events"][0]["work_id"] == "ISSUE-1"
 
     assert ["systemctl", "--user", "daemon-reload"] in captured_commands
     assert ["systemctl", "--user", "enable", "daedalus-active@attmous-daedalus-issue-runner.service"] in captured_commands

@@ -29,6 +29,14 @@ def feedback_enabled(config: dict[str, Any]) -> bool:
     return bool(cfg.get("enabled", False))
 
 
+def comment_mode(config: dict[str, Any]) -> str:
+    cfg = feedback_config(config)
+    mode = str(cfg.get("comment-mode") or cfg.get("comment_mode") or "append").strip().lower()
+    if mode in {"append", "upsert"}:
+        return mode
+    return "append"
+
+
 def event_included(config: dict[str, Any], event: str) -> bool:
     cfg = feedback_config(config)
     include = cfg.get("include")
@@ -105,4 +113,5 @@ def publish_tracker_feedback(
         summary=summary,
         state=target_state,
         metadata=metadata or {},
+        comment_mode=comment_mode(workflow_config),
     )

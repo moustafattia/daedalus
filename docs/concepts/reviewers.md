@@ -1,39 +1,35 @@
 # Reviewers
 
-Daedalus orchestrates a **multi-stage review pipeline**. Each stage has a different reviewer role, different gating rules, and different handoff semantics. The goal: no code reaches `main` without passing the right gate at the right time.
+Daedalus treats review as workflow gates, not as fixed bot names. In
+`change-delivery`, an `agent-review` gate can run any configured actor in a
+fresh context before publish, while a `pr-comment-approval` gate can wait for
+registered PR commenters or reactions before merge. The goal is simple: no code
+reaches `main` without passing the gates declared in `WORKFLOW.md`.
 
 ---
 
-## Reviewer roles
+## Gate types
 
-| Role | Runtime | When active | Gate type |
+| Gate | Runtime/source | When active | Blocks |
 |---|---|---|---|
-| **Internal reviewer** | `claude-cli` | Before PR exists | Required |
-| **External reviewer** | `acpx-codex` (Codex Cloud) | After PR is published | Required |
-| **Advisory reviewer** | Varies (e.g., Rock Claw) | Any time | Informative only |
+| `agent-review` | Any actor runtime (`hermes-agent`, `codex-app-server`, CLI, command) | Before PR publish by default | Publish |
+| `pr-comment-approval` | Code-host comments/reactions | After PR is published | Merge when required |
+| `code-host-checks` | Code host checks/CI | Before merge | Merge when required |
 
-### Internal reviewer (Claude)
+### Agent review
 
-- **Runtime:** `claude-cli` (one-shot, no persistent session)
-- **Model:** `claude-sonnet-4-6` (configurable)
-- **Trigger:** Local unpublished branch exists and needs pre-publish gate
+- **Runtime:** selected by `actors.<name>.runtime`
+- **Model:** selected by `actors.<name>.model`
+- **Trigger:** local unpublished branch exists and needs the pre-publish gate
 - **Output:** JSON verdict with `verdict`, `findings`, `targetHeadSha`
-- **Gate:** Must pass before `publish_pr` is allowed
+- **Gate:** must pass before PR publish when configured as required
 
-### External reviewer (Codex Cloud)
+### PR comment approval
 
-- **Runtime:** `acpx-codex` (resumable session)
-- **Model:** `gpt-5` (configurable)
-- **Trigger:** PR exists and is ready for review
-- **Output:** GitHub review threads + PR body signal
-- **Gate:** Must pass before `merge_pr` is allowed
-
-### Advisory reviewer
-
-- Optional additional reviewer
-- Can run in parallel with required reviewers
-- Findings are logged but do not block merge
-- Example: Rock Claw for security-focused review
+- **Runtime:** none; the code-host client reads PR comments/reactions
+- **Trigger:** PR exists and `required-for-merge` is true
+- **Output:** accepted approval signal such as `+1`
+- **Gate:** must pass before merge when configured
 
 ---
 
@@ -41,21 +37,16 @@ Daedalus orchestrates a **multi-stage review pipeline**. Each stage has a differ
 
 ```mermaid
 stateDiagram-v2
-    [*] --> internal_pending: local branch exists
-    internal_pending --> internal_running: dispatch_claude_review
-    internal_running --> internal_findings: reject
-    internal_findings --> coder_repair: repair handoff
-    coder_repair --> internal_pending: re-dispatch
-    internal_running --> internal_passed: approve
-    internal_passed --> publish_pr: create PR
-
-    publish_pr --> external_pending: PR ready
-    external_pending --> external_running: Codex Cloud review
-    external_running --> external_findings: reject
-    external_findings --> coder_repair2: repair handoff
-    coder_repair2 --> external_pending: push update + re-review
-    external_running --> external_passed: approve
-    external_passed --> merge_pr: merge
+    [*] --> implementation: actor implements
+    implementation --> agent_review: pre-publish gate
+    agent_review --> repair: changes requested
+    repair --> agent_review: actor repairs
+    agent_review --> publish_pr: gate passes
+    publish_pr --> approval_gate: optional PR approval
+    approval_gate --> repair2: comments request changes
+    repair2 --> approval_gate: push update
+    approval_gate --> ci_gate: approval passes
+    ci_gate --> merge_pr: checks pass
 ```
 
 ---
@@ -94,13 +85,14 @@ The `SEVERITY_BADGE_RE` regex (`![P(\d+) Badge`) extracts these from review outp
 
 ## Repair handoff
 
-When a reviewer returns `changes_requested`, the workflow dispatches a **repair handoff** back to the coder:
+When a review gate returns `changes_requested`, the workflow dispatches a
+**repair handoff** back to the implementer actor:
 
 1. Findings are deduplicated against `lane-state.json` handoff metadata
 2. New findings are appended to the lane memo
-3. Coder session receives the repair prompt
-4. Coder implements fixes and commits
-5. Reviewer re-evaluates the new head
+3. Implementer session receives the repair prompt
+4. Implementer fixes and commits
+5. Review gate re-evaluates the new head
 
 ### Deduplication key
 

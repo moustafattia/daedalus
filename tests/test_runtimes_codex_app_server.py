@@ -512,6 +512,113 @@ def test_codex_app_server_runtime_speaks_jsonrpc_and_maps_metrics(tmp_path):
     }
 
 
+def test_codex_app_server_runtime_filters_events_by_active_thread_and_turn():
+    from runtimes.codex_app_server import CodexAppServerError, CodexAppServerRuntime, _RunState
+
+    runtime = CodexAppServerRuntime({"command": [sys.executable, "-c", ""]}, run=None)
+    state = _RunState(session_id="thread-current", thread_id="thread-current", turn_id="turn-current")
+
+    assert (
+        runtime._consume_message(
+            {"method": "error", "params": {"threadId": "thread-stale", "turnId": "turn-stale", "message": "timed out"}},
+            state=state,
+        )
+        is False
+    )
+    assert state.last_event is None
+
+    assert (
+        runtime._consume_message({"method": "error", "params": {"message": "timed out"}}, state=state)
+        is False
+    )
+    assert state.last_event is None
+
+    assert (
+        runtime._consume_message(
+            {
+                "method": "turn/completed",
+                "params": {"threadId": "thread-current", "turn": {"id": "turn-stale", "status": "completed"}},
+            },
+            state=state,
+        )
+        is False
+    )
+    assert state.last_event is None
+
+    assert (
+        runtime._consume_message(
+            {
+                "method": "thread/tokenUsage/updated",
+                "params": {
+                    "threadId": "thread-current",
+                    "turnId": "turn-stale",
+                    "tokenUsage": {"last": {"inputTokens": 99, "outputTokens": 99, "totalTokens": 198}},
+                },
+            },
+            state=state,
+        )
+        is False
+    )
+    assert state.tokens == {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+    assert (
+        runtime._consume_message(
+            {
+                "method": "turn/completed",
+                "params": {"threadId": "thread-current", "turn": {"id": "turn-current", "status": "completed"}},
+            },
+            state=state,
+        )
+        is True
+    )
+    assert state.last_event == "turn/completed"
+
+    with pytest.raises(CodexAppServerError, match="current failure"):
+        runtime._consume_message(
+            {
+                "method": "error",
+                "params": {"threadId": "thread-current", "turnId": "turn-current", "message": "current failure"},
+            },
+            state=state,
+        )
+
+
+def test_codex_app_server_runtime_keeps_unscoped_startup_errors_fatal():
+    from runtimes.codex_app_server import CodexAppServerError, CodexAppServerRuntime, _RunState
+
+    runtime = CodexAppServerRuntime({"command": [sys.executable, "-c", ""]}, run=None)
+
+    with pytest.raises(CodexAppServerError, match="startup failed"):
+        runtime._consume_message({"method": "error", "params": {"message": "startup failed"}}, state=_RunState())
+
+    with pytest.raises(CodexAppServerError, match="turn start failed"):
+        runtime._consume_message(
+            {"method": "error", "params": {"message": "turn start failed"}},
+            state=_RunState(session_id="thread-current", thread_id="thread-current"),
+        )
+
+
+def test_codex_app_server_runtime_tracks_item_notifications_without_unsupported_message():
+    from runtimes.codex_app_server import CodexAppServerRuntime, _RunState
+
+    runtime = CodexAppServerRuntime({"command": [sys.executable, "-c", ""]}, run=None)
+    state = _RunState(session_id="thread-current", thread_id="thread-current", turn_id="turn-current")
+
+    assert (
+        runtime._consume_message(
+            {
+                "method": "item/started",
+                "params": {"threadId": "thread-current", "turnId": "turn-current", "itemId": "item-current"},
+            },
+            state=state,
+        )
+        is False
+    )
+
+    assert state.last_event == "item/started"
+    assert state.last_message is None
+
+
 def test_codex_app_server_runtime_resumes_existing_thread(tmp_path):
     from runtimes.codex_app_server import CodexAppServerRuntime
 

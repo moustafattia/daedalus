@@ -22,15 +22,22 @@ def test_build_reviewer_unknown_kind_raises():
 
 
 def _ws_context():
+    from code_hosts.github import GithubCodeHostClient
     from workflows.change_delivery.reviewers import ReviewerContext
 
+    run_json = MagicMock(return_value={"data": {"repository": {"pullRequest": {
+        "state": "OPEN", "headRefOid": "abc123",
+        "reviewThreads": {"nodes": []},
+    }}}})
     return ReviewerContext(
-        run_json=MagicMock(return_value={"data": {"repository": {"pullRequest": {
-            "state": "OPEN", "headRefOid": "abc123",
-            "reviewThreads": {"nodes": []},
-        }}}}),
+        run_json=run_json,
         repo_path=Path("/tmp"),
         repo_slug="acme/widget",
+        code_host_client=GithubCodeHostClient(
+            code_host_cfg={"kind": "github", "github_slug": "acme/widget"},
+            repo_path=Path("/tmp"),
+            run_json=run_json,
+        ),
         iso_to_epoch=lambda x: None,
         now_epoch=lambda: 1000.0,
         extract_severity=lambda body: "minor",
@@ -124,7 +131,7 @@ def test_github_comments_reviewer_ignores_non_matching_logins():
 
 
 def test_github_comments_reviewer_placeholder():
-    """Placeholder shape matches reviews.codex_cloud_placeholder for back-compat."""
+    """Placeholder shape matches reviews.external_review_placeholder for back-compat."""
     from workflows.change_delivery.reviewers import build_reviewer
 
     cfg = {"enabled": True, "name": "X", "kind": "github-comments", "repo-slug": "x/y"}
@@ -194,7 +201,7 @@ def test_default_clean_reactions_only_includes_thumbs_up():
 
 
 def test_default_cache_seconds_matches_legacy_1800():
-    """Regression: legacy CODEX_CLOUD_CACHE_SECONDS was 1800."""
+    """Regression: default external review cache was 1800 seconds."""
     from workflows.change_delivery.reviewers.github_comments import _DEFAULT_CACHE_SECONDS
     assert _DEFAULT_CACHE_SECONDS == 1800
 

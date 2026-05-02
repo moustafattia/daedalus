@@ -46,7 +46,7 @@ def _make_workspace(**overrides):
             "implementation": {"worktree": "/tmp/worktree", "branch": "codex/issue-224-demo", "status": "implementing_local", "laneStatePath": "/tmp/lane.json", "laneMemoPath": "/tmp/lane.md"},
             "reviews": {},
             "derivedReviewLoopState": "awaiting_reviews",
-            "preflight": {"interReviewAgent": {"shouldRun": True, "currentHeadSha": "abc", "wakeSuggested": True}},
+            "preflight": {"prePublishReview": {"shouldRun": True, "currentHeadSha": "abc", "wakeSuggested": True}},
             "coreJobs": {"j1": {}},
             "missingCoreJobs": [],
             "disabledCoreJobs": [],
@@ -149,7 +149,7 @@ def test_wake_job_forwards_name():
 
 def test_preflight_inter_review_agent_can_wake_when_suggested():
     ws = _make_workspace()
-    code, out = _run_main(ws, ["preflight-inter-review-agent", "--wake-if-needed"])
+    code, out = _run_main(ws, ["preflight-internal-review", "--wake-if-needed"])
     assert code == 0
     assert "woken" in json.loads(out)
     names = [c[0] for c in ws.calls]
@@ -158,7 +158,7 @@ def test_preflight_inter_review_agent_can_wake_when_suggested():
 
 def test_preflight_claude_review_alias_works():
     ws = _make_workspace()
-    code, out = _run_main(ws, ["preflight-claude-review"])
+    code, out = _run_main(ws, ["preflight-internal-review"])
     assert code == 0
     assert json.loads(out)["shouldRun"] is True
 
@@ -179,13 +179,10 @@ def test_action_commands_delegate_to_workspace():
         assert [c[0] for c in ws.calls] == [method], command
 
 
-def test_dispatch_claude_review_and_inter_review_are_aliases():
-    ws_a = _make_workspace()
-    ws_b = _make_workspace()
-    _run_main(ws_a, ["dispatch-claude-review"])
-    _run_main(ws_b, ["dispatch-inter-review-agent"])
-    assert [c[0] for c in ws_a.calls] == ["dispatch_inter_review_agent_review"]
-    assert [c[0] for c in ws_b.calls] == ["dispatch_inter_review_agent_review"]
+def test_dispatch_internal_review_delegates_to_review_runner():
+    ws = _make_workspace()
+    _run_main(ws, ["dispatch-internal-review"])
+    assert [c[0] for c in ws.calls] == ["dispatch_inter_review_agent_review"]
 
 
 def test_show_active_lane_and_show_core_jobs_print_json_projection():

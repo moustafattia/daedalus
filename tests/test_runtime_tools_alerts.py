@@ -102,6 +102,26 @@ def test_init_daedalus_db_migrates_execution_control_to_clean_schema(runtime_mod
     assert json.loads(row[3]) == {"source": "legacy"}
 
 
+def test_init_daedalus_db_seeds_change_delivery_state_files(runtime_module, tmp_path):
+    workflow_root = tmp_path / "workflow"
+
+    result = runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+
+    ledger_path = workflow_root / "memory" / "workflow-status.json"
+    health_path = workflow_root / "memory" / "workflow-health.json"
+    audit_path = workflow_root / "memory" / "workflow-audit.jsonl"
+    scheduler_path = workflow_root / "memory" / "workflow-scheduler.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    scheduler = json.loads(scheduler_path.read_text(encoding="utf-8"))
+
+    assert result["state_files"]["created"]["ledger"] is True
+    assert ledger["workflowState"] == "idle"
+    assert ledger["workflowIdle"] is True
+    assert json.loads(health_path.read_text(encoding="utf-8"))["workflow"] == "change-delivery"
+    assert audit_path.read_text(encoding="utf-8") == ""
+    assert scheduler["workflow"] == "change-delivery"
+
+
 def test_ingest_legacy_status_preserves_active_action_operator_attention(runtime_module, tmp_path):
     workflow_root = tmp_path / "workflow"
     paths = runtime_module._runtime_paths(workflow_root)
@@ -162,91 +182,479 @@ def test_ingest_legacy_status_preserves_active_action_operator_attention(runtime
     assert reason == "active-action-failed:dispatch_implementation_turn"
 
 
-def test_ingest_legacy_status_accepts_current_review_keys(runtime_module, tmp_path):
+def test_ingest_legacy_status_uses_canonical_internal_review_for_active_request(runtime_module, tmp_path):
     workflow_root = tmp_path / "workflow"
     paths = runtime_module._runtime_paths(workflow_root)
     runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
-
     legacy_status = {
-        "activeLane": {"number": 247, "url": "https://example.com/issues/247", "title": "Issue 247", "labels": []},
+        "activeLane": {"number": 221, "url": "https://example.com/issues/221", "title": "Issue 221", "labels": []},
         "repo": "/tmp/repo",
         "implementation": {
-            "worktree": "/tmp/issue-247",
-            "branch": "codex/issue-247-contract",
-            "localHeadSha": "head247",
-            "codexModel": "gpt-5.5",
-            "sessionName": "lane-247",
-            "resumeSessionId": "thread-247",
-            "laneState": {
-                "implementation": {
-                    "lastMeaningfulProgressAt": "2026-05-01T05:49:14Z",
-                    "lastMeaningfulProgressKind": "implementing_local",
-                },
-                "pr": {"lastPublishedHeadSha": None},
-            },
-            "activeSessionHealth": {"healthy": False, "lastUsedAt": "2026-05-01T05:49:14Z"},
+            "worktree": "/tmp/issue-221",
+            "branch": "codex/issue-221-test",
+            "localHeadSha": "abc123",
+            "sessionRuntime": "codex-app-server",
+            "laneState": {"implementation": {}, "pr": {"lastPublishedHeadSha": None}},
+            "activeSessionHealth": {"healthy": False, "lastUsedAt": None},
             "sessionActionRecommendation": {"action": "restart-session"},
         },
         "reviews": {
             "internalReview": {
-                "agentName": "Internal_Reviewer_Agent",
-                "model": "gpt-5.5",
                 "required": True,
                 "status": "pending",
                 "reviewScope": "local-prepublish",
-                "openFindingCount": 0,
-                "summary": "Pending local unpublished branch review before publication.",
+                "requestedHeadSha": "abc123",
+                "model": "claude-sonnet-4-6",
             },
-            "externalReview": {
-                "agentName": "External_Reviewer_Agent",
-                "required": False,
-                "status": "not_started",
-            },
+            "externalReview": {"required": False, "status": "not_started"},
         },
-        "ledger": {"workflowState": "awaiting_claude_prepublish", "reviewState": "awaiting_reviews", "repairBrief": None},
+        "ledger": {"workflowState": "awaiting_pre_publish_review", "reviewState": "awaiting_pre_publish_review", "repairBrief": None},
         "derivedReviewLoopState": "awaiting_reviews",
         "derivedMergeBlocked": False,
         "derivedMergeBlockers": [],
         "openPr": None,
         "activeLaneError": None,
         "staleLaneReasons": [],
-        "nextAction": {"type": "run_internal_review", "reason": "prepublish-claude-required"},
+        "nextAction": {"type": "run_internal_review", "reason": "prepublish-review-required"},
     }
 
-    comparison = runtime_module.compare_with_legacy_status(
+    runtime_module.ingest_legacy_status(
         workflow_root=workflow_root,
         legacy_status=legacy_status,
-        now_iso="2026-05-01T05:50:00Z",
+        now_iso="2026-04-22T00:01:00Z",
+    )
+    actions = runtime_module.request_active_actions_for_lane(
+        workflow_root=workflow_root,
+        lane_id="lane:221",
+        now_iso="2026-04-22T00:02:00Z",
     )
 
     conn = sqlite3.connect(paths["db_path"])
     try:
-        required_internal, required_external = conn.execute(
-            "SELECT required_internal_review, required_external_review FROM lanes WHERE lane_id=?",
-            ("lane:247",),
+        lane_required = conn.execute(
+            "SELECT required_internal_review, actor_backend FROM lanes WHERE lane_id=?",
+            ("lane:221",),
         ).fetchone()
-        review_status, review_model, review_scope, backend_type = conn.execute(
-            """
-            SELECT status, model_name, review_scope, backend_type
-            FROM lane_reviews
-            WHERE lane_id=? AND reviewer_scope=?
-            """,
-            ("lane:247", "internal"),
+        actor_backend = conn.execute(
+            "SELECT backend_type FROM lane_actors WHERE actor_id=?",
+            ("actor:lane:221:coder",),
+        ).fetchone()[0]
+        review_row = conn.execute(
+            "SELECT status, backend_type, requested_head_sha FROM lane_reviews WHERE review_id=?",
+            ("review:lane:221:internal",),
         ).fetchone()
     finally:
         conn.close()
 
-    assert required_internal == 1
-    assert required_external == 0
-    assert (review_status, review_model, review_scope, backend_type) == (
-        "pending",
-        "gpt-5.5",
-        "local-prepublish",
-        "internalReview",
+    assert lane_required == (1, "codex-app-server")
+    assert actor_backend == "codex-app-server"
+    assert review_row == ("pending", "internalReview", "abc123")
+    assert actions[0]["action_type"] == "request_internal_review"
+
+
+def test_ingest_legacy_status_ignores_old_review_status_keys(runtime_module, tmp_path):
+    workflow_root = tmp_path / "workflow"
+    paths = runtime_module._runtime_paths(workflow_root)
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    legacy_status = {
+        "activeLane": {"number": 221, "url": "https://example.com/issues/221", "title": "Issue 221", "labels": []},
+        "repo": "/tmp/repo",
+        "implementation": {
+            "worktree": "/tmp/issue-221",
+            "branch": "codex/issue-221-test",
+            "localHeadSha": "abc123",
+            "laneState": {"implementation": {}, "pr": {"lastPublishedHeadSha": None}},
+            "activeSessionHealth": {"healthy": False, "lastUsedAt": None},
+            "sessionActionRecommendation": {"action": "restart-session"},
+        },
+        "reviews": {
+            "claudeCode": {"required": True, "status": "pending", "requestedHeadSha": "abc123"},
+            "codexCloud": {"required": True, "status": "pending", "requestedHeadSha": "abc123"},
+        },
+        "ledger": {"workflowState": "awaiting_pre_publish_review", "reviewState": "awaiting_pre_publish_review", "repairBrief": None},
+        "derivedReviewLoopState": "awaiting_reviews",
+        "derivedMergeBlocked": False,
+        "derivedMergeBlockers": [],
+        "openPr": None,
+        "activeLaneError": None,
+        "staleLaneReasons": [],
+        "nextAction": {"type": "run_internal_review", "reason": "prepublish-review-required"},
+    }
+
+    runtime_module.ingest_legacy_status(
+        workflow_root=workflow_root,
+        legacy_status=legacy_status,
+        now_iso="2026-04-22T00:01:00Z",
     )
-    assert comparison["legacy_action_type"] == "run_internal_review"
-    assert comparison["relay_action_type"] == "request_internal_review"
-    assert comparison["compatible"] is True
+
+    conn = sqlite3.connect(paths["db_path"])
+    try:
+        required_flags = conn.execute(
+            "SELECT required_internal_review, required_external_review FROM lanes WHERE lane_id=?",
+            ("lane:221",),
+        ).fetchone()
+        review_count = conn.execute(
+            "SELECT COUNT(*) FROM lane_reviews WHERE lane_id=?",
+            ("lane:221",),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    assert required_flags == (0, 0)
+    assert review_count == 0
+
+
+def test_derive_shadow_actions_requests_internal_review_without_review_row(runtime_module):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "workflow_state": "awaiting_pre_publish_review",
+            "required_internal_review": 1,
+            "active_pr_number": None,
+            "current_head_sha": "abc123",
+        },
+        reviews=[],
+        actor_row={},
+    )
+
+    assert actions == [
+        {
+            "action_type": "request_internal_review",
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "target_head_sha": "abc123",
+            "reason": "internal-review-pending",
+        }
+    ]
+
+
+def test_derive_shadow_actions_requests_internal_review_for_new_local_head(runtime_module):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "workflow_state": "implementing_local",
+            "required_internal_review": 1,
+            "active_pr_number": None,
+            "current_head_sha": "abc123",
+        },
+        reviews=[],
+        actor_row={
+            "runtime_status": "unhealthy",
+            "session_action_recommendation": "restart-session",
+        },
+    )
+
+    assert actions == [
+        {
+            "action_type": "request_internal_review",
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "target_head_sha": "abc123",
+            "reason": "internal-review-pending",
+        }
+    ]
+
+
+def test_derive_shadow_actions_dispatches_local_review_repair_handoff_when_session_routable(runtime_module):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "workflow_state": "pre_publish_review_findings",
+            "active_pr_number": None,
+            "current_head_sha": "abc123",
+            "repair_brief_json": json.dumps(
+                {
+                    "forHeadSha": "abc123",
+                    "mustFix": [{"summary": "Fix validation"}],
+                    "shouldFix": [],
+                }
+            ),
+        },
+        reviews=[
+            {
+                "reviewer_scope": "internal",
+                "status": "completed",
+                "verdict": "PASS_WITH_FINDINGS",
+                "review_scope": "local-prepublish",
+                "reviewed_head_sha": "abc123",
+                "completed_at": "2026-04-22T00:05:00Z",
+            }
+        ],
+        actor_row={
+            "backend_identity": "lane-221",
+            "runtime_status": "healthy",
+            "session_action_recommendation": "continue-session",
+            "metadata_json": json.dumps({"sessionControl": {}}),
+        },
+    )
+
+    assert actions == [
+        {
+            "action_type": "dispatch_repair_handoff",
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "target_head_sha": "abc123",
+            "reason": "local-review-findings-need-repair",
+        }
+    ]
+
+
+def test_derive_shadow_actions_skips_duplicate_local_review_repair_handoff(runtime_module):
+    actions = runtime_module.derive_shadow_actions_for_lane(
+        lane_row={
+            "lane_id": "lane:221",
+            "issue_number": 221,
+            "workflow_state": "pre_publish_review_findings",
+            "active_pr_number": None,
+            "current_head_sha": "abc123",
+            "repair_brief_json": json.dumps(
+                {
+                    "forHeadSha": "abc123",
+                    "mustFix": [{"summary": "Fix validation"}],
+                    "shouldFix": [],
+                }
+            ),
+        },
+        reviews=[
+            {
+                "reviewer_scope": "internal",
+                "status": "completed",
+                "verdict": "PASS_WITH_FINDINGS",
+                "review_scope": "local-prepublish",
+                "reviewed_head_sha": "abc123",
+                "completed_at": "2026-04-22T00:05:00Z",
+            }
+        ],
+        actor_row={
+            "backend_identity": "lane-221",
+            "runtime_status": "healthy",
+            "session_action_recommendation": "continue-session",
+            "metadata_json": json.dumps(
+                {
+                    "sessionControl": {
+                        "lastInternalReviewRepairHandoff": {
+                            "sessionName": "lane-221",
+                            "headSha": "abc123",
+                            "reviewedAt": "2026-04-22T00:05:00Z",
+                        }
+                    }
+                }
+            ),
+        },
+    )
+
+    assert actions == []
+
+
+def test_persist_shadow_actions_returns_existing_action_on_idempotency_conflict(runtime_module, tmp_path):
+    workflow_root = tmp_path / "workflow"
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    paths = runtime_module._runtime_paths(workflow_root)
+    now_iso = "2026-04-22T00:00:00Z"
+    repair_brief = {
+        "forHeadSha": "abc123",
+        "mustFix": [{"summary": "Fix validation"}],
+        "shouldFix": [],
+    }
+    conn = runtime_module._connect(paths["db_path"])
+    try:
+        conn.execute(
+            """
+            INSERT INTO lanes (
+              lane_id, issue_number, issue_url, issue_title, repo_path, actor_backend,
+              lane_status, workflow_state, review_state, merge_state, current_head_sha,
+              repair_brief_json, active_actor_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "lane:221",
+                221,
+                "https://example.com/issues/221",
+                "Issue 221",
+                "/tmp/repo",
+                "acpx-codex",
+                "active",
+                "pre_publish_review_findings",
+                "findings_open",
+                "blocked",
+                "abc123",
+                json.dumps(repair_brief),
+                "actor:lane:221:coder",
+                now_iso,
+                now_iso,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO lane_actors (
+              actor_id, lane_id, actor_role, actor_name, backend_type, backend_identity,
+              model_name, runtime_status, session_action_recommendation, last_seen_at,
+              last_used_at, can_continue, can_nudge, restart_count, failure_count,
+              metadata_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "actor:lane:221:coder",
+                "lane:221",
+                "Internal_Coder_Agent",
+                "Internal_Coder_Agent",
+                "acpx-codex",
+                "lane-221",
+                "gpt-5.3-codex",
+                "healthy",
+                "continue-session",
+                now_iso,
+                now_iso,
+                1,
+                0,
+                0,
+                0,
+                json.dumps({"sessionControl": {}}),
+                now_iso,
+                now_iso,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO lane_reviews (
+              review_id, lane_id, reviewer_scope, reviewer_role, reviewer_name,
+              backend_type, status, verdict, reviewed_head_sha, review_scope,
+              completed_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "review:lane:221:internal",
+                "lane:221",
+                "internal",
+                "Internal_Reviewer_Agent",
+                "Internal_Reviewer_Agent",
+                "internalReview",
+                "completed",
+                "PASS_WITH_FINDINGS",
+                "abc123",
+                "local-prepublish",
+                "2026-04-22T00:05:00Z",
+                now_iso,
+                now_iso,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    first = runtime_module.persist_shadow_actions(
+        workflow_root=workflow_root,
+        lane_id="lane:221",
+        now_iso="2026-04-22T00:06:00Z",
+    )
+    second = runtime_module.persist_shadow_actions(
+        workflow_root=workflow_root,
+        lane_id="lane:221",
+        now_iso="2026-04-22T00:07:00Z",
+    )
+
+    assert first[0]["action_type"] == "dispatch_repair_handoff"
+    assert second == first
+    conn = runtime_module._connect(paths["db_path"])
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM lane_actions WHERE action_mode='shadow' AND action_type='dispatch_repair_handoff'"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1
+
+
+def test_execute_requested_action_records_ambiguous_failure_without_name_error(runtime_module, tmp_path):
+    workflow_root = tmp_path / "workflow"
+    paths = runtime_module._runtime_paths(workflow_root)
+    runtime_module.init_daedalus_db(workflow_root=workflow_root, project_key="workflow-example")
+    now_iso = "2026-04-22T00:00:00Z"
+    conn = runtime_module._connect(paths["db_path"])
+    try:
+        conn.execute(
+            """
+            INSERT INTO lanes (
+              lane_id, issue_number, issue_url, issue_title, repo_path, actor_backend,
+              lane_status, workflow_state, review_state, merge_state, active_actor_id,
+              current_head_sha, required_internal_review, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "lane:221",
+                221,
+                "https://example.com/issues/221",
+                "Issue 221",
+                "/tmp/repo",
+                "acpx-codex",
+                "active",
+                "awaiting_pre_publish_review",
+                "awaiting_reviews",
+                "not_ready",
+                "actor:1",
+                "abc123",
+                1,
+                now_iso,
+                now_iso,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO lane_actions (
+              action_id, lane_id, action_type, action_reason, action_mode, requested_by,
+              target_head_sha, idempotency_key, status, requested_at, request_payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "act:review:1",
+                "lane:221",
+                "request_internal_review",
+                "internal-review-pending",
+                "active",
+                "Workflow_Orchestrator",
+                "abc123",
+                "active:request_internal_review:lane:221:abc123",
+                "requested",
+                now_iso,
+                json.dumps({"action_type": "request_internal_review"}, sort_keys=True),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    def fail_review():
+        raise RuntimeError("review failed")
+
+    result = runtime_module.execute_requested_action(
+        workflow_root=workflow_root,
+        action_id="act:review:1",
+        now_iso="2026-04-22T00:01:00Z",
+        action_runners={"request_internal_review": fail_review},
+    )
+
+    assert result["executed"] is False
+    assert result["reason"] == "execution-failed"
+    assert result["error"] == "review failed"
+
+    conn = sqlite3.connect(paths["db_path"])
+    try:
+        failure_row = conn.execute(
+            "SELECT failure_class, analyst_recommended_action FROM failures WHERE failure_id=?",
+            ("failure:act:review:1",),
+        ).fetchone()
+    finally:
+        conn.close()
+    events = [json.loads(line) for line in paths["event_log_path"].read_text(encoding="utf-8").splitlines()]
+    analysis_requested = [
+        event for event in events if event.get("event_type") == "daedalus.error_analysis_requested"
+    ]
+
+    assert failure_row == ("request_internal_review_blocked", "mark_operator_attention")
+    assert analysis_requested[-1]["project_key"] == "workflow-example"
 
 
 def test_request_active_actions_event_payload_uses_retry_count(runtime_module, tmp_path, monkeypatch):
@@ -792,10 +1200,10 @@ def test_doctor_reports_stuck_dispatched_actions(tools_module, monkeypatch):
             DISPATCHED_ACTION_TIMEOUT_SECONDS=relay_stub.DISPATCHED_ACTION_TIMEOUT_SECONDS,
         ),
     )
-    # _build_project_status calls build_workflow_example_status directly (which
-    # reads config/workflow.yaml from disk), bypassing the _load_daedalus_module
-    # mock above. Stub it so the test stays a unit test of doctor-report logic
-    # rather than incidentally requiring a YAML workspace fixture.
+    # _build_project_status calls the workflow status builder directly,
+    # bypassing the _load_daedalus_module mock above. Stub it so the test stays
+    # a unit test of doctor-report logic rather than requiring a workflow
+    # contract fixture.
     monkeypatch.setattr(
         tools_module,
         "_build_project_status",

@@ -26,9 +26,8 @@ def emit_operator_attention_transition(
     """Emit a semantic audit event when a lane crosses the operator-attention
     boundary. No-op when the state did not change.
 
-    The comment publisher (Task 1.7) listens for ``operator-attention-transition``
-    and ``operator-attention-recovered`` to render the sticky ⚠️ header (and to
-    clear it on recovery).
+    Tracker feedback can include ``operator-attention-transition`` and
+    ``operator-attention-recovered`` so the issue timeline records both edges.
     """
     OAS = "operator_attention_required"
     if previous_state == new_state:
@@ -75,22 +74,22 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
 
     existing_reviews = ledger.get("reviews") or {}
     if publish_ready:
-        codex_cloud = ws._fetch_external_review(
+        external_review = ws._fetch_external_review(
             open_pr.get("number") if open_pr else None,
             open_pr.get("headRefOid") if open_pr else None,
             get_review(existing_reviews, "externalReview"),
         )
     elif open_pr and open_pr.get("isDraft"):
-        codex_cloud = ws._external_review_placeholder(
+        external_review = ws._external_review_placeholder(
             required=False,
             status="not_started",
-            summary="Draft PR is not ready for Codex Cloud review yet.",
+            summary="Draft PR is not ready for external review yet.",
         )
     else:
-        codex_cloud = ws._external_review_placeholder(
+        external_review = ws._external_review_placeholder(
             required=False,
             status="not_started",
-            summary="Codex Cloud review starts only after the PR is published ready-for-review.",
+            summary="External review starts only after the PR is published ready-for-review.",
         )
 
     implementation = ws._normalize_implementation_for_active_lane(
@@ -145,24 +144,24 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
 
     local_candidate_exists = ws._has_local_candidate(local_head_sha, worktree_commits_ahead)
     existing_internal_review = get_review(existing_reviews, "internalReview")
-    single_pass_claude_gate_satisfied = ws._single_pass_local_claude_gate_satisfied(existing_internal_review, local_head_sha, lane_state)
+    single_pass_internal_review_gate_satisfied = ws._single_pass_local_internal_review_gate_satisfied(existing_internal_review, local_head_sha, lane_state)
     effective_workflow_state = ledger_state
     effective_review_state = ledger.get("reviewState")
-    if not publish_ready and local_candidate_exists and single_pass_claude_gate_satisfied:
+    if not publish_ready and local_candidate_exists and single_pass_internal_review_gate_satisfied:
         effective_workflow_state = "ready_to_publish"
         effective_review_state = "ready_to_publish"
     reviews = ws._load_adapter_reviews_module().build_reviews_block(
         existing_reviews=existing_reviews,
-        codex_cloud=codex_cloud,
+        external_review=external_review,
         publish_ready=publish_ready,
         local_head_sha=local_head_sha,
         local_candidate_exists=local_candidate_exists,
-        inter_review_agent_model=ws.INTER_REVIEW_AGENT_MODEL,
+        inter_review_agent_model=ws.INTERNAL_REVIEW_MODEL,
         internal_reviewer_agent_name=ws.INTERNAL_REVIEWER_AGENT_NAME,
         external_reviewer_agent_name=ws.EXTERNAL_REVIEWER_AGENT_NAME,
         advisory_reviewer_agent_name=ws.ADVISORY_REVIEWER_AGENT_NAME,
         now_iso=ws._now_iso(),
-        claude_seed_fn=(lambda existing, head_sha, now_iso: ws._normalize_local_inter_review_agent_seed(
+        internal_review_seed_fn=(lambda existing, head_sha, now_iso: ws._normalize_local_inter_review_agent_seed(
             existing,
             local_head_sha=head_sha,
             now_iso=now_iso,
@@ -176,7 +175,7 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
             review_loop_state,
             merge_blocked=merge_blocked,
         )
-    claude_preflight = ws._inter_review_agent_preflight(
+    pre_publish_review_preflight = ws._inter_review_agent_preflight(
         active_lane=active_lane,
         open_pr=open_pr,
         workflow_state=effective_workflow_state,
@@ -185,18 +184,18 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
         inter_review_agent_job=ws._summarize_job(job_map.get(ws.WORKFLOW_WATCHDOG_JOB_NAME)),
         local_head_sha=local_head_sha,
         implementation_commits_ahead=worktree_commits_ahead,
-        single_pass_gate_satisfied=single_pass_claude_gate_satisfied,
+        single_pass_gate_satisfied=single_pass_internal_review_gate_satisfied,
     )
     if (
-        ws.INTER_REVIEW_AGENT_FREEZE_CODER_WHILE_RUNNING
+        ws.INTERNAL_REVIEW_FREEZE_CODER_WHILE_RUNNING
         and ws._inter_review_agent_is_running_on_head(get_review(reviews, "internalReview"), local_head_sha)
     ):
         session_action_recommendation = {
             "action": "no-action",
-            "reason": "claude-review-running",
+            "reason": "internal-review-running",
             "sessionName": (active_session_health or {}).get("sessionName"),
         }
-        nudge_preflight = {"shouldNudge": False, "reason": "claude-review-running"}
+        nudge_preflight = {"shouldNudge": False, "reason": "internal-review-running"}
         acp_session_strategy = ws.build_acp_session_strategy(
             implementation_session_key=implementation.get("session"),
             session_action=session_action_recommendation,
@@ -224,7 +223,7 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
         latest_progress_epoch = ws._latest_lane_progress_epoch(implementation, lane_state)
         if latest_progress_epoch and time.time() - latest_progress_epoch > (ws.LANE_NO_PR_MINUTES * 60):
             stale_lane_reasons.append("active lane has no PR and implementation state is stale")
-    if publish_ready and review_loop_state == "awaiting_reviews" and open_pr and codex_cloud.get("reviewedHeadSha") in {None, ""}:
+    if publish_ready and review_loop_state == "awaiting_reviews" and open_pr and external_review.get("reviewedHeadSha") in {None, ""}:
         stale_lane_reasons.append("published PR is waiting for review artifacts")
     if publish_ready and ledger_state in {"under_review", "revalidating", "findings_open", "rework_required"} and open_pr and (ledger.get("pr") or {}).get("headSha") in {None, ""}:
         stale_lane_reasons.append("review state lacks current PR head SHA")
@@ -273,7 +272,7 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
         },
         reviews=reviews,
         repair_brief=effective_repair_brief,
-        preflight={"claudeReview": claude_preflight},
+        preflight={"prePublishReview": pre_publish_review_preflight},
         workflow_state=effective_workflow_state,
         review_loop_state=review_loop_state,
         merge_blocked=merge_blocked,
@@ -313,7 +312,7 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
         review_loop_state=review_loop_state,
         merge_blocked=merge_blocked,
         merge_blockers=merge_blockers,
-        claude_preflight=claude_preflight,
+        pre_publish_review_preflight=pre_publish_review_preflight,
         detailed_jobs=detailed_jobs,
         hermes_job_names=ws.HERMES_JOB_NAMES,
         missing_core_jobs=missing_core_jobs,
@@ -325,7 +324,7 @@ def build_status_raw(workspace: Any) -> dict[str, Any]:
         health=health,
         legacy_watchdog_present=legacy_watchdog_present,
         legacy_watchdog_mode=legacy_watchdog_mode,
-        inter_review_agent_model=ws.INTER_REVIEW_AGENT_MODEL,
+        inter_review_agent_model=ws.INTERNAL_REVIEW_MODEL,
         next_action=next_action,
     )
 
@@ -348,7 +347,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
     review_loop_state = status.get("derivedReviewLoopState")
     merge_blockers = status.get("derivedMergeBlockers") or []
     merge_blocked = bool(status.get("derivedMergeBlocked"))
-    claude_preflight = ((status.get("preflight") or {}).get("interReviewAgent") or (status.get("preflight") or {}).get("claudeReview") or {})
+    pre_publish_review_preflight = ((status.get("preflight") or {}).get("prePublishReview") or {})
     now_iso = status["updatedAt"]
     codex_model = impl.get("codexModel") or ws._codex_model_for_issue(
         active_lane,
@@ -364,7 +363,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
         and get_review(reviews, "internalReview").get("verdict") == "PASS_CLEAN"
         and ws._mark_pr_ready_for_review(open_pr.get("number"))
     ):
-        ws.audit("reconcile", "Marked draft PR ready for review after clean pre-publish Claude gate", prNumber=open_pr.get("number"), headSha=impl.get("localHeadSha"))
+        ws.audit("reconcile", "Marked draft PR ready for review after clean pre-publish internal review gate", prNumber=open_pr.get("number"), headSha=impl.get("localHeadSha"))
         status = ws.build_status()
         active_lane = status.get("activeLane")
         open_pr = status.get("openPr")
@@ -373,7 +372,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
         review_loop_state = status.get("derivedReviewLoopState")
         merge_blockers = status.get("derivedMergeBlockers") or []
         merge_blocked = bool(status.get("derivedMergeBlocked"))
-        claude_preflight = ((status.get("preflight") or {}).get("interReviewAgent") or (status.get("preflight") or {}).get("claudeReview") or {})
+        pre_publish_review_preflight = ((status.get("preflight") or {}).get("prePublishReview") or {})
         now_iso = status["updatedAt"]
         codex_model = impl.get("codexModel") or ws._codex_model_for_issue(
             active_lane,
@@ -398,7 +397,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
         ledger,
         review_loop_state=review_loop_state,
         codex_model=codex_model,
-        inter_review_agent_model=ws.INTER_REVIEW_AGENT_MODEL,
+        inter_review_agent_model=ws.INTERNAL_REVIEW_MODEL,
         actor_labels=ws._actor_labels_payload(codex_model),
         reviews=reviews,
     )
@@ -435,7 +434,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
             now_iso=now_iso,
             repair_brief=repair_brief,
             operator_attention_needed=operator_attention_needed,
-            pass_with_findings_reviews=ws.CLAUDE_PASS_WITH_FINDINGS_REVIEWS,
+            pass_with_findings_reviews=ws.INTERNAL_REVIEW_PASS_WITH_FINDINGS_REVIEWS,
         )
         new_workflow_state = ledger.get("workflowState") or "unknown"
         emit_operator_attention_transition(
@@ -466,15 +465,15 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
             changed["jobs"] = True
             ws.audit("reconcile", "Disabled broken issue watcher jobs", disabledWatchers=disabled_watchers)
 
-    if claude_preflight.get("wakeSuggested"):
+    if pre_publish_review_preflight.get("wakeSuggested"):
         touched = ws._wake_jobs(jobs_payload, [ws.WORKFLOW_WATCHDOG_JOB_NAME])
         if touched:
             changed["jobs"] = True
             ws.audit(
                 "reconcile",
-                "Woke workflow watchdog from cheap Claude preflight",
+                "Woke workflow watchdog from cheap internal review preflight",
                 jobNames=touched,
-                headSha=claude_preflight.get("currentHeadSha"),
+                headSha=pre_publish_review_preflight.get("currentHeadSha"),
             )
 
     resolved_codex_threads = ws._resolve_codex_superseded_threads(
@@ -492,7 +491,7 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
         ledger["externalReviewAutoResolved"] = resolution_event
         ws.audit(
             "reconcile",
-            "Resolved superseded Codex Cloud review threads after clean PR-body signal",
+            "Resolved superseded external review threads after clean PR-body signal",
             threadIds=resolved_codex_threads,
             activeLane=(active_lane or {}).get("number"),
             prNumber=(open_pr or {}).get("number"),
@@ -562,7 +561,6 @@ def reconcile(workspace: Any, *, write_health: bool = True, fix_watchers: bool =
         status=status,
         ledger=ledger,
         now_iso=now_iso,
-        codex_model=codex_model,
         lane_state_override=lane_state_payload or (status.get("implementation") or {}).get("laneState"),
     )
     if repair_handoff_changed:

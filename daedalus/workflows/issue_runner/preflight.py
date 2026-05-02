@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from runtimes.capabilities import recognized_runtime_kinds
 from workflows.issue_runner.tracker import TrackerConfigError, build_tracker_client, resolve_tracker_path
+from workflows.runtime_presets import runtime_capability_checks, runtime_stage_checks
 from trackers.github import (
     github_auth_host_from_slug,
     github_auth_success_accounts,
@@ -40,18 +42,31 @@ def _validate_config(config: dict[str, Any], *, workflow_root: Path) -> None:
             raise RuntimeError(f"agent.runtime={runtime_name!r} does not reference a declared runtime profile")
         runtime_cfg = runtimes.get(runtime_name) or {}
         runtime_kind = str(runtime_cfg.get("kind") or "").strip()
-        if runtime_kind == "hermes-agent":
-            if not (agent.get("command") or runtime_cfg.get("command")):
-                raise RuntimeError(
-                    "hermes-agent runtime requires command on the runtime profile or agent block"
-                )
+        if runtime_kind not in recognized_runtime_kinds():
+            raise RuntimeError(
+                f"agent.runtime={runtime_name!r} uses unsupported runtime kind {runtime_kind!r}; "
+                f"expected one of {sorted(recognized_runtime_kinds())}"
+            )
         if runtime_kind == "codex-app-server":
-            if not (runtime_cfg.get("command") or codex_cfg.get("command")):
+            runtime_mode = str(
+                runtime_cfg.get("mode")
+                or codex_cfg.get("mode")
+                or ("external" if runtime_cfg.get("endpoint") or codex_cfg.get("endpoint") else "managed")
+            ).strip()
+            if runtime_mode == "external" and not (runtime_cfg.get("endpoint") or codex_cfg.get("endpoint")):
+                raise RuntimeError(
+                    "external codex-app-server runtime requires endpoint on the runtime profile or codex block"
+                )
+            if runtime_mode != "external" and not (runtime_cfg.get("command") or codex_cfg.get("command")):
                 raise RuntimeError(
                     "codex-app-server runtime requires command on the runtime profile or codex block"
                 )
-    elif not (agent.get("command") or codex_cfg.get("command")):
-        raise RuntimeError("issue-runner requires agent.runtime, agent.command, or codex.command")
+    else:
+        raise RuntimeError("issue-runner requires agent.runtime")
+
+    for check in [*runtime_stage_checks(config), *runtime_capability_checks(config)]:
+        if check.get("status") == "fail":
+            raise RuntimeError(str(check.get("detail") or check.get("name")))
 
     tracker_cfg = config.get("tracker") or {}
     repository_cfg = config.get("repository") or {}

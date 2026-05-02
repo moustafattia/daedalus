@@ -124,8 +124,8 @@ def _make_issue_runner_root(root: Path) -> None:
                 "workflow": "issue-runner",
                 "schema-version": 1,
                 "instance": {"name": "attmous-daedalus-issue-runner", "engine-owner": "hermes"},
-                "repository": {"local-path": "/tmp/repo", "github-slug": "attmous/daedalus"},
-                "tracker": {"kind": "github", "active_states": ["open"], "terminal_states": ["closed"]},
+                "repository": {"local-path": "/tmp/repo", "slug": "attmous/daedalus"},
+                "tracker": {"kind": "github", "github_slug": "attmous/daedalus", "active_states": ["open"], "terminal_states": ["closed"]},
                 "workspace": {"root": "workspace/issues"},
                 "agent": {"name": "runner", "model": "gpt-5.4", "runtime": "default"},
                 "storage": {
@@ -220,17 +220,23 @@ def _make_change_delivery_root(root: Path) -> None:
                 "workflow": "change-delivery",
                 "schema-version": 1,
                 "instance": {"name": "attmous-daedalus-change-delivery", "engine-owner": "hermes"},
-                "repository": {"local-path": "/tmp/repo", "github-slug": "attmous/daedalus", "active-lane-label": "active-lane"},
+                "repository": {"local-path": "/tmp/repo", "slug": "attmous/daedalus", "active-lane-label": "active-lane"},
+                "tracker": {"kind": "github", "github_slug": "attmous/daedalus", "active_states": ["open"], "terminal_states": ["closed"]},
+                "code-host": {"kind": "github", "github_slug": "attmous/daedalus"},
                 "runtimes": {
                     "coder-runtime": {"kind": "codex-app-server", "command": "codex app-server"},
                     "reviewer-runtime": {"kind": "claude-cli", "max-turns-per-invocation": 24, "timeout-seconds": 1200},
                 },
-                "agents": {
-                    "coder": {"default": {"name": "coder", "model": "gpt-5.5", "runtime": "coder-runtime"}},
-                    "internal-reviewer": {"name": "reviewer", "model": "claude-sonnet-4-6", "runtime": "reviewer-runtime"},
-                    "external-reviewer": {"enabled": False, "name": "external"},
+                "actors": {
+                    "implementer": {"name": "coder", "model": "gpt-5.5", "runtime": "coder-runtime"},
+                    "reviewer": {"name": "reviewer", "model": "claude-sonnet-4-6", "runtime": "reviewer-runtime"},
                 },
-                "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+                "stages": {"implement": {"actor": "implementer"}},
+                "gates": {
+                    "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+                    "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+                    "ci-green": {"type": "code-host-checks"},
+                },
                 "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
                 "storage": {
                     "ledger": "memory/workflow-status.json",

@@ -134,14 +134,14 @@ def render_implementation_dispatch_prompt(
     if workflow_state == "ready_to_publish":
         action_and_workflow_block = "\n".join([
             action_line,
-            "The local branch has already passed the Claude pre-publish gate.",
+            "The local branch has already passed the pre-publish internal review gate.",
             "Publish now: push the branch, open or update the PR, and make sure it is ready for review immediately (not left as draft).",
         ])
-    elif workflow_state in {"awaiting_claude_prepublish", "claude_prepublish_findings", "implementing_local", "implementing"} and not open_pr:
+    elif workflow_state in {"awaiting_pre_publish_review", "pre_publish_review_findings", "implementing_local", "implementing"} and not open_pr:
         action_and_workflow_block = "\n".join([
             action_line,
             "Do not publish yet.",
-            "Your target in this phase is a committed local candidate head that is ready for Claude pre-publish review.",
+            "Your target in this phase is a committed local candidate head that is ready for pre-publish internal review.",
         ])
     else:
         action_and_workflow_block = action_line
@@ -202,7 +202,7 @@ def render_external_reviewer_repair_handoff_prompt(
     return apply_workflow_policy(prompt_text, workflow_policy)
 
 
-def render_claude_repair_handoff_prompt(
+def render_internal_review_repair_handoff_prompt(
     *,
     issue: dict[str, Any] | None,
     internal_review: dict[str, Any] | None,
@@ -224,7 +224,7 @@ def render_claude_repair_handoff_prompt(
         reviewed_head_sha=review.get("reviewedHeadSha") or "unknown",
         lane_memo_line=f"Lane memo: {lane_memo_path}" if lane_memo_path else "Lane memo: none",
         lane_state_line=f"Lane state: {lane_state_path}" if lane_state_path else "Lane state: none",
-        review_summary=review.get("summary") or "No Claude summary recorded.",
+        review_summary=review.get("summary") or "No internal review summary recorded.",
         must_fix_lines=must_fix_lines,
         should_fix_lines=should_fix_lines,
     )

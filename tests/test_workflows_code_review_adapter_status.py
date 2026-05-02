@@ -119,7 +119,7 @@ def test_adapter_status_surfaces_tick_dispatch_state(monkeypatch, tmp_path):
     state_dir.mkdir(parents=True)
     state_path = state_dir / "active.json"
     state_path.write_text(
-        '{"background": true, "command": "dispatch-inter-review-agent", "pid": 4321, "logPath": "/tmp/tick.log", "startedAt": "20260423T011700Z"}',
+        '{"background": true, "command": "dispatch-internal-review", "pid": 4321, "logPath": "/tmp/tick.log", "startedAt": "20260423T011700Z"}',
         encoding="utf-8",
     )
     monkeypatch.setattr(status_module, "_pid_is_running", lambda pid: pid == 4321)
@@ -127,7 +127,7 @@ def test_adapter_status_surfaces_tick_dispatch_state(monkeypatch, tmp_path):
     result = status_module.build_status(workflow_root)
 
     assert result["tickDispatch"]["active"] is True
-    assert result["tickDispatch"]["command"] == "dispatch-inter-review-agent"
+    assert result["tickDispatch"]["command"] == "dispatch-internal-review"
     assert result["tickDispatch"]["statePath"] == str(state_path)
 
 
@@ -637,8 +637,8 @@ def test_resolve_prepublish_workflow_state_returns_implementing_local_when_no_ca
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=False,
         single_pass_gate_satisfied=False,
-        claude_current=False,
-        claude_verdict=None,
+        internal_review_current=False,
+        internal_review_verdict=None,
     ) == "implementing_local"
 
 
@@ -648,46 +648,46 @@ def test_resolve_prepublish_workflow_state_returns_ready_to_publish_when_gate_al
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=True,
         single_pass_gate_satisfied=True,
-        claude_current=True,
-        claude_verdict="PASS_CLEAN",
+        internal_review_current=True,
+        internal_review_verdict="PASS_CLEAN",
     ) == "ready_to_publish"
 
 
-def test_resolve_prepublish_workflow_state_returns_findings_when_claude_current_and_actionable():
+def test_resolve_prepublish_workflow_state_returns_findings_when_internal_review_current_and_actionable():
     status_module = load_module("daedalus_workflows_change_delivery_status_rpre", "workflows/change_delivery/status.py")
 
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=True,
         single_pass_gate_satisfied=False,
-        claude_current=True,
-        claude_verdict="PASS_WITH_FINDINGS",
-    ) == "claude_prepublish_findings"
+        internal_review_current=True,
+        internal_review_verdict="PASS_WITH_FINDINGS",
+    ) == "pre_publish_review_findings"
 
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=True,
         single_pass_gate_satisfied=False,
-        claude_current=True,
-        claude_verdict="REWORK",
-    ) == "claude_prepublish_findings"
+        internal_review_current=True,
+        internal_review_verdict="REWORK",
+    ) == "pre_publish_review_findings"
 
 
-def test_resolve_prepublish_workflow_state_defaults_to_awaiting_claude_prepublish():
+def test_resolve_prepublish_workflow_state_defaults_to_awaiting_pre_publish_review():
     status_module = load_module("daedalus_workflows_change_delivery_status_rpre", "workflows/change_delivery/status.py")
 
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=True,
         single_pass_gate_satisfied=False,
-        claude_current=False,
-        claude_verdict=None,
-    ) == "awaiting_claude_prepublish"
+        internal_review_current=False,
+        internal_review_verdict=None,
+    ) == "awaiting_pre_publish_review"
 
-    # Even if verdict is set, it requires claude_current to branch into findings.
+    # Even if verdict is set, it requires internal_review_current to branch into findings.
     assert status_module.resolve_prepublish_workflow_state(
         local_candidate=True,
         single_pass_gate_satisfied=False,
-        claude_current=False,
-        claude_verdict="REWORK",
-    ) == "awaiting_claude_prepublish"
+        internal_review_current=False,
+        internal_review_verdict="REWORK",
+    ) == "awaiting_pre_publish_review"
 
 
 def test_apply_idle_ledger_transition_resets_active_lane_state():
@@ -838,8 +838,8 @@ def test_apply_active_lane_ledger_transition_prepublish_routes_through_claude_fi
         repair_brief={"forHeadSha": "head123", "mustFix": [{"summary": "x"}], "shouldFix": []},
         operator_attention_needed=False,
     )
-    assert ledger["workflowState"] == "claude_prepublish_findings"
-    assert ledger["reviewState"] == "claude_prepublish_findings"
+    assert ledger["workflowState"] == "pre_publish_review_findings"
+    assert ledger["reviewState"] == "pre_publish_review_findings"
     assert ledger["approval"]["pendingReason"] == "open-review-findings"
 
 
@@ -937,7 +937,7 @@ def test_assemble_status_payload_returns_fully_shaped_status_dict():
         review_loop_state="awaiting_reviews",
         merge_blocked=False,
         merge_blockers=[],
-        claude_preflight={"shouldRun": False},
+        pre_publish_review_preflight={"shouldRun": False},
         detailed_jobs={},
         hermes_job_names=[],
         missing_core_jobs=[],
@@ -959,9 +959,8 @@ def test_assemble_status_payload_returns_fully_shaped_status_dict():
     assert result["ledger"]["readyToCloseCount"] == 0
     assert result["implementation"]["publishStatus"] == "not_published"
     assert result["implementation"]["branch"] == "issue-224"
-    assert result["preflight"]["claudeReview"]["shouldRun"] is False
-    assert result["preflight"]["interReviewAgent"] == result["preflight"]["claudeReview"]
-    assert result["reviews"]["interReviewAgent"] == reviews["internalReview"]
+    assert result["preflight"]["prePublishReview"]["shouldRun"] is False
+    assert "prePublishReview" not in result["reviews"]
     assert result["nextAction"]["reason"] == "no-forward-action-needed"
     # Model fields fall back to the provided inter_review_agent_model when ledger entry is missing.
     assert result["ledger"]["internalReviewerModel"] == "claude-sonnet-4-6"

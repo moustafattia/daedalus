@@ -10,9 +10,12 @@ Error codes (fixed enum, mirrors Symphony's recommended categories):
 - ``workflow_parse_error``         — YAML syntax error
 - ``workflow_front_matter_not_a_map`` — root not a dict
 - ``unsupported_runtime_kind``     — runtime.kind not in registered kinds
+- ``invalid_runtime_binding``      — stage/actor/runtime binding is invalid
+- ``runtime_capability_mismatch``  — actor requires capabilities runtime lacks
 - ``unsupported_reviewer_kind``    — reviewer kind not in registered kinds
 - ``missing_tracker_credentials``  — required env var unset / empty
 - ``unsupported_tracker_kind``     — tracker.kind not supported
+- ``unsupported_code_host_kind``   — code-host.kind not supported
 - ``workspace_root_unwritable``    — workspace.root missing or not writable
 """
 from __future__ import annotations
@@ -20,6 +23,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Any, Mapping
+
+from runtimes.capabilities import recognized_runtime_kinds
 
 
 @dataclass(frozen=True)
@@ -30,9 +35,10 @@ class PreflightResult:
     can_reconcile: bool = True  # always True; preflight never blocks reconciliation
 
 
-_RECOGNIZED_RUNTIME_KINDS = frozenset({"acpx-codex", "claude-cli", "codex-app-server", "hermes-agent"})
-_RECOGNIZED_REVIEWER_KINDS = frozenset({"github-comments", "disabled"})
+_RECOGNIZED_RUNTIME_KINDS = recognized_runtime_kinds()
+_RECOGNIZED_GATE_TYPES = frozenset({"agent-review", "pr-comment-approval", "code-host-checks"})
 _RECOGNIZED_TRACKER_KINDS = frozenset({"github"})
+_RECOGNIZED_CODE_HOST_KINDS = frozenset({"github"})
 
 
 def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
@@ -54,8 +60,10 @@ def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
     #   runtimes:
     #     <name>: { kind: acpx-codex | claude-cli | hermes-agent, ... }
     #     <name>: { ... }
-    #   agents:
-    #     external-reviewer: { kind: github-comments | disabled, ... }  (optional kind)
+    #   actors:
+    #     <name>: { model: ..., runtime: <runtimes key> }
+    #   gates:
+    #     <name>: { type: agent-review | pr-comment-approval | code-host-checks, ... }
     runtimes = config.get("runtimes") or {}
     if isinstance(runtimes, dict):
         for name, rt_cfg in runtimes.items():
@@ -69,18 +77,30 @@ def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
                     f"runtimes.{name}.kind={rk!r} not in {sorted(_RECOGNIZED_RUNTIME_KINDS)}",
                 )
 
-    agents = config.get("agents") or {}
-    if isinstance(agents, dict):
-        reviewer = agents.get("external-reviewer") or {}
-        if isinstance(reviewer, dict):
-            rk2 = reviewer.get("kind")
-            # external-reviewer.kind is optional; only validate when present.
-            if rk2 and rk2 not in _RECOGNIZED_REVIEWER_KINDS:
+    gates = config.get("gates") or {}
+    if isinstance(gates, dict):
+        for name, gate in gates.items():
+            if not isinstance(gate, dict):
+                continue
+            gate_type = gate.get("type")
+            if gate_type and gate_type not in _RECOGNIZED_GATE_TYPES:
                 return PreflightResult(
                     False,
                     "unsupported_reviewer_kind",
-                    f"agents.external-reviewer.kind={rk2!r} not in {sorted(_RECOGNIZED_REVIEWER_KINDS)}",
+                    f"gates.{name}.type={gate_type!r} not in {sorted(_RECOGNIZED_GATE_TYPES)}",
                 )
+
+    from workflows.runtime_presets import runtime_capability_checks, runtime_stage_checks
+
+    for check in [*runtime_stage_checks(dict(config)), *runtime_capability_checks(dict(config))]:
+        if check.get("status") != "fail":
+            continue
+        name = str(check.get("name") or "")
+        return PreflightResult(
+            False,
+            "runtime_capability_mismatch" if name.startswith("runtime-capability") else "invalid_runtime_binding",
+            str(check.get("detail") or name),
+        )
 
     tracker = config.get("tracker") or {}
     if isinstance(tracker, dict):
@@ -90,6 +110,16 @@ def run_preflight(config: Mapping[str, Any]) -> PreflightResult:
                 False,
                 "unsupported_tracker_kind",
                 f"tracker.kind={tk!r} not in {sorted(_RECOGNIZED_TRACKER_KINDS)}",
+            )
+
+    code_host = config.get("code-host") or {}
+    if isinstance(code_host, dict):
+        chk = code_host.get("kind")
+        if chk and chk not in _RECOGNIZED_CODE_HOST_KINDS:
+            return PreflightResult(
+                False,
+                "unsupported_code_host_kind",
+                f"code-host.kind={chk!r} not in {sorted(_RECOGNIZED_CODE_HOST_KINDS)}",
             )
 
     # Tracker credential resolution — if config references a $VAR_NAME and

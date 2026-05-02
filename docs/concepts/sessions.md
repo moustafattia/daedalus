@@ -54,8 +54,9 @@ stateDiagram-v2
 
 ### `hermes-agent` (one-shot)
 
-- No persistent session.
-- Requires a `command:` override in `WORKFLOW.md`.
+- Built-in final mode uses `hermes -z`.
+- Built-in chat mode uses `hermes chat --quiet -q` and can pass `--resume` when the workflow has a session id.
+- Custom `command:` overrides can write structured metadata to `{result_path}`.
 - `assess_health` always returns healthy.
 - `last_activity_ts` records subprocess start/end timestamps.
 

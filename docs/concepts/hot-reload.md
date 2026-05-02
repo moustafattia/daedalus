@@ -4,7 +4,7 @@ Symphony §6.2 + §6.3. The two halves of "edits to the workflow contract should
 
 ## §6.2 Hot-reload
 
-The workflow contract (`WORKFLOW.md` for new instances, `config/workflow.yaml` for legacy ones) is re-parsed and re-validated on every tick. The new config replaces the old one **only if** parse + validate both succeed. A bad edit keeps the previous good config alive — the next valid save picks up automatically.
+The workflow contract (`WORKFLOW.md` or `WORKFLOW-<name>.md`) is re-parsed and re-validated on every tick. The new config replaces the old one **only if** parse + validate both succeed. A bad edit keeps the previous good config alive — the next valid save picks up automatically.
 
 ```mermaid
 flowchart TD
@@ -42,7 +42,7 @@ flowchart LR
   E -- no --> G[abort tick]
 ```
 
-`PREFLIGHT_GATED_COMMANDS` is declared on each workflow module. `change-delivery` gates dispatching commands such as `tick`, `dispatch-implementation-turn`, `dispatch-claude-review`, `publish-ready-pr`, `merge-and-promote`, and `resume`. `issue-runner` gates `tick` and `run`. Read-only commands such as `status`, `doctor`, and inspection helpers bypass the gate.
+`PREFLIGHT_GATED_COMMANDS` is declared on each workflow module. `change-delivery` gates dispatching commands such as `tick`, `dispatch-implementation-turn`, `dispatch-internal-review`, `publish-ready-pr`, `merge-and-promote`, and `resume`. `issue-runner` gates `tick` and `run`. Read-only commands such as `status`, `doctor`, and inspection helpers bypass the gate.
 
 ### What preflight actually checks
 

@@ -44,7 +44,7 @@ markers keep the old top-level `state/` and `memory/` layout.
 
 It is **idempotent** — running it twice is safe.
 
-### Manual fallback
+### Manual rename
 
 If the command is unavailable, the migration is a simple rename:
 
@@ -75,7 +75,7 @@ This:
 3. Installs `daedalus-active@<owner>-<repo>-<workflow-type>.service`
 4. Enables and starts it
 
-### Manual fallback
+### Manual systemd cutover
 
 ```bash
 # Stop old
@@ -93,9 +93,16 @@ systemctl --user start daedalus-active@<owner>-<repo>-<workflow-type>.service
 
 ---
 
-## Config migration
+## Workflow contract cutover
 
-The workflow CLI moved from a workflow-local wrapper script to `workflows/__main__.py`. If you have cron jobs or aliases pointing at the old path, update them:
+The workflow contract is repo-owned Markdown. Current Daedalus does not load
+workflow-root YAML contracts. Place the public contract in the repository as
+`WORKFLOW.md` or `WORKFLOW-<workflow>.md`, then point the workflow instance root
+at it with `config/workflow-contract-path`.
+
+The workflow CLI moved from a workflow-local wrapper script to
+`workflows/__main__.py`. If you have cron jobs or aliases pointing at the old
+path, update them:
 
 ```bash
 # Old (retired)
@@ -104,8 +111,6 @@ python3 <old-wrapper-script> status --json
 # New
 python3 -m workflows --workflow-root ~/.hermes/workflows/<owner>-<repo>-<workflow-type> status --json
 ```
-
-The `scripts/migrate_config.py` helper can rewrite paths in shell scripts and systemd units.
 
 ---
 
@@ -168,8 +173,8 @@ The shadow rows remain, so you can diff "what shadow would do" vs "what active d
 
 - Filesystem migration: `daedalus/migration.py`
 - Systemd templates: `daedalus/daedalus_cli.py` (service-install helpers)
-- Migration scripts: `scripts/migrate_config.py`, `scripts/install.py`
+- Install helpers: `daedalus/daedalus_cli.py`
 - Active gate: `daedalus/runtime.py::active_gate_status`
 - Shadow/active modes: `daedalus/runtime.py` (look for `Mode.SHADOW`, `Mode.ACTIVE`)
 - ADR: `docs/adr/ADR-0003-daedalus-rebrand.md`
-- Tests: `tests/test_daedalus_migration.py`, `tests/test_migrate_config.py`
+- Tests: `tests/test_daedalus_migration.py`

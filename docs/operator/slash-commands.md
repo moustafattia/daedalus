@@ -19,6 +19,7 @@ workflow exposes the richer `change-delivery` command surface.
 | `/daedalus status` | Runtime row + lane count + paths (DB, event log) |
 | `/daedalus doctor` | Full health check across all subsystems |
 | `/daedalus validate` | Validate `WORKFLOW.md`, schema, service mode, and workflow preflight |
+| `/daedalus runtime-matrix` | Show workflow role-to-runtime bindings and optional tiny runtime-stage smoke results |
 | `/daedalus events` | Query the durable engine event ledger |
 | `/daedalus events stats` | Count durable events by type/severity and show retention posture |
 | `/daedalus events prune` | Apply explicit or `WORKFLOW.md` event retention immediately |
@@ -188,8 +189,6 @@ Daedalus service
 |---|---|
 | `/daedalus watch` | Live operator TUI (lanes + alerts + recent events) |
 | `/daedalus watch --once` | Render one frame and exit (works in pipes) |
-| `/daedalus set-observability --workflow <name> --github-comments on\|off\|unset` | Set/clear runtime override for a workflow's GitHub-comment publishing |
-| `/daedalus get-observability --workflow <name>` | Show effective observability config + which layer (default/yaml/override) won |
 
 ## `/workflow` — per-workflow operations
 
@@ -211,7 +210,7 @@ This is the opinionated managed SDLC workflow.
 || `/workflow change-delivery show-lane-state` | `.lane-state.json` contents |
 || `/workflow change-delivery show-lane-memo` | `.lane-memo.md` contents |
 || `/workflow change-delivery dispatch-implementation-turn` | Force a coder turn |
-|| `/workflow change-delivery dispatch-claude-review` | Force an internal Claude review |
+|| `/workflow change-delivery dispatch-internal-review` | Force an internal review |
 || `/workflow change-delivery publish-ready-pr` | Force PR publish |
 || `/workflow change-delivery merge-and-promote` | Force merge + promote next lane |
 || `/workflow change-delivery reconcile` | Repair stale ledger state |
@@ -230,20 +229,6 @@ This is the bundled generic tracker-driven workflow.
 || `/workflow issue-runner tick` | Run one synchronous issue-runner dispatch tick |
 || `/workflow issue-runner run` | Run the supervised long-lived issue-runner polling loop |
 || `/workflow issue-runner serve` | Run the optional localhost HTTP status server |
-
-### Webhook commands
-
-|| Command | What it does |
-|---|---|---|
-|| `/workflow change-delivery webhooks status` | Show configured webhook subscribers |
-|| `/workflow change-delivery webhooks test` | Fire a test event to all webhooks |
-
-### Comments commands
-
-|| Command | What it does |
-|---|---|---|
-|| `/workflow change-delivery comments status` | Show comment publisher state |
-|| `/workflow change-delivery comments sync` | Force a comment sync for current lane |
 
 ## Most useful day-to-day, in order
 

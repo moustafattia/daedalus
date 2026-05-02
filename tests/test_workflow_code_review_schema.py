@@ -1,4 +1,4 @@
-"""Schema validation for the observability block in workflow.yaml."""
+"""Schema validation for change-delivery workflow config."""
 import importlib.util
 from pathlib import Path
 
@@ -16,16 +16,23 @@ def _load_schema() -> dict:
 
 
 def _minimal_valid_config() -> dict:
-    """Smallest workflow.yaml dict that satisfies the existing required fields."""
+    """Smallest change-delivery contract dict that satisfies the required fields."""
     return {
         "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "test", "engine-owner": "hermes"},
         "repository": {
             "local-path": "/tmp/x",
-            "github-slug": "owner/repo",
+            "slug": "owner/repo",
             "active-lane-label": "active-lane",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "owner/repo",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {
             "acpx-codex": {
                 "kind": "acpx-codex",
@@ -34,17 +41,23 @@ def _minimal_valid_config() -> dict:
                 "session-nudge-cooldown-seconds": 1,
             }
         },
-        "agents": {
-            "coder": {
-                "default": {"name": "x", "model": "y", "runtime": "acpx-codex"}
+        "actors": {
+            "implementer": {"name": "x", "model": "y", "runtime": "acpx-codex"},
+            "implementer-high-effort": {"name": "x-hi", "model": "y-hi", "runtime": "acpx-codex"},
+            "reviewer": {"name": "x", "model": "y", "runtime": "acpx-codex"},
+        },
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
             },
-            "internal-reviewer": {"name": "x", "model": "y", "runtime": "acpx-codex"},
-            "external-reviewer": {"enabled": True, "name": "x"},
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
         },
         "gates": {
-            "internal-review": {},
-            "external-review": {},
-            "merge": {},
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
         },
         "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
         "storage": {
@@ -55,44 +68,38 @@ def _minimal_valid_config() -> dict:
     }
 
 
-def test_schema_accepts_config_without_observability_block():
-    """Back-compat: existing workflow.yaml files without observability still validate."""
+def test_schema_accepts_config_without_tracker_feedback_block():
     schema = _load_schema()
     config = _minimal_valid_config()
     jsonschema.validate(config, schema)  # must not raise
 
 
-def test_schema_accepts_observability_with_github_comments_disabled():
+def test_schema_accepts_tracker_feedback_disabled():
     schema = _load_schema()
     config = _minimal_valid_config()
-    config["observability"] = {
-        "github-comments": {"enabled": False}
+    config["tracker-feedback"] = {"enabled": False}
+    jsonschema.validate(config, schema)
+
+
+def test_schema_accepts_tracker_feedback_full_block():
+    schema = _load_schema()
+    config = _minimal_valid_config()
+    config["tracker-feedback"] = {
+        "enabled": True,
+        "comment-mode": "append",
+        "include": ["dispatch-implementation-turn", "merge-and-promote"],
+        "state-updates": {"enabled": False},
     }
     jsonschema.validate(config, schema)
 
 
-def test_schema_accepts_observability_full_block():
-    schema = _load_schema()
-    config = _minimal_valid_config()
-    config["observability"] = {
-        "github-comments": {
-            "enabled": True,
-            "mode": "edit-in-place",
-            "include-events": ["dispatch-implementation-turn", "merge-and-promote"],
-        }
-    }
-    jsonschema.validate(config, schema)
-
-
-def test_schema_rejects_unknown_github_comments_field():
+def test_schema_rejects_unknown_tracker_feedback_field():
     """Schema is strict (additionalProperties: false) — typos like
     suppress-transient-failures, append-mode, etc. fail loudly rather than
     being silently ignored."""
     schema = _load_schema()
     config = _minimal_valid_config()
-    config["observability"] = {
-        "github-comments": {"enabled": True, "suppress-transient-failures": True}
-    }
+    config["tracker-feedback"] = {"enabled": True, "suppress-transient-failures": True}
     try:
         jsonschema.validate(config, schema)
     except jsonschema.ValidationError:
@@ -100,28 +107,15 @@ def test_schema_rejects_unknown_github_comments_field():
     raise AssertionError("expected ValidationError for unknown field")
 
 
-def test_schema_rejects_invalid_mode():
+def test_schema_rejects_invalid_tracker_feedback_mode():
     schema = _load_schema()
     config = _minimal_valid_config()
-    config["observability"] = {
-        "github-comments": {"enabled": True, "mode": "append-thread"}
-    }
+    config["tracker-feedback"] = {"enabled": True, "comment-mode": "edit-in-place"}
     try:
         jsonschema.validate(config, schema)
     except jsonschema.ValidationError:
         return
-    raise AssertionError("expected ValidationError for invalid mode 'append-thread'")
-
-
-def test_schema_rejects_github_comments_missing_enabled():
-    schema = _load_schema()
-    config = _minimal_valid_config()
-    config["observability"] = {"github-comments": {"mode": "edit-in-place"}}
-    try:
-        jsonschema.validate(config, schema)
-    except jsonschema.ValidationError:
-        return
-    raise AssertionError("expected ValidationError when 'enabled' missing")
+    raise AssertionError("expected ValidationError for invalid tracker-feedback mode")
 
 
 def test_schema_accepts_config_without_server_block():

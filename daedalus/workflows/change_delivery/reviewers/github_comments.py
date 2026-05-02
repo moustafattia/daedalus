@@ -1,6 +1,6 @@
 """GitHub PR-comments external reviewer.
 
-Generalizes the Codex Cloud fetcher: configurable bot logins,
+Generalizes the external reviewer fetcher: configurable bot logins,
 clean/pending reactions, repo slug, cache TTL. Delegates to
 ``reviews.fetch_external_review`` /
 ``reviews.fetch_external_review_pr_body_signal`` for the actual work.
@@ -27,8 +27,8 @@ _DEFAULT_CACHE_SECONDS = 1800
 class GithubCommentsReviewer:
     """Reads PR review threads from GitHub via ``gh api graphql``.
 
-    Config shape (YAML, inside ``agents.external-reviewer:``):
-        kind: github-comments
+    Private compiled config shape, generated from a public
+    ``pr-comment-approval`` gate:
         logins: ["chatgpt-codex-connector[bot]"]
         clean-reactions: ["+1", "rocket"]
         pending-reactions: ["eyes"]
@@ -45,6 +45,16 @@ class GithubCommentsReviewer:
         _cs = cfg.get("cache-seconds")
         self._cache_seconds = int(_cs) if _cs is not None else _DEFAULT_CACHE_SECONDS
         self._repo_slug = cfg.get("repo-slug") or ws_context.repo_slug
+        self._code_host_client = ws_context.code_host_client
+        if self._repo_slug != ws_context.repo_slug:
+            from code_hosts import build_code_host_client
+
+            self._code_host_client = build_code_host_client(
+                workflow_root=ws_context.repo_path,
+                code_host_cfg={"kind": "github", "github_slug": self._repo_slug},
+                repo_path=ws_context.repo_path,
+                run_json=ws_context.run_json,
+            )
 
     def fetch_review(
         self,
@@ -60,9 +70,7 @@ class GithubCommentsReviewer:
             current_head_sha=current_head_sha,
             cached_review=cached_review,
             fetch_pr_body_signal_fn=self.fetch_pr_body_signal,
-            run_json_fn=self._ctx.run_json,
-            cwd=self._ctx.repo_path,
-            repo_slug=self._repo_slug,
+            code_host_client=self._code_host_client,
             codex_bot_logins=self._logins,
             cache_seconds=self._cache_seconds,
             iso_to_epoch_fn=self._ctx.iso_to_epoch,
@@ -77,12 +85,10 @@ class GithubCommentsReviewer:
 
         return fetch_external_review_pr_body_signal(
             pr_number,
-            run_json_fn=self._ctx.run_json,
-            cwd=self._ctx.repo_path,
+            code_host_client=self._code_host_client,
             codex_bot_logins=self._logins,
             clean_reactions=self._clean_reactions,
             pending_reactions=self._pending_reactions,
-            repo_slug=self._repo_slug,
         )
 
     def placeholder(

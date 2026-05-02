@@ -30,8 +30,7 @@ CONFIG_SCHEMA_PATH = Path(__file__).parent / "schema.yaml"
 PREFLIGHT_GATED_COMMANDS = frozenset({
     "tick",
     "dispatch-implementation-turn",
-    "dispatch-claude-review",
-    "dispatch-inter-review-agent",
+    "dispatch-internal-review",
     "dispatch-repair-handoff",
     "restart-actor-session",
     "publish-ready-pr",

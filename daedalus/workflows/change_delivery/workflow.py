@@ -6,7 +6,7 @@ from workflows.change_delivery.migrations import get_review
 from workflows.change_delivery.reviews import (
     has_local_candidate,
     inter_review_agent_is_running_on_head,
-    should_dispatch_claude_repair_handoff,
+    should_dispatch_internal_review_repair_handoff,
     should_dispatch_external_review_repair_handoff,
 )
 
@@ -48,7 +48,7 @@ def derive_next_action(
     workflow_state = ((status.get("ledger") or {}).get("workflowState"))
     review_loop_state = status.get("derivedReviewLoopState")
     merge_blocked = bool(status.get("derivedMergeBlocked"))
-    claude_preflight = ((status.get("preflight") or {}).get("claudeReview") or {})
+    pre_publish_review_preflight = ((status.get("preflight") or {}).get("prePublishReview") or {})
     operator_attention_reasons = _operator_attention_reasons(status)
     pr_head_sha = (open_pr or {}).get("headRefOid")
     fallback = status.get("nextAction") or {"type": "noop", "reason": "no-forward-action-needed"}
@@ -64,7 +64,7 @@ def derive_next_action(
     if inter_review_agent_is_running_on_head(internal_review, local_head_sha):
         return {
             "type": "noop",
-            "reason": "claude-review-running",
+            "reason": "internal-review-running",
             "issueNumber": active_lane.get("number") if active_lane else None,
             "headSha": local_head_sha,
         }
@@ -80,7 +80,7 @@ def derive_next_action(
             "headSha": pr_head_sha,
         }
 
-    claude_repair_handoff = should_dispatch_claude_repair_handoff(
+    internal_review_repair_handoff = should_dispatch_internal_review_repair_handoff(
         lane_state=lane_state,
         session_action=session_action,
         internal_review=internal_review,
@@ -107,21 +107,21 @@ def derive_next_action(
             health == "stale-lane"
             and not open_pr
             and not operator_attention_reasons
-            and claude_preflight.get("shouldRun")
-            and workflow_state in {"implementing_local", "awaiting_claude_prepublish", "claude_prepublish_findings", "implementing"}
+            and pre_publish_review_preflight.get("shouldRun")
+            and workflow_state in {"implementing_local", "awaiting_pre_publish_review", "pre_publish_review_findings", "implementing"}
         ):
             return {
                 "type": "run_internal_review",
-                "reason": "prepublish-claude-required",
-                "headSha": claude_preflight.get("currentHeadSha"),
+                "reason": "prepublish-review-required",
+                "headSha": pre_publish_review_preflight.get("currentHeadSha"),
                 "issueNumber": active_lane.get("number"),
                 "sessionName": session_action.get("sessionName"),
             }
-        if health == "stale-lane" and not operator_attention_reasons and claude_repair_handoff.get("shouldDispatch"):
+        if health == "stale-lane" and not operator_attention_reasons and internal_review_repair_handoff.get("shouldDispatch"):
             return {
                 "type": "dispatch_codex_turn",
-                "mode": "claude_repair_handoff",
-                "reason": "claude-findings-need-repair",
+                "mode": "internal_review_repair_handoff",
+                "reason": "internal-review-findings-need-repair",
                 "issueNumber": active_lane.get("number"),
                 "sessionName": session_action.get("sessionName"),
                 "headSha": local_head_sha,
@@ -157,7 +157,7 @@ def derive_next_action(
             "headSha": local_head_sha,
         }
 
-    if int(failure_state.get("retryCount") or 0) >= failure_retry_budget and workflow_state in {"implementing_local", "implementing", "claude_prepublish_findings", "findings_open", "rework_required"} and session_action.get("action") in {"continue-session", "poke-session", "restart-session"}:
+    if int(failure_state.get("retryCount") or 0) >= failure_retry_budget and workflow_state in {"implementing_local", "implementing", "pre_publish_review_findings", "findings_open", "rework_required"} and session_action.get("action") in {"continue-session", "poke-session", "restart-session"}:
         return {
             "type": "dispatch_codex_turn",
             "mode": "implementation" if not open_pr else "postpublish_repair",
@@ -182,20 +182,20 @@ def derive_next_action(
             "prNumber": (open_pr or {}).get("number"),
         }
 
-    if claude_preflight.get("shouldRun"):
+    if pre_publish_review_preflight.get("shouldRun"):
         return {
             "type": "run_internal_review",
-            "reason": "prepublish-claude-required",
-            "headSha": claude_preflight.get("currentHeadSha"),
+            "reason": "prepublish-review-required",
+            "headSha": pre_publish_review_preflight.get("currentHeadSha"),
             "issueNumber": active_lane.get("number"),
             "sessionName": session_action.get("sessionName"),
         }
 
-    if claude_repair_handoff.get("shouldDispatch"):
+    if internal_review_repair_handoff.get("shouldDispatch"):
         return {
             "type": "dispatch_codex_turn",
-            "mode": "claude_repair_handoff",
-            "reason": "claude-findings-need-repair",
+            "mode": "internal_review_repair_handoff",
+            "reason": "internal-review-findings-need-repair",
             "issueNumber": active_lane.get("number"),
             "sessionName": session_action.get("sessionName"),
             "headSha": local_head_sha,
@@ -212,8 +212,8 @@ def derive_next_action(
     ).get("shouldDispatch"):
         return {
             "type": "dispatch_codex_turn",
-            "mode": "codex_cloud_repair_handoff",
-            "reason": "codex-cloud-findings-need-repair",
+            "mode": "external_review_repair_handoff",
+            "reason": "external-review-findings-need-repair",
             "issueNumber": active_lane.get("number"),
             "sessionName": session_action.get("sessionName"),
             "headSha": current_postpublish_head,
@@ -235,7 +235,7 @@ def derive_next_action(
         return {
             "type": "dispatch_codex_turn",
             "mode": "postpublish_repair",
-            "reason": "codex-cloud-findings-need-repair",
+            "reason": "external-review-findings-need-repair",
             "issueNumber": active_lane.get("number"),
             "sessionName": session_action.get("sessionName"),
             "headSha": current_postpublish_head,

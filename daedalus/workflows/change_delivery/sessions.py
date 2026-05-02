@@ -552,7 +552,7 @@ def decide_session_action(
         return {"action": "continue-session", "reason": None, "sessionName": health.get("sessionName")}
     if health.get("canPoke") and health.get("reason") == "stale-open-session":
         return {"action": "poke-session", "reason": health.get("reason"), "sessionName": health.get("sessionName")}
-    if implementation_status in {"implementing", "implementing_local", "revalidating", "findings_open", "rework_required", "self_checked", "awaiting_claude_prepublish", "claude_prepublish_findings", "ready_to_publish"} or has_open_pr:
+    if implementation_status in {"implementing", "implementing_local", "revalidating", "findings_open", "rework_required", "self_checked", "awaiting_pre_publish_review", "pre_publish_review_findings", "ready_to_publish"} or has_open_pr:
         return {"action": "restart-session", "reason": health.get("reason") or "missing-session", "sessionName": health.get("sessionName")}
     return {"action": "no-action", "reason": "lane-not-active", "sessionName": health.get("sessionName")}
 

@@ -1,4 +1,4 @@
-"""Synthesizing the parsed lane-selection config from workflow.yaml."""
+"""Synthesizing the parsed lane-selection config from workflow contracts."""
 import importlib.util
 from pathlib import Path
 

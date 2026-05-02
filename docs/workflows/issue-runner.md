@@ -38,7 +38,15 @@ For each eligible tracker issue:
 - `hooks`: `after_create`, `before_run`, `after_run`, `before_remove`
 - `agent`: model/runtime plus scheduler-facing limits
 - `codex`: spec-shaped Codex runner settings; set `mode: external` and `endpoint: ws://127.0.0.1:<port>` to connect to an already-running app-server, and keep `ephemeral: false` if you want Codex threads to remain inspectable
-- `daedalus.runtimes`: shared runtime backend profiles used by the current implementation when you are not using the top-level `codex` block
+- `runtimes`: shared runtime backend profiles; `agent.runtime` selects one profile for the issue execution stage
+
+The issue execution stage uses the shared runtime stage dispatcher. Hermes can
+run directly through `mode: final` (`hermes -z`) or `mode: chat`
+(`hermes chat --quiet -q`). Command overrides receive rendered `{prompt_path}`
+and `{result_path}` placeholders; writing JSON to `{result_path}` lets Daedalus
+record command runtime metadata and token/rate-limit metrics. Prompt-native
+runtimes such as `codex-app-server` receive the prompt through
+`run_prompt_result`.
 
 External Codex app-server example:
 
@@ -90,7 +98,7 @@ Feedback configuration is tracker-neutral. GitHub receives issue comments.
 ```yaml
 tracker-feedback:
   enabled: true
-  comment-mode: append
+  comment-mode: append  # append | upsert
   include: [issue.selected, issue.running, issue.completed, issue.failed, issue.retry_scheduled]
   state-updates:
     enabled: true
@@ -98,6 +106,9 @@ tracker-feedback:
     on-completed: done
     on-failed: todo
 ```
+
+Use `comment-mode: upsert` for public tracker issues where you want one current
+Daedalus status comment per event instead of an append-only issue timeline.
 
 `issue-runner` composes the shared `trackers/` clients with workflow-specific
 eligibility, ordering, retry, and workspace policy.

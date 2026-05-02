@@ -34,11 +34,22 @@ from workflows.contract import (
     render_workflow_markdown,
     workflow_contract_pointer_path,
     workflow_named_markdown_path,
-    workflow_yaml_path as legacy_workflow_config_path,
     workflow_markdown_path,
     write_workflow_contract_pointer,
 )
 from workflows.validation import validate_workflow_contract
+from workflows.readiness import build_readiness_recommendations
+from workflows.runtime_presets import (
+    RuntimePresetError,
+    available_runtime_presets,
+    configure_runtime_contract,
+    runtime_availability_checks,
+    runtime_binding_checks,
+    runtime_capability_checks,
+    runtime_stage_checks,
+)
+from workflows.runtime_matrix import build_runtime_matrix_report
+from workflows.change_delivery.storage import ensure_change_delivery_state_files
 from workflows.shared.paths import (
     derive_workflow_instance_name,
     plugin_runtime_path,
@@ -492,6 +503,10 @@ def _validation_failure_summary(report: dict[str, Any]) -> str:
             lines.append(f"  {path}: {message}")
     if len(failures) > 8:
         lines.append(f"- ... {len(failures) - 8} more failing checks")
+    recommendations = report.get("recommendations") or []
+    if recommendations:
+        lines.append("next steps:")
+        lines.extend(f"- {item}" for item in recommendations[:5])
     return "\n".join(lines)
 
 
@@ -514,6 +529,7 @@ def _validate_workflow_contract_preflight_for_service(
         "source_path": report.get("source_path"),
         "checks": report.get("checks") or [],
         "warnings": report.get("warnings") or [],
+        "recommendations": report.get("recommendations") or [],
     }
 
 
@@ -546,6 +562,42 @@ def _load_issue_runner_workspace(workflow_root: Path):
         spec.loader.exec_module(module)
         load_workspace_from_config = module.load_workspace_from_config
     return load_workspace_from_config(workspace_root=workflow_root)
+
+
+def _load_change_delivery_workspace(workflow_root: Path):
+    try:
+        from workflows.change_delivery.workspace import load_workspace_from_config
+    except ImportError:
+        path = PLUGIN_DIR / "workflows" / "change_delivery" / "workspace.py"
+        spec = importlib.util.spec_from_file_location("daedalus_change_delivery_workspace_for_tools", path)
+        if spec is None or spec.loader is None:
+            raise DaedalusCommandError(f"unable to load change-delivery workspace module from {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        load_workspace_from_config = module.load_workspace_from_config
+    return load_workspace_from_config(workspace_root=workflow_root)
+
+
+def _ensure_change_delivery_active_lane_for_start(workflow_root: Path) -> dict[str, Any]:
+    try:
+        workspace = _load_change_delivery_workspace(workflow_root)
+        ensure_active_lane = getattr(workspace, "ensure_active_lane")
+    except Exception as exc:
+        return {
+            "ok": False,
+            "promoted": False,
+            "reason": "workspace-load-failed",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    try:
+        return ensure_active_lane()
+    except Exception as exc:
+        return {
+            "ok": False,
+            "promoted": False,
+            "reason": "active-lane-selection-failed",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def _build_issue_runner_status(workflow_root: Path) -> dict[str, Any]:
@@ -767,6 +819,11 @@ def service_loop(
         daedalus = _load_daedalus_module(workflow_root)
         resolved_project_key = project_key or daedalus._project_key_for(workflow_root)
         resolved_instance_id = instance_id or _instance_id_for(service_mode=service_mode, workspace=workflow_root.name)
+        lane_selection = (
+            _ensure_change_delivery_active_lane_for_start(workflow_root)
+            if service_mode == "active"
+            else None
+        )
         if service_mode == "shadow":
             return daedalus.run_shadow_loop(
                 workflow_root=workflow_root,
@@ -775,13 +832,15 @@ def service_loop(
                 interval_seconds=interval_seconds,
                 max_iterations=max_iterations,
             )
-        return daedalus.run_active_loop(
+        result = daedalus.run_active_loop(
             workflow_root=workflow_root,
             project_key=resolved_project_key,
             instance_id=resolved_instance_id,
             interval_seconds=interval_seconds,
             max_iterations=max_iterations,
         )
+        result["lane_selection"] = lane_selection
+        return result
     if workflow_name == "issue-runner":
         workspace = _load_issue_runner_workspace(workflow_root)
         payload = workspace.run_loop(
@@ -820,6 +879,7 @@ def service_up(
             "skipped": True,
             "reason": "workflow-managed runtime does not require daedalus.db bootstrap",
         }
+    lane_selection_result = None
 
     install_result = install_supervised_service(
         workflow_root=workflow_root,
@@ -849,6 +909,9 @@ def service_up(
             f"{enable_result.get('stderr') or enable_result.get('stdout') or enable_result.get('returncode')}"
         )
 
+    if workflow_name == "change-delivery" and service_mode == "active":
+        lane_selection_result = _ensure_change_delivery_active_lane_for_start(workflow_root)
+
     start_result = service_control(
         "start",
         workflow_root=workflow_root,
@@ -872,6 +935,7 @@ def service_up(
         "project_key": project_key,
         "service_mode": service_mode,
         "init": init_result,
+        "lane_selection": lane_selection_result,
         "preflight": preflight_result,
         "service_install": install_result,
         "service_enable": enable_result,
@@ -2123,6 +2187,7 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
             },
         )
     )
+    checks.extend(_runtime_doctor_checks(workflow_root))
 
     active_lane_id = active_lane.get("lane_id")
     stuck_dispatched_actions = daedalus.query_stuck_dispatched_actions(
@@ -2218,6 +2283,11 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
         "report_generated_at": shadow_report.get("report_generated_at"),
         "overall_status": overall_status,
         "checks": checks,
+        "recommendations": build_readiness_recommendations(
+            checks,
+            workflow="change-delivery",
+            workflow_root=workflow_root,
+        ),
         "runtime": runtime,
         "heartbeat": heartbeat,
         "owner_summary": shadow_report.get("owner_summary"),
@@ -2227,6 +2297,48 @@ def build_doctor_report(*, workflow_root: Path, recent_actions_limit: int = 5) -
         "recent_shadow_actions": shadow_report.get("recent_shadow_actions"),
         "recent_failures": recent_failures,
     }
+
+
+def _runtime_doctor_checks(workflow_root: Path) -> list[dict[str, Any]]:
+    try:
+        config = load_workflow_contract(workflow_root).config
+    except Exception as exc:
+        return [
+            _make_check(
+                code="runtime_contract",
+                status="fail",
+                severity="critical",
+                summary=f"Unable to load workflow contract for runtime checks: {exc}",
+            )
+        ]
+
+    checks = []
+    for check in [
+        *runtime_stage_checks(config),
+        *runtime_binding_checks(config),
+        *runtime_capability_checks(config),
+        *runtime_availability_checks(config),
+    ]:
+        status = str(check.get("status") or "info")
+        severity = "info"
+        if status == "fail":
+            severity = "critical"
+        elif status == "warn":
+            severity = "warning"
+        checks.append(
+            _make_check(
+                code=str(check.get("name") or "runtime-check").replace(":", "_"),
+                status=status,
+                severity=severity,
+                summary=str(check.get("detail") or ""),
+                details={
+                    key: value
+                    for key, value in check.items()
+                    if key not in {"name", "status", "detail"}
+                },
+            )
+        )
+    return checks
 
 
 def _lazy_cmd_watch(args, parser):
@@ -2577,11 +2689,9 @@ def scaffold_workflow_root(
         workflow_name=workflow_name,
         force=force,
     )
-    legacy_config_path = legacy_workflow_config_path(root)
-    existing_contract_path = contract_path if contract_path.exists() else legacy_config_path
-    if existing_contract_path.exists() and not force:
+    if contract_path.exists() and not force:
         raise DaedalusCommandError(
-            f"refusing to overwrite existing workflow contract: {existing_contract_path} "
+            f"refusing to overwrite existing workflow contract: {contract_path} "
             "(pass --force to replace it)"
         )
 
@@ -2622,8 +2732,13 @@ def scaffold_workflow_root(
     repository_cfg["local-path"] = str(resolved_repo_path)
     repository_cfg["slug"] = resolved_repo_slug
     if workflow_name == "change-delivery":
-        repository_cfg["github-slug"] = resolved_repo_slug
+        tracker_cfg = config.setdefault("tracker", {})
+        code_host_cfg = config.setdefault("code-host", {})
         repository_cfg["active-lane-label"] = active_lane_label
+        tracker_cfg["kind"] = "github"
+        tracker_cfg["github_slug"] = resolved_repo_slug
+        code_host_cfg["kind"] = "github"
+        code_host_cfg["github_slug"] = resolved_repo_slug
     triggers_cfg = config.get("triggers")
     if isinstance(triggers_cfg, dict):
         lane_selector_cfg = triggers_cfg.get("lane-selector")
@@ -2655,12 +2770,13 @@ def scaffold_workflow_root(
         encoding="utf-8",
     )
     write_workflow_contract_pointer(root, contract_path)
+    state_files_result: dict[str, Any] | None = None
+    if workflow_name == "change-delivery":
+        state_files_result = ensure_change_delivery_state_files(root, config)
     if workflow_name == "issue-runner":
         issues_template = PLUGIN_DIR / "workflows" / "issue_runner" / "issues.template.json"
         issues_path = root / "config" / "issues.json"
         issues_path.write_text(issues_template.read_text(encoding="utf-8"), encoding="utf-8")
-    if force and legacy_config_path.exists():
-        legacy_config_path.unlink()
     return {
         "ok": True,
         "workflow_root": str(root),
@@ -2676,6 +2792,7 @@ def scaffold_workflow_root(
         "workflow_contract_pointer_path": str(workflow_contract_pointer_path(root)),
         "renamed_contract_paths": renamed_contract_paths,
         "renamed_contract_source_paths": renamed_contract_source_paths,
+        "state_files": state_files_result,
     }
 
 
@@ -2727,6 +2844,26 @@ def cmd_bootstrap_workflow(args, parser) -> str:
     if result.get("remote_url"):
         lines.insert(4, f"origin: {result['remote_url']}")
     return "\n".join(lines)
+
+
+def configure_runtime_preset(
+    *,
+    workflow_root: Path,
+    runtime_preset: str,
+    role: str,
+    runtime_name: str | None,
+    dry_run: bool,
+) -> dict[str, Any]:
+    try:
+        return configure_runtime_contract(
+            workflow_root=workflow_root,
+            preset_name=runtime_preset,
+            role=role,
+            runtime_name=runtime_name,
+            dry_run=dry_run,
+        )
+    except (RuntimePresetError, WorkflowContractError, FileNotFoundError, OSError) as exc:
+        raise DaedalusCommandError(str(exc)) from exc
 
 
 def cmd_migrate_filesystem(args, parser) -> str:
@@ -2809,86 +2946,6 @@ def cmd_migrate_systemd(args, parser) -> str:
     lines.append(
         f"to start active mode: systemctl --user start {_instance_unit_name('active', workspace)}"
     )
-    return "\n".join(lines)
-
-
-def cmd_set_observability(args, parser) -> str:
-    """``/daedalus set-observability --workflow X --github-comments on|off|unset``."""
-    try:
-        from observability_overrides import set_override, unset_override
-    except ImportError:
-        path = PLUGIN_DIR / "observability_overrides.py"
-        spec = importlib.util.spec_from_file_location("daedalus_observability_overrides_for_cli", path)
-        if spec is None or spec.loader is None:
-            raise DaedalusCommandError(f"unable to load observability_overrides from {path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        set_override = module.set_override
-        unset_override = module.unset_override
-
-    workflow_root = Path(args.workflow_root).expanduser().resolve()
-    state_dir = workflow_root / "runtime" / "state" / "daedalus"
-    workflow_name = args.workflow
-    setting = (args.github_comments or "").strip().lower()
-
-    if setting == "on":
-        set_override(state_dir, workflow_name=workflow_name, github_comments_enabled=True)
-        return f"observability override set: {workflow_name}.github-comments = on"
-    if setting == "off":
-        set_override(state_dir, workflow_name=workflow_name, github_comments_enabled=False)
-        return f"observability override set: {workflow_name}.github-comments = off"
-    if setting == "unset":
-        unset_override(state_dir, workflow_name=workflow_name)
-        return f"observability override removed for {workflow_name}"
-    raise DaedalusCommandError(
-        f"--github-comments must be one of: on, off, unset (got {args.github_comments!r})"
-    )
-
-
-def cmd_get_observability(args, parser) -> str:
-    """``/daedalus get-observability --workflow X``: show effective config + source."""
-    try:
-        from workflows.change_delivery.observability import resolve_effective_config
-    except ImportError:
-        path = PLUGIN_DIR / "workflows" / "change_delivery" / "observability.py"
-        spec = importlib.util.spec_from_file_location("daedalus_observability_for_cli", path)
-        if spec is None or spec.loader is None:
-            raise DaedalusCommandError(f"unable to load observability resolver from {path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        resolve_effective_config = module.resolve_effective_config
-
-    workflow_root = Path(args.workflow_root).expanduser().resolve()
-    workflow_name = args.workflow
-    workflow_yaml = {}
-    try:
-        workflow_yaml = load_workflow_contract(workflow_root).config
-    except FileNotFoundError:
-        workflow_yaml = {}
-    except (WorkflowContractError, OSError, UnicodeDecodeError) as exc:
-        return f"error reading workflow contract: {exc}"
-
-    eff = resolve_effective_config(
-        workflow_yaml=workflow_yaml,
-        override_dir=workflow_root / "runtime" / "state" / "daedalus",
-        workflow_name=workflow_name,
-    )
-    gh = eff["github-comments"]
-    source = eff["source"]["github-comments"]
-    include_events = gh.get("include-events")
-    if not include_events:
-        # Empty list = explicit firehose ("everything"); flag the risk visibly
-        # so an operator who sees this output understands every audit action
-        # will become a comment update.
-        include_events_display = "[] (FIREHOSE — every audit action)"
-    else:
-        include_events_display = ", ".join(include_events)
-    lines = [
-        f"workflow: {workflow_name}",
-        f"github-comments.enabled: {gh.get('enabled')} (source: {source})",
-        f"github-comments.mode: {gh.get('mode')}",
-        f"github-comments.include-events: {include_events_display}",
-    ]
     return "\n".join(lines)
 
 
@@ -3202,23 +3259,6 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     watch_cmd.add_argument("--interval", type=float, default=2.0, help="Poll interval in live mode.")
     watch_cmd.set_defaults(handler=_lazy_cmd_watch, func=run_cli_command)
 
-    set_obs_cmd = sub.add_parser(
-        "set-observability",
-        help="Override observability config for a workflow (writes runtime override file).",
-    )
-    set_obs_cmd.add_argument("--workflow-root", type=Path, default=default_workflow_root_path)
-    set_obs_cmd.add_argument("--workflow", required=True, help="Workflow name (e.g. change-delivery)")
-    set_obs_cmd.add_argument("--github-comments", choices=["on", "off", "unset"], required=True)
-    set_obs_cmd.set_defaults(handler=cmd_set_observability, func=run_cli_command)
-
-    get_obs_cmd = sub.add_parser(
-        "get-observability",
-        help="Show effective observability config + which layer (default/yaml/override) won.",
-    )
-    get_obs_cmd.add_argument("--workflow-root", type=Path, default=default_workflow_root_path)
-    get_obs_cmd.add_argument("--workflow", required=True)
-    get_obs_cmd.set_defaults(handler=cmd_get_observability, func=run_cli_command)
-
     scaffold_cmd = sub.add_parser(
         "scaffold-workflow",
         help="Create a new workflow root and repo-owned workflow contract.",
@@ -3251,6 +3291,51 @@ def configure_subcommands(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     bootstrap_cmd.add_argument("--force", action="store_true")
     bootstrap_cmd.add_argument("--json", action="store_true")
     bootstrap_cmd.set_defaults(handler=cmd_bootstrap_workflow, func=run_cli_command)
+
+    configure_runtime_cmd = sub.add_parser(
+        "configure-runtime",
+        help="Bind a workflow role to a built-in runtime preset in the repo-owned WORKFLOW.md contract.",
+    )
+    configure_runtime_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
+    configure_runtime_cmd.add_argument("--runtime", required=True, choices=available_runtime_presets())
+    configure_runtime_cmd.add_argument(
+        "--role",
+        required=True,
+        help=(
+            "Role to bind. issue-runner: agent. change-delivery: "
+            "actor name such as implementer, reviewer, or all."
+        ),
+    )
+    configure_runtime_cmd.add_argument(
+        "--runtime-name",
+        help="Optional profile name to write under runtimes: (defaults to the preset name).",
+    )
+    configure_runtime_cmd.add_argument("--dry-run", action="store_true")
+    configure_runtime_cmd.add_argument("--json", action="store_true")
+    configure_runtime_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
+    configure_runtime_cmd.set_defaults(func=run_cli_command)
+
+    runtime_matrix_cmd = sub.add_parser(
+        "runtime-matrix",
+        help="Show workflow role-to-runtime bindings and optionally execute a tiny runtime-stage smoke.",
+    )
+    runtime_matrix_cmd.add_argument("--workflow-root", default=default_workflow_root_str)
+    runtime_matrix_cmd.add_argument("--role", action="append", help="Limit to a workflow role. Can be repeated.")
+    runtime_matrix_cmd.add_argument("--runtime", action="append", help="Limit to a runtime profile. Can be repeated.")
+    runtime_matrix_cmd.add_argument("--execute", action="store_true", help="Run a tiny prompt through each selected role runtime.")
+    runtime_matrix_cmd.add_argument("--json", action="store_true")
+    runtime_matrix_cmd.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text|json). --json flag is a back-compat alias for --format json.",
+    )
+    runtime_matrix_cmd.set_defaults(func=run_cli_command)
 
     codex_cmd = sub.add_parser(
         "codex-app-server",
@@ -3366,8 +3451,7 @@ def _record_operator_command_event(*, workflow_root: Path, args: argparse.Namesp
     arguments_json = {}
     for key, value in vars(args).items():
         # Skip non-serializable argparse plumbing. ``handler`` is a function
-        # reference set by the new string-returning subcommands (watch,
-        # set-observability, get-observability) — it would crash json.dumps.
+        # reference set by string-returning subcommands such as watch.
         if key in {"func", "handler", "json", "_command_source"}:
             continue
         if isinstance(value, Path):
@@ -3421,7 +3505,7 @@ def _resolve_format(format_arg: str | None, json_flag: bool | None) -> str:
 def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
     workflow_root = Path(args.workflow_root).resolve() if hasattr(args, "workflow_root") else None
     daedalus = _load_daedalus_module(workflow_root) if workflow_root is not None else None
-    eventless_commands = {"codex-app-server", "runs", "events", "validate"}
+    eventless_commands = {"codex-app-server", "runs", "events", "validate", "configure-runtime", "runtime-matrix"}
     if (
         workflow_root is not None
         and daedalus is not None
@@ -3473,6 +3557,21 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
         return build_validate_report(
             workflow_root=workflow_root,
             service_mode=getattr(args, "service_mode", None),
+        )
+    if args.daedalus_command == "configure-runtime":
+        return configure_runtime_preset(
+            workflow_root=workflow_root,
+            runtime_preset=args.runtime,
+            role=args.role,
+            runtime_name=args.runtime_name,
+            dry_run=args.dry_run,
+        )
+    if args.daedalus_command == "runtime-matrix":
+        return build_runtime_matrix_report(
+            workflow_root=workflow_root,
+            execute=args.execute,
+            roles=args.role,
+            runtimes=args.runtime,
         )
     if args.daedalus_command == "runs":
         return build_runs_report(
@@ -3683,18 +3782,32 @@ def execute_namespace(args: argparse.Namespace) -> dict[str, Any]:
             "gate": daedalus.evaluate_active_execution_gate(workflow_root=workflow_root, legacy_status=legacy_status),
         }
     if args.daedalus_command == "iterate-active":
-        return daedalus.run_active_iteration(
+        lane_selection = (
+            _ensure_change_delivery_active_lane_for_start(workflow_root)
+            if _workflow_name_for_root(workflow_root) == "change-delivery"
+            else None
+        )
+        result = daedalus.run_active_iteration(
             workflow_root=workflow_root,
             instance_id=args.instance_id,
         )
+        result["lane_selection"] = lane_selection
+        return result
     if args.daedalus_command == "run-active":
-        return daedalus.run_active_loop(
+        lane_selection = (
+            _ensure_change_delivery_active_lane_for_start(workflow_root)
+            if _workflow_name_for_root(workflow_root) == "change-delivery"
+            else None
+        )
+        result = daedalus.run_active_loop(
             workflow_root=workflow_root,
             project_key=resolved_project_key,
             instance_id=args.instance_id,
             interval_seconds=args.interval_seconds,
             max_iterations=args.max_iterations,
         )
+        result["lane_selection"] = lane_selection
+        return result
     if args.daedalus_command == "request-active-actions":
         return daedalus.request_active_actions_for_lane(
             workflow_root=workflow_root,
@@ -3784,6 +3897,59 @@ def render_result(
                 path = item.get("path") if isinstance(item, dict) else None
                 message = item.get("message") if isinstance(item, dict) else str(item)
                 lines.append(f"  {path or '<root>'}: {message}")
+        recommendations = result.get("recommendations") or []
+        if recommendations:
+            lines.append("next steps:")
+            lines.extend(f"- {item}" for item in recommendations[:8])
+        return "\n".join(lines)
+    if command == "configure-runtime":
+        bindings = result.get("bindings") or []
+        availability = result.get("availability_checks") or []
+        mode = "dry-run " if result.get("dry_run") else ""
+        lines = [
+            (
+                f"{mode}configured runtime preset={result.get('runtime_preset')} "
+                f"profile={result.get('runtime_name')} workflow={result.get('workflow')}"
+            ),
+            f"contract={result.get('contract_path')}",
+            "changed_roles=" + ", ".join(result.get("changed_roles") or []),
+        ]
+        for binding in bindings:
+            lines.append(
+                f"- {binding.get('role')} -> {binding.get('runtime')} "
+                f"kind={binding.get('kind')} exists={binding.get('profile_exists')}"
+            )
+        for check in availability:
+            lines.append(f"- {check.get('status')} {check.get('name')}: {check.get('detail')}")
+        return "\n".join(lines)
+    if command == "runtime-matrix":
+        lines = [
+            (
+                f"runtime matrix ok={result.get('ok')} workflow={result.get('workflow')} "
+                f"execute={result.get('execute')}"
+            ),
+            f"contract={result.get('contract_path')}",
+        ]
+        missing = result.get("missing") or {}
+        if missing.get("roles") or missing.get("runtimes"):
+            lines.append(f"missing roles={missing.get('roles') or []} runtimes={missing.get('runtimes') or []}")
+        for item in result.get("matrix") or []:
+            binding = item.get("binding") or {}
+            availability = item.get("availability") or {}
+            smoke = item.get("smoke") or {}
+            detail = (
+                f"- {item.get('role')} -> {item.get('runtime')} kind={item.get('kind')} "
+                f"binding={binding.get('status')} availability={availability.get('status')}"
+            )
+            if smoke:
+                detail += f" smoke={'pass' if smoke.get('ok') else 'fail'}"
+            lines.append(detail)
+            if availability.get("detail"):
+                lines.append(f"  availability: {availability.get('detail')}")
+            if smoke.get("error"):
+                lines.append(f"  smoke error: {smoke.get('error')}")
+            elif smoke.get("output_preview"):
+                lines.append(f"  output: {smoke.get('output_preview')}")
         return "\n".join(lines)
     if command == "runs":
         if result.get("mode") == "show":
@@ -4081,16 +4247,10 @@ def execute_raw_args(raw_args: str) -> str:
             return cmd_migrate_filesystem(args, parser)
         if args.daedalus_command == "migrate-systemd":
             return cmd_migrate_systemd(args, parser)
-        # New commands return strings directly (not dicts), so they bypass
-        # execute_namespace which only knows about the legacy dict-returning
-        # branches. Without these explicit routes the new subcommands fall
-        # through to "unknown daedalus command".
+        # String-returning commands bypass execute_namespace, which only knows
+        # about the legacy dict-returning branches.
         if args.daedalus_command == "watch":
             return _lazy_cmd_watch(args, parser)
-        if args.daedalus_command == "set-observability":
-            return cmd_set_observability(args, parser)
-        if args.daedalus_command == "get-observability":
-            return cmd_get_observability(args, parser)
         if args.daedalus_command == "scaffold-workflow":
             return cmd_scaffold_workflow(args, parser)
         if args.daedalus_command == "bootstrap":
@@ -4118,8 +4278,6 @@ def run_cli_command(args: argparse.Namespace) -> None:
         "migrate-filesystem",
         "migrate-systemd",
         "watch",
-        "set-observability",
-        "get-observability",
         "scaffold-workflow",
         "bootstrap",
     }

@@ -80,9 +80,9 @@ Two hardening fixes during lane 220 work changed how failures interact with the 
 
 ### Fix 1: Failed internal review no longer wedges workflow state
 
-**Before:** `dispatch_claude_review()` failed after marking review `running` in the workflow read model. The lane stayed stuck at `running` forever.
+**Before:** `dispatch_internal_review()` failed after marking review `running` in the workflow read model. The lane stayed stuck at `running` forever.
 
-**After:** Failure resets the Claude review back to a retryable `pending` state.
+**After:** Failure resets the internal review back to a retryable `pending` state.
 
 ### Fix 2: Failed active actions no longer consume the idempotency slot permanently
 

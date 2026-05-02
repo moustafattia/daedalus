@@ -40,6 +40,7 @@ class TrackerClient(Protocol):
         summary: str,
         state: str | None = None,
         metadata: dict[str, Any] | None = None,
+        comment_mode: str | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -107,6 +108,7 @@ def build_tracker_client(
     tracker_cfg: dict[str, Any],
     post_json: Callable[..., dict[str, Any]] | None = None,
     repo_path: Path | None = None,
+    run: Callable[..., Any] | None = None,
     run_json: Callable[..., Any] | None = None,
 ) -> TrackerClient:
     kind = tracker_kind(tracker_cfg)
@@ -125,6 +127,7 @@ def build_tracker_client(
         kwargs["post_json"] = post_json or http_post_json
     if kind == "github":
         kwargs["repo_path"] = repo_path
+        kwargs["run"] = run
         kwargs["run_json"] = run_json
     return cls(**kwargs)
 
@@ -134,12 +137,14 @@ def load_issues(
     workflow_root: Path,
     tracker_cfg: dict[str, Any],
     repo_path: Path | None = None,
+    run: Callable[..., Any] | None = None,
     run_json: Callable[..., Any] | None = None,
 ) -> list[dict[str, Any]]:
     return build_tracker_client(
         workflow_root=workflow_root,
         tracker_cfg=tracker_cfg,
         repo_path=repo_path,
+        run=run,
         run_json=run_json,
     ).list_all()
 

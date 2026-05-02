@@ -106,9 +106,11 @@ def test_release_readiness_tracks_public_beta_gates():
     assert "First-class tracker: GitHub" in readiness
     assert "Experimental tracker: Linear" in readiness
     assert "Keep `daedalus/projects/` placeholder-only" in readiness
-    assert "GitHub and real Codex app-server smoke tests are opt-in" in readiness
+    assert "Opt-in GitHub smoke covers feedback, retry recovery, and terminal cleanup" in readiness
+    assert "CLI/docs drift checks" in readiness
     assert "strict Symphony contract" in readiness
     assert "issue-runner` is the workflow that should converge" in conformance
     assert "release-readiness.md" in conformance
     assert "Harness Principles" in harness
     assert "release readiness" in harness
+    assert "commands must" in harness

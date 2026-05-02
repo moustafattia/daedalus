@@ -393,3 +393,103 @@ def test_github_tracker_client_accepts_host_qualified_repo_slug_without_checkout
     assert client.repo_slug == "github.example.com/attmous/daedalus"
     assert client.list_candidates()[0]["title"] == "Enterprise issue"
     assert any(command[:3] == ["gh", "issue", "list"] for command in commands)
+
+
+def test_github_tracker_feedback_comments_and_applies_supported_state(tmp_path):
+    from workflows.issue_runner.tracker import build_tracker_client
+
+    commands = []
+
+    class Completed:
+        stdout = "https://github.com/attmous/daedalus/issues/42#issuecomment-1\n"
+        stderr = ""
+        returncode = 0
+
+    def fake_run(command, cwd=None):
+        commands.append((command, cwd))
+        return Completed()
+
+    client = build_tracker_client(
+        workflow_root=tmp_path,
+        tracker_cfg={
+            "kind": "github",
+            "github_slug": "attmous/daedalus",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        run=fake_run,
+        run_json=lambda *args, **kwargs: [],
+    )
+
+    result = client.post_feedback(
+        issue_id="42",
+        event="issue.completed",
+        body="Completed by Daedalus.",
+        summary="Completed by Daedalus.",
+        state="closed",
+        metadata={"attempt": 1},
+    )
+
+    assert result["ok"] is True
+    assert result["state"] == "closed"
+    assert commands == [
+        (
+            [
+                "gh",
+                "issue",
+                "comment",
+                "42",
+                "--body",
+                "Completed by Daedalus.",
+                "--repo",
+                "attmous/daedalus",
+            ],
+            None,
+        ),
+        (
+            ["gh", "issue", "close", "42", "--repo", "attmous/daedalus"],
+            None,
+        ),
+    ]
+
+
+def test_github_tracker_feedback_ignores_unsupported_state_after_comment(tmp_path):
+    from workflows.issue_runner.tracker import build_tracker_client
+
+    class Completed:
+        stdout = ""
+        stderr = ""
+        returncode = 0
+
+    commands = []
+
+    def fake_run(command, cwd=None):
+        commands.append(command)
+        return Completed()
+
+    client = build_tracker_client(
+        workflow_root=tmp_path,
+        tracker_cfg={
+            "kind": "github",
+            "github_slug": "attmous/daedalus",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        run=fake_run,
+        run_json=lambda *args, **kwargs: [],
+    )
+
+    result = client.post_feedback(
+        issue_id="42",
+        event="issue.completed",
+        body="Completed by Daedalus.",
+        summary="Completed by Daedalus.",
+        state="done",
+    )
+
+    assert result["ok"] is True
+    assert result["state"] is None
+    assert result["unsupported_state"] == "done"
+    assert commands == [
+        ["gh", "issue", "comment", "42", "--body", "Completed by Daedalus.", "--repo", "attmous/daedalus"]
+    ]

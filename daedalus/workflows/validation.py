@@ -10,6 +10,8 @@ import yaml
 
 from . import load_workflow
 from .contract import WorkflowContract, WorkflowContractError, load_workflow_contract
+from .readiness import build_readiness_recommendations
+from .runtime_presets import runtime_binding_checks, runtime_capability_checks, runtime_stage_checks
 
 
 SERVICE_MODES = frozenset({"active", "shadow"})
@@ -103,8 +105,8 @@ def _contract_kind_check(contract: WorkflowContract) -> dict[str, Any]:
         return _check("contract-format", "pass", "repo-owned Markdown workflow contract")
     return _check(
         "contract-format",
-        "warn",
-        "legacy YAML workflow contract loaded; prefer repo-owned WORKFLOW.md",
+        "fail",
+        f"unsupported workflow contract format: {contract.source_path}",
     )
 
 
@@ -202,6 +204,9 @@ def validate_workflow_contract(
 
     checks.append(_instance_name_check(workflow_root=root, config=config))
     checks.append(_repository_path_check(workflow_root=root, config=config))
+    checks.extend(runtime_stage_checks(config))
+    checks.extend(runtime_binding_checks(config))
+    checks.extend(runtime_capability_checks(config))
 
     if module is not None and run_preflight:
         preflight_fn = getattr(module, "run_preflight", None)
@@ -244,6 +249,12 @@ def _validation_report(
 ) -> dict[str, Any]:
     failures = [check for check in checks if check.get("status") == "fail"]
     warnings = [check for check in checks if check.get("status") == "warn"]
+    recommendations = build_readiness_recommendations(
+        checks,
+        workflow=workflow_name,
+        workflow_root=workflow_root,
+        source_path=source_path,
+    )
     return {
         "ok": not failures,
         "workflow_root": str(workflow_root),
@@ -253,4 +264,5 @@ def _validation_report(
         "checks": checks,
         "failures": failures,
         "warnings": warnings,
+        "recommendations": recommendations,
     }

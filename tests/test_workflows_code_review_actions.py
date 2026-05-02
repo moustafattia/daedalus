@@ -29,6 +29,23 @@ def load_module(module_name: str, relative_path: str):
 # ``run_*`` functions that back the workspace shims.
 
 
+class FakeCodeHost:
+    def __init__(self):
+        self.calls = []
+
+    def mark_pull_request_ready(self, pr_number):
+        self.calls.append(("ready", pr_number))
+        return True
+
+    def create_pull_request(self, **kwargs):
+        self.calls.append(("create", kwargs))
+        return "https://github.example/pull/301"
+
+    def merge_pull_request(self, pr_number, **kwargs):
+        self.calls.append(("merge", pr_number, kwargs))
+        return {"ok": True}
+
+
 def test_run_publish_ready_pr_reports_no_active_lane_when_reconcile_has_none():
     actions_module = load_module("daedalus_workflows_change_delivery_actions_ppr", "workflows/change_delivery/actions.py")
 
@@ -41,9 +58,6 @@ def test_run_publish_ready_pr_reports_no_active_lane_when_reconcile_has_none():
     def fake_run(*args, **kwargs):
         raise AssertionError("run_fn should not execute when there is no active lane")
 
-    def fake_mark_ready(*args, **kwargs):
-        raise AssertionError("mark_ready should not execute when there is no active lane")
-
     def fake_audit(*args, **kwargs):
         raise AssertionError("audit should not fire when nothing is published")
 
@@ -51,9 +65,7 @@ def test_run_publish_ready_pr_reports_no_active_lane_when_reconcile_has_none():
         reconcile_fn=fake_reconcile,
         run_fn=fake_run,
         audit_fn=fake_audit,
-        mark_pr_ready_for_review_fn=fake_mark_ready,
-        repo_slug="owner/repo",
-        repo_path=Path("/tmp/repo"),
+        code_host_client=FakeCodeHost(),
     )
 
     assert result == {"published": False, "reason": "no-active-lane"}
@@ -82,9 +94,7 @@ def test_run_publish_ready_pr_marks_existing_draft_ready_without_pushing(tmp_pat
     def fake_run(*args, **kwargs):
         raise AssertionError("should not invoke git when a PR already exists")
 
-    def fake_mark_ready(pr_number):
-        call_order.append(f"mark_ready:{pr_number}")
-        return True
+    code_host = FakeCodeHost()
 
     def fake_audit(*args, **kwargs):
         call_order.append("audit")
@@ -93,14 +103,12 @@ def test_run_publish_ready_pr_marks_existing_draft_ready_without_pushing(tmp_pat
         reconcile_fn=fake_reconcile,
         run_fn=fake_run,
         audit_fn=fake_audit,
-        mark_pr_ready_for_review_fn=fake_mark_ready,
-        repo_slug="owner/repo",
-        repo_path=Path("/tmp/repo"),
+        code_host_client=code_host,
     )
 
     assert result["published"] is True
     assert result["prNumber"] == 301
-    assert "mark_ready:301" in call_order
+    assert ("ready", 301) in code_host.calls
     assert call_order.count("reconcile") == 2
 
 
@@ -179,7 +187,6 @@ def test_run_merge_and_promote_skips_when_missing_active_lane_or_pr():
 
     result = actions_module.run_merge_and_promote(
         reconcile_fn=fake_reconcile,
-        run_fn=lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not run")),
         audit_fn=lambda *a, **k: None,
         issue_remove_label_fn=lambda *a, **k: None,
         issue_close_fn=lambda *a, **k: None,
@@ -188,8 +195,7 @@ def test_run_merge_and_promote_skips_when_missing_active_lane_or_pr():
         pick_next_lane_issue_fn=lambda: None,
         now_iso_fn=lambda: "2026-04-23T00:00:00Z",
         active_lane_label="P0",
-        repo_slug="owner/repo",
-        repo_path=Path("/tmp/repo"),
+        code_host_client=FakeCodeHost(),
     )
     assert result == {"merged": False, "reason": "missing-active-lane-or-pr"}
 
@@ -202,13 +208,8 @@ def test_run_merge_and_promote_promotes_next_lane_after_merge():
         reconcile_calls.append(fix_watchers)
         return {"activeLane": {"number": 224, "title": "T"}, "openPr": {"number": 301}}
 
-    calls: dict = {"runs": [], "audits": [], "issue": []}
-
-    def fake_run(command, cwd=None):
-        calls["runs"].append(command)
-        class _C:
-            stdout = ""
-        return _C()
+    calls: dict = {"audits": [], "issue": []}
+    code_host = FakeCodeHost()
 
     def fake_audit(action, summary, **extra):
         calls["audits"].append({"action": action, "summary": summary, **extra})
@@ -230,7 +231,6 @@ def test_run_merge_and_promote_promotes_next_lane_after_merge():
 
     result = actions_module.run_merge_and_promote(
         reconcile_fn=fake_reconcile,
-        run_fn=fake_run,
         audit_fn=fake_audit,
         issue_remove_label_fn=fake_remove,
         issue_close_fn=fake_close,
@@ -239,53 +239,124 @@ def test_run_merge_and_promote_promotes_next_lane_after_merge():
         pick_next_lane_issue_fn=fake_next,
         now_iso_fn=lambda: "2026-04-23T00:00:00Z",
         active_lane_label="P0",
-        repo_slug="owner/repo",
-        repo_path=Path("/tmp/repo"),
+        code_host_client=code_host,
     )
     assert result["merged"] is True
     assert result["mergedPrNumber"] == 301
     assert result["nextIssueNumber"] == 225
-    assert calls["runs"][0][:3] == ["gh", "pr", "merge"]
+    assert code_host.calls[0] == ("merge", 301, {"squash": True, "delete_branch": True})
     assert ("remove", 224, "P0") in calls["issue"]
     assert ("add", 225, "P0") in calls["issue"]
+
+
+def test_run_ensure_active_lane_promotes_first_eligible_issue():
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_eal", "workflows/change_delivery/actions.py")
+    calls: list[tuple] = []
+
+    def fake_reconcile(*, fix_watchers=False):
+        calls.append(("reconcile", fix_watchers))
+        return {
+            "health": "healthy",
+            "activeLane": {"number": 225},
+            "nextAction": {"type": "dispatch_codex_turn"},
+        }
+
+    result = actions_module.run_ensure_active_lane(
+        build_status_fn=lambda: {"activeLane": None, "activeLaneError": None},
+        reconcile_fn=fake_reconcile,
+        audit_fn=lambda action, summary, **extra: calls.append(("audit", action, extra)),
+        issue_add_label_fn=lambda issue_number, label: calls.append(("add", issue_number, label)) or True,
+        issue_comment_fn=lambda issue_number, body: calls.append(("comment", issue_number, body)) or True,
+        pick_next_lane_issue_fn=lambda: {"number": 225, "title": "Next lane", "url": "https://example.test/issues/225"},
+        active_lane_label="active-lane",
+    )
+
+    assert result["ok"] is True
+    assert result["promoted"] is True
+    assert result["issueNumber"] == 225
+    assert result["after"] == {"health": "healthy", "activeLane": 225, "nextAction": "dispatch_codex_turn"}
+    assert ("add", 225, "active-lane") in calls
+    assert any(call[0] == "comment" and call[1] == 225 for call in calls)
+    assert ("reconcile", True) in calls
+
+
+def test_run_ensure_active_lane_skips_when_active_lane_already_exists():
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_eal_skip", "workflows/change_delivery/actions.py")
+
+    def should_not_run(*args, **kwargs):
+        raise AssertionError("selection should not run when an active lane already exists")
+
+    result = actions_module.run_ensure_active_lane(
+        build_status_fn=lambda: {"activeLane": {"number": 224}},
+        reconcile_fn=should_not_run,
+        audit_fn=should_not_run,
+        issue_add_label_fn=should_not_run,
+        issue_comment_fn=should_not_run,
+        pick_next_lane_issue_fn=should_not_run,
+        active_lane_label="active-lane",
+    )
+
+    assert result == {
+        "ok": True,
+        "promoted": False,
+        "reason": "active-lane-present",
+        "issueNumber": 224,
+    }
+
+
+def test_run_ensure_active_lane_reports_selection_failure_without_raising():
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_eal_fail", "workflows/change_delivery/actions.py")
+
+    def broken_selection():
+        raise RuntimeError("gh unavailable")
+
+    result = actions_module.run_ensure_active_lane(
+        build_status_fn=lambda: {"activeLane": None},
+        reconcile_fn=lambda **_kwargs: {},
+        audit_fn=lambda *args, **kwargs: None,
+        issue_add_label_fn=lambda *_args: True,
+        issue_comment_fn=lambda *_args: True,
+        pick_next_lane_issue_fn=broken_selection,
+        active_lane_label="active-lane",
+    )
+
+    assert result["ok"] is False
+    assert result["promoted"] is False
+    assert result["reason"] == "lane-selection-failed"
+    assert "gh unavailable" in result["error"]
 
 
 def _dispatch_deps(tmp_path: Path):
     worktree = tmp_path / "worktree"
     worktree.mkdir()
-    state: dict = {"close_calls": 0, "ensure_calls": 0, "run_prompt_calls": [], "save_ledger": []}
+    state: dict = {"close_calls": 0, "run_prompt_calls": [], "save_ledger": []}
 
     def now_iso_fn():
         return "2026-04-23T00:00:00Z"
 
-    def close_fn(*, worktree, session_name):
+    def close_fn(*, worktree, session_name, runtime_name=None, runtime_kind=None):
         state["close_calls"] += 1
 
-    def ensure_fn(*, worktree, session_name, codex_model, resume_session_id=None):
-        state["ensure_calls"] += 1
-        return {"acpxRecordId": "rec-123"}
-
-    def show_fn(*, worktree, session_name):
+    def show_fn(*, worktree, session_name, runtime_name=None, runtime_kind=None):
         return {"record_id": "rec-123", "session_id": "sess-abc"}
 
-    def run_prompt_fn(*, worktree, session_name, prompt, codex_model):
-        state["run_prompt_calls"].append({"session_name": session_name, "codex_model": codex_model})
+    def run_stage_fn(*, worktree, session_name, prompt, actor_name, actor_cfg, runtime_name, runtime_kind, resume_session_id=None):
+        state["run_prompt_calls"].append(
+            {
+                "session_name": session_name,
+                "actor_name": actor_name,
+                "actor_model": actor_cfg.get("model"),
+                "runtime_name": runtime_name,
+                "runtime_kind": runtime_kind,
+            }
+        )
         return "ok"
 
     def prepare_worktree_fn(*, worktree, branch, open_pr):
         return {"prepared": True}
 
-    def codex_model_for_issue_fn(issue, *, lane_state, workflow_state, reviews):
-        return "gpt-5.3-codex-spark/high"
-
     def get_issue_details_fn(number):
         return {"labels": []}
-
-    def fallback_codex_model_fn(*, acpx_record_id, codex_model, exc):
-        return None
-
-    def coder_agent_name_for_model_fn(model):
-        return "Internal_Coder_Agent"
 
     def actor_labels_payload_fn(model):
         return {}
@@ -310,15 +381,19 @@ def _dispatch_deps(tmp_path: Path):
 
     return state, worktree, {
         "now_iso_fn": now_iso_fn,
-        "close_acpx_session_fn": close_fn,
-        "ensure_acpx_session_fn": ensure_fn,
-        "show_acpx_session_fn": show_fn,
-        "run_prompt_fn": run_prompt_fn,
+        "close_session_fn": close_fn,
+        "show_session_fn": show_fn,
+        "run_stage_fn": run_stage_fn,
         "prepare_lane_worktree_fn": prepare_worktree_fn,
-        "codex_model_for_issue_fn": codex_model_for_issue_fn,
+        "implementation_actor_name": "implementer",
+        "implementation_actor_cfg": {
+            "name": "Change_Implementer",
+            "model": "gpt-5.3-codex-spark/high",
+            "runtime": "acpx-codex",
+        },
+        "runtime_name": "acpx-codex",
+        "runtime_kind": "acpx-codex",
         "get_issue_details_fn": get_issue_details_fn,
-        "fallback_codex_model_for_prompt_error_fn": fallback_codex_model_fn,
-        "coder_agent_name_for_model_fn": coder_agent_name_for_model_fn,
         "actor_labels_payload_fn": actor_labels_payload_fn,
         "load_ledger_fn": load_ledger_fn,
         "save_ledger_fn": save_ledger_fn,
@@ -371,8 +446,10 @@ def test_run_dispatch_lane_turn_executes_continue_session_when_healthy(tmp_path)
     assert result["action"] == "continue-session"
     assert result["issueNumber"] == 224
     assert result["sessionName"] == "lane-224"
+    assert result["actorKey"] == "implementer"
+    assert result["actorName"] == "Change_Implementer"
     assert state["close_calls"] == 0  # continue-session doesn't close
-    assert state["run_prompt_calls"]
+    assert state["run_prompt_calls"][0]["runtime_name"] == "acpx-codex"
     assert state["audits"][0]["action"] == "dispatch-implementation-turn"
 
 
@@ -395,17 +472,20 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
         "openPr": None,
     }
 
-    def run_prompt_fn(*, worktree, session_name, prompt, codex_model):
+    def run_stage_fn(*, worktree, session_name, prompt, actor_name, actor_cfg, runtime_name, runtime_kind, resume_session_id=None):
         return SimpleNamespace(
-            output="codex ok\n",
-            session_id="thread-1",
-            thread_id="thread-1",
-            turn_id="turn-1",
-            last_event="turn/completed",
-            last_message="done",
-            turn_count=1,
-            tokens={"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
-            rate_limits={"requests_remaining": 99},
+            runtime_result=SimpleNamespace(
+                output="codex ok\n",
+                session_id="thread-1",
+                thread_id="thread-1",
+                turn_id="turn-1",
+                last_event="turn/completed",
+                last_message="done",
+                turn_count=1,
+                tokens={"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+                rate_limits={"requests_remaining": 99},
+            ),
+            session_handle={"record_id": "thread-1", "session_id": "thread-1"},
         )
 
     recorded = {}
@@ -420,7 +500,12 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
         audit_action="dispatch-implementation-turn",
         **{
             **deps,
-            "run_prompt_fn": run_prompt_fn,
+            "run_stage_fn": run_stage_fn,
+            "implementation_actor_cfg": {
+                "name": "Change_Implementer",
+                "model": "gpt-5.5",
+                "runtime": "coder-runtime",
+            },
             "runtime_name": "coder-runtime",
             "runtime_kind": "codex-app-server",
             "record_runtime_result_fn": record_runtime_result_fn,
@@ -437,8 +522,89 @@ def test_run_dispatch_lane_turn_records_codex_app_server_thread_metrics(tmp_path
     impl = state["save_ledger"][-1]["implementation"]
     assert impl["sessionRuntime"] == "codex-app-server"
     assert impl["session"] == "thread-1"
+    assert impl["actorName"] == "Change_Implementer"
+    assert impl["actorModel"] == "gpt-5.5"
     assert impl["resumeSessionId"] == "thread-1"
     assert impl["runtimeMetrics"]["rate_limits"] == {"requests_remaining": 99}
+
+
+def test_run_dispatch_lane_turn_reconciles_runtime_error_after_local_head(tmp_path):
+    actions_module = load_module("daedalus_workflows_change_delivery_actions_reconciled_error", "workflows/change_delivery/actions.py")
+    state, worktree, deps = _dispatch_deps(tmp_path)
+    status = {
+        "activeLane": {"number": 224, "title": "T", "url": "https://example.test/issue/224"},
+        "implementation": {
+            "worktree": str(worktree),
+            "branch": "issue-224",
+            "sessionName": "lane-224",
+            "codexModel": "gpt-5.5",
+            "resumeSessionId": "thread-existing",
+            "sessionActionRecommendation": {"action": "continue-session"},
+            "laneState": {},
+        },
+        "ledger": {"workflowState": "implementing_local"},
+        "reviews": {},
+        "openPr": None,
+    }
+
+    class RuntimeCompletedThenTimedOut(RuntimeError):
+        def __init__(self):
+            super().__init__("codex-app-server failed: timed out")
+            self.result = SimpleNamespace(
+                output="implemented\n",
+                session_id="thread-1",
+                thread_id="thread-1",
+                turn_id="turn-1",
+                last_event="item/agentMessage/delta",
+                last_message=".",
+                turn_count=1,
+                tokens={"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+                rate_limits=None,
+            )
+
+    def run_stage_fn(*, worktree, session_name, prompt, actor_name, actor_cfg, runtime_name, runtime_kind, resume_session_id=None):
+        raise RuntimeCompletedThenTimedOut()
+
+    def reconcile_fn(*, fix_watchers=False):
+        return {
+            "health": "healthy",
+            "activeLane": {"number": 224},
+            "implementation": {"localHeadSha": "head-after-error"},
+            "nextAction": {"type": "run_internal_review", "reason": "prepublish-review-required"},
+        }
+
+    recorded = {}
+
+    def record_runtime_result_fn(**kwargs):
+        recorded.update(kwargs)
+        return kwargs["metrics"]
+
+    result = actions_module.run_dispatch_lane_turn(
+        status=status,
+        forced_action=None,
+        audit_action="dispatch-implementation-turn",
+        **{
+            **deps,
+            "run_stage_fn": run_stage_fn,
+            "implementation_actor_cfg": {
+                "name": "Change_Implementer",
+                "model": "gpt-5.5",
+                "runtime": "coder-runtime",
+            },
+            "reconcile_fn": reconcile_fn,
+            "runtime_name": "coder-runtime",
+            "runtime_kind": "codex-app-server",
+            "record_runtime_result_fn": record_runtime_result_fn,
+        },
+    )
+
+    assert result["dispatched"] is True
+    assert result["reconciledAfterRuntimeError"] is True
+    assert result["runtimeError"] == "codex-app-server failed: timed out"
+    assert result["promptResult"] == "implemented"
+    assert result["health"] == "healthy"
+    assert recorded["metrics"]["thread_id"] == "thread-1"
+    assert state["save_ledger"]
 
 
 def test_run_dispatch_lane_turn_closes_session_for_restart(tmp_path):
@@ -482,7 +648,7 @@ def _dispatch_review_deps(tmp_path: Path):
         return {
             "activeLane": {"number": 224, "title": "T", "url": "https://example.test/224"},
             "implementation": {"worktree": str(worktree), "codexModel": "gpt-5.3-codex"},
-            "preflight": {"interReviewAgent": {"shouldRun": True, "currentHeadSha": "head123"}},
+            "preflight": {"prePublishReview": {"shouldRun": True, "currentHeadSha": "head123"}},
         }
 
     def load_ledger_fn():
@@ -554,13 +720,13 @@ def test_run_dispatch_inter_review_agent_review_skips_when_preflight_blocks(tmp_
         return {
             "activeLane": {"number": 224, "title": "T"},
             "implementation": {"worktree": str(tmp_path / "worktree")},
-            "preflight": {"interReviewAgent": {"shouldRun": False, "reasons": ["claude-cooldown"]}},
+            "preflight": {"prePublishReview": {"shouldRun": False, "reasons": ["internal-review-cooldown"]}},
         }
 
     deps["reconcile_fn"] = reconcile_fn
     result = actions_module.run_dispatch_inter_review_agent_review(**deps)
     assert result["dispatched"] is False
-    assert result["reason"] == "claude-preflight-blocked"
+    assert result["reason"] == "internal-review-preflight-blocked"
 
 
 def test_run_dispatch_inter_review_agent_review_records_completed_review_on_success(tmp_path):

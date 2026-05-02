@@ -35,39 +35,57 @@ def _minimal_config(tmp_path: Path) -> dict:
     }
 
 
-def _workflow_yaml_config(tmp_path: Path) -> dict:
+def _workflow_contract_config(tmp_path: Path) -> dict:
     return {
         "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {
             "local-path": str(tmp_path / "repo"),
-            "github-slug": "owner/repo",
+            "slug": "owner/repo",
             "active-lane-label": "active-lane",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "owner/repo",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {
             "acpx-codex": {"kind": "acpx-codex"},
             "claude-cli": {"kind": "claude-cli"},
         },
-        "agents": {
-            "coder": {
-                "default": {
-                    "name": "Internal_Coder_Agent",
-                    "model": "gpt-5.3-codex-spark/high",
-                    "runtime": "acpx-codex",
-                },
+        "actors": {
+            "implementer": {
+                "name": "Change_Implementer",
+                "model": "gpt-5.3-codex-spark/high",
+                "runtime": "acpx-codex",
             },
-            "internal-reviewer": {
-                "name": "Internal_Reviewer_Agent",
+            "implementer-high-effort": {
+                "name": "Change_Implementer_High_Effort",
+                "model": "gpt-5.4",
+                "runtime": "acpx-codex",
+            },
+            "reviewer": {
+                "name": "Change_Reviewer",
                 "model": "claude-sonnet-4-6",
                 "runtime": "claude-cli",
             },
-            "external-reviewer": {
-                "enabled": True,
-                "name": "External_Reviewer_Agent",
-            },
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
+        },
         "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
         "storage": {
             "ledger": "memory/workflow-status.json",
@@ -89,7 +107,7 @@ def test_make_workspace_exposes_config_constants_and_primitives(tmp_path):
     assert ws.ACTIVE_LANE_LABEL == "active-lane"
     assert ws.ENGINE_OWNER == "hermes"
     assert ws.WORKFLOW_WATCHDOG_JOB_NAME == "workflow-watchdog"
-    assert ws.INTER_REVIEW_AGENT_MODEL == "claude-sonnet-4-6"
+    assert ws.INTERNAL_REVIEW_MODEL == "claude-sonnet-4-6"
     assert ws.INTERNAL_REVIEWER_AGENT_NAME == "Internal_Reviewer_Agent"
     assert ws.LANE_FAILURE_RETRY_BUDGET == 3
     assert ws.WORKFLOW_POLICY == ""
@@ -116,7 +134,7 @@ def test_workspace_engine_owner_selects_hermes_cron_jobs_path(tmp_path):
 
 def test_workspace_uses_workflow_policy_from_workflow_contract(tmp_path):
     workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
-    cfg = _workflow_yaml_config(tmp_path)
+    cfg = _workflow_contract_config(tmp_path)
     cfg["workflow-policy"] = "Never widen scope."
 
     ws = workspace_module.make_workspace(workspace_root=tmp_path, config=cfg)
@@ -169,10 +187,12 @@ def test_iso_to_epoch_interprets_utc(tmp_path):
 def test_load_workspace_from_config_reads_file(tmp_path):
     workspace_module = load_module("daedalus_workflows_change_delivery_workspace_test", "workflows/change_delivery/workspace.py")
     workspace_root = tmp_path / "workflow"
-    config_dir = workspace_root / "config"
-    config_dir.mkdir(parents=True)
-    config_path = config_dir / "workflow.yaml"
-    config_path.write_text(yaml.safe_dump(_workflow_yaml_config(tmp_path)), encoding="utf-8")
+    workspace_root.mkdir(parents=True)
+    config_path = workspace_root / "WORKFLOW.md"
+    config_path.write_text(
+        "---\n" + yaml.safe_dump(_workflow_contract_config(tmp_path), sort_keys=False) + "---\n\nPrompt body\n",
+        encoding="utf-8",
+    )
 
     ws = workspace_module.load_workspace_from_config(workspace_root=workspace_root, config_path=config_path)
     assert ws.WORKSPACE == workspace_root.resolve()
@@ -222,7 +242,7 @@ def test_workspace_exposes_full_wrapper_facade(tmp_path):
     for name in (
         "publish_ready_pr_raw", "push_pr_update_raw", "merge_and_promote_raw",
         "dispatch_implementation_turn_raw", "restart_actor_session_raw",
-        "dispatch_inter_review_agent_review_raw", "dispatch_claude_review_raw",
+        "dispatch_inter_review_agent_review_raw",
         "dispatch_repair_handoff_raw", "tick_raw",
         "_dispatch_lane_turn", "_maybe_dispatch_repair_handoff",
     ):
@@ -270,18 +290,20 @@ def test_workspace_exposes_full_wrapper_facade(tmp_path):
     for name in (
         "_codex_model_for_issue", "_coder_agent_name_for_model",
         "_actor_labels_payload", "_ensure_acpx_session", "_run_acpx_prompt",
+        "_implementation_actor_for_status", "_run_implementation_stage",
+        "_show_actor_session", "_close_actor_session",
         "_prepare_lane_worktree", "decide_lane_session_action",
         "render_lane_memo", "build_acp_session_strategy",
         "build_session_nudge_payload", "should_nudge_session",
         "record_session_nudge",
-        "should_dispatch_claude_repair_handoff",
+        "should_dispatch_internal_review_repair_handoff",
         "should_dispatch_external_review_repair_handoff",
         "build_external_review_repair_handoff_payload",
         "record_external_review_repair_handoff",
         "_render_external_review_repair_handoff_prompt",
-        "build_claude_repair_handoff_payload",
-        "record_claude_repair_handoff",
-        "_render_claude_repair_handoff_prompt",
+        "build_internal_review_repair_handoff_payload",
+        "record_internal_review_repair_handoff",
+        "_render_internal_review_repair_handoff_prompt",
     ):
         assert callable(getattr(ws, name)), name
 
@@ -360,8 +382,8 @@ def test_workspace_exposes_runtime_accessor_with_named_profiles(tmp_path):
             "codexSessionNudgeCooldownSeconds": 600,
         },
         "reviewPolicy": {
-            "interReviewAgentMaxTurns": 24,
-            "interReviewAgentTimeoutSeconds": 1200,
+            "internalReviewMaxTurns": 24,
+            "internalReviewTimeoutSeconds": 1200,
         },
         "agentLabels": {},
     }
@@ -419,7 +441,7 @@ def test_workspace_runtime_accessor_errors_on_unknown_name(tmp_path):
 
 def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
     """Given the new YAML shape, workspace exposes the same attribute surface
-    callers have historically used (REPO_PATH, INTER_REVIEW_AGENT_MODEL, etc.)."""
+    callers have historically used (REPO_PATH, INTERNAL_REVIEW_MODEL, etc.)."""
     from pathlib import Path as _Path
     from workflows.change_delivery.workspace import make_workspace
 
@@ -429,9 +451,16 @@ def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
         "instance": {"name": "workflow-engine", "engine-owner": "hermes"},
         "repository": {
             "local-path": str(tmp_path / "repo"),
-            "github-slug": "owner/repo",
+            "slug": "owner/repo",
             "active-lane-label": "active-lane",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "owner/repo",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "owner/repo"},
         "runtimes": {
             "acpx-codex": {
                 "kind": "acpx-codex",
@@ -445,31 +474,51 @@ def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
                 "timeout-seconds": 1200,
             },
         },
-        "agents": {
-            "coder": {
-                "default": {"name": "Internal_Coder_Agent", "model": "gpt-5.3-codex-spark/high", "runtime": "acpx-codex"},
-                "high-effort": {"name": "Internal_Coder_Agent", "model": "gpt-5.3-codex", "runtime": "acpx-codex"},
-                "escalated": {"name": "Escalation_Coder_Agent", "model": "gpt-5.4", "runtime": "acpx-codex"},
+        "actors": {
+            "implementer": {
+                "name": "Internal_Coder_Agent",
+                "model": "gpt-5.3-codex-spark/high",
+                "runtime": "acpx-codex",
             },
-            "internal-reviewer": {
+            "implementer-high-effort": {
+                "name": "Escalation_Coder_Agent",
+                "model": "gpt-5.4",
+                "runtime": "acpx-codex",
+            },
+            "reviewer": {
                 "name": "Internal_Reviewer_Agent",
                 "model": "claude-sonnet-4-6",
                 "runtime": "claude-cli",
-                "freeze-coder-while-running": True,
-            },
-            "external-reviewer": {
-                "enabled": True, "name": "External_Reviewer_Agent",
-                "provider": "codex-cloud", "cache-seconds": 1800,
             },
         },
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
         "gates": {
-            "internal-review": {
+            "pre-publish-review": {
+                "type": "agent-review",
+                "actor": "reviewer",
                 "pass-with-findings-tolerance": 1,
                 "require-pass-clean-before-publish": True,
                 "request-cooldown-seconds": 1200,
+                "freeze-actor-while-running": True,
             },
-            "external-review": {"required-for-merge": True},
-            "merge": {"require-ci-acceptable": True},
+            "maintainer-approval": {
+                "type": "pr-comment-approval",
+                "enabled": True,
+                "name": "External_Reviewer_Agent",
+                "required-for-merge": True,
+                "users": ["chatgpt-codex-connector"],
+                "approvals": ["+1"],
+                "pending-reactions": ["eyes"],
+                "cache-seconds": 1800,
+            },
+            "ci-green": {"type": "code-host-checks", "required-for-merge": True},
         },
         "triggers": {"lane-selector": {"type": "github-label", "label": "active-lane"}},
         "storage": {
@@ -480,11 +529,6 @@ def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
             "hermes-cron-jobs-path": str(tmp_path / "hermes-cron.json"),
             "sessions-state": "state/sessions",
         },
-        "codex-bot": {
-            "logins": ["chatgpt-codex-connector"],
-            "clean-reactions": ["+1"],
-            "pending-reactions": ["eyes"],
-        },
     }
 
     ws = make_workspace(workspace_root=tmp_path, config=yaml_cfg)
@@ -494,11 +538,11 @@ def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
     assert ws.ACTIVE_LANE_LABEL == "active-lane"
     assert ws.ENGINE_OWNER == "hermes"
     assert ws.CODEX_MODEL_DEFAULT == "gpt-5.3-codex-spark/high"
-    assert ws.CODEX_MODEL_HIGH_EFFORT == "gpt-5.3-codex"
+    assert ws.CODEX_MODEL_HIGH_EFFORT == "gpt-5.4"
     assert ws.CODEX_MODEL_ESCALATED == "gpt-5.4"
-    assert ws.INTER_REVIEW_AGENT_MODEL == "claude-sonnet-4-6"
-    assert ws.INTER_REVIEW_AGENT_MAX_TURNS == 24
-    assert ws.INTER_REVIEW_AGENT_TIMEOUT_SECONDS == 1200
+    assert ws.INTERNAL_REVIEW_MODEL == "claude-sonnet-4-6"
+    assert ws.INTERNAL_REVIEW_MAX_TURNS == 24
+    assert ws.INTERNAL_REVIEW_TIMEOUT_SECONDS == 1200
     assert ws.CODEX_SESSION_FRESHNESS_SECONDS == 900
     assert ws.CODEX_SESSION_POKE_GRACE_SECONDS == 1800
     assert ws.CODEX_SESSION_NUDGE_COOLDOWN_SECONDS == 600
@@ -515,7 +559,7 @@ def test_workspace_from_yaml_exposes_same_surface_as_legacy_json(tmp_path):
 def test_workspace_yaml_can_select_codex_app_server_coder_runtime(tmp_path):
     from workflows.change_delivery.workspace import make_workspace
 
-    cfg = _workflow_yaml_config(tmp_path)
+    cfg = _workflow_contract_config(tmp_path)
     cfg["runtimes"] = {
         "coder-runtime": {
             "kind": "codex-app-server",
@@ -532,20 +576,118 @@ def test_workspace_yaml_can_select_codex_app_server_coder_runtime(tmp_path):
             "timeout-seconds": 1200,
         },
     }
-    cfg["agents"]["coder"]["default"]["runtime"] = "coder-runtime"
-    cfg["agents"]["internal-reviewer"]["runtime"] = "reviewer-runtime"
+    cfg["actors"]["implementer"]["runtime"] = "coder-runtime"
+    cfg["actors"]["implementer-high-effort"]["runtime"] = "coder-runtime"
+    cfg["actors"]["reviewer"]["runtime"] = "reviewer-runtime"
 
     ws = make_workspace(workspace_root=tmp_path, config=cfg)
 
-    assert ws._coder_runtime_name_for_model("gpt-5.3-codex-spark/high") == "coder-runtime"
-    assert ws._coder_runtime_kind_for_model("gpt-5.3-codex-spark/high") == "codex-app-server"
+    actor = ws._implementation_actor_for_status(
+        {
+            "activeLane": {"number": 224, "labels": []},
+            "implementation": {"laneState": {}},
+            "ledger": {"workflowState": "implementing_local"},
+            "reviews": {},
+        }
+    )
+    assert actor["name"] == "implementer"
+    assert actor["runtime_name"] == "coder-runtime"
+    assert actor["runtime_kind"] == "codex-app-server"
     assert hasattr(ws.runtime("coder-runtime"), "run_prompt_result")
+
+
+def test_workspace_escalated_implementation_actor_uses_its_runtime(tmp_path):
+    from workflows.change_delivery.workspace import make_workspace
+
+    cfg = _workflow_contract_config(tmp_path)
+    cfg["runtimes"] = {
+        "default-runtime": {"kind": "claude-cli"},
+        "high-runtime": {"kind": "hermes-agent", "command": ["hermes", "-z", "{prompt_path}"]},
+        "reviewer-runtime": {"kind": "claude-cli"},
+    }
+    cfg["actors"]["implementer"]["runtime"] = "default-runtime"
+    cfg["actors"]["implementer-high-effort"]["runtime"] = "high-runtime"
+    cfg["actors"]["reviewer"]["runtime"] = "reviewer-runtime"
+
+    ws = make_workspace(workspace_root=tmp_path, config=cfg)
+
+    actor = ws._implementation_actor_for_status(
+        {
+            "activeLane": {"number": 224, "labels": [{"name": "effort:large"}]},
+            "implementation": {"laneState": {}},
+            "ledger": {"workflowState": "implementing_local"},
+            "reviews": {},
+        }
+    )
+
+    assert actor["name"] == "implementer-high-effort"
+    assert actor["runtime_name"] == "high-runtime"
+    assert actor["runtime_kind"] == "hermes-agent"
+
+
+def test_workspace_internal_review_uses_configured_runtime(tmp_path):
+    from workflows.change_delivery.workspace import make_workspace
+
+    cfg = _workflow_contract_config(tmp_path)
+    cfg["workflow-policy"] = "Shared policy from WORKFLOW.md."
+    cfg["runtimes"] = {
+        "coder-runtime": {
+            "kind": "acpx-codex",
+            "session-idle-freshness-seconds": 900,
+            "session-idle-grace-seconds": 1800,
+            "session-nudge-cooldown-seconds": 600,
+        },
+        "reviewer-runtime": {
+            "kind": "hermes-agent",
+            "command": ["reviewer-bin", "--model", "{model}", "--prompt", "{prompt_path}", "--head", "{head_sha}"],
+        },
+    }
+    cfg["actors"]["implementer"]["runtime"] = "coder-runtime"
+    cfg["actors"]["implementer-high-effort"]["runtime"] = "coder-runtime"
+    cfg["actors"]["reviewer"]["runtime"] = "reviewer-runtime"
+    cfg["actors"]["reviewer"]["model"] = "review-model"
+    worktree = tmp_path / "repo"
+    worktree.mkdir()
+    ws = make_workspace(workspace_root=tmp_path, config=cfg)
+    captured = {}
+
+    class FakeRuntime:
+        def run_command(self, *, worktree, command_argv, env=None):
+            captured["worktree"] = worktree
+            captured["argv"] = command_argv
+            return json.dumps({
+                "verdict": "PASS_CLEAN",
+                "summary": "ready",
+                "blockingFindings": [],
+                "majorConcerns": [],
+                "minorSuggestions": [],
+                "requiredNextAction": None,
+            })
+
+    original_runtime = ws.runtime
+    ws.runtime = lambda name: FakeRuntime() if name == "reviewer-runtime" else original_runtime(name)
+    result = ws._run_inter_review_agent_review(
+        issue={"number": 224, "title": "Test", "url": "https://example.invalid/224"},
+        worktree=worktree,
+        lane_memo_path=None,
+        lane_state_path=None,
+        head_sha="abc123",
+    )
+
+    assert result["verdict"] == "PASS_CLEAN"
+    assert captured["argv"][0] == "reviewer-bin"
+    assert "claude" not in captured["argv"]
+    assert "review-model" in captured["argv"]
+    prompt_path = Path(captured["argv"][4])
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+    assert "Shared policy from WORKFLOW.md." in prompt_text
+    assert "Target local head SHA: abc123" in prompt_text
 
 
 def test_workspace_records_change_delivery_codex_threads_and_totals(tmp_path):
     from workflows.change_delivery.workspace import make_workspace
 
-    cfg = _workflow_yaml_config(tmp_path)
+    cfg = _workflow_contract_config(tmp_path)
     cfg["storage"]["scheduler"] = "memory/workflow-scheduler.json"
     ws = make_workspace(workspace_root=tmp_path, config=cfg)
 
@@ -578,7 +720,7 @@ def test_workspace_records_change_delivery_codex_threads_and_totals(tmp_path):
 def test_workspace_records_progress_and_interrupts_active_codex_turn(tmp_path):
     from workflows.change_delivery.workspace import make_workspace
 
-    cfg = _workflow_yaml_config(tmp_path)
+    cfg = _workflow_contract_config(tmp_path)
     cfg["storage"]["scheduler"] = "memory/workflow-scheduler.json"
     ws = make_workspace(workspace_root=tmp_path, config=cfg)
 
@@ -621,7 +763,7 @@ def test_workspace_records_progress_and_interrupts_active_codex_turn(tmp_path):
 def test_workspace_ensure_coder_session_resumes_persisted_codex_thread(tmp_path):
     from workflows.change_delivery.workspace import make_workspace
 
-    cfg = _workflow_yaml_config(tmp_path)
+    cfg = _workflow_contract_config(tmp_path)
     cfg["runtimes"] = {
         "coder-runtime": {"kind": "codex-app-server", "command": "codex app-server"},
         "reviewer-runtime": {
@@ -630,8 +772,9 @@ def test_workspace_ensure_coder_session_resumes_persisted_codex_thread(tmp_path)
             "timeout-seconds": 1200,
         },
     }
-    cfg["agents"]["coder"]["default"]["runtime"] = "coder-runtime"
-    cfg["agents"]["internal-reviewer"]["runtime"] = "reviewer-runtime"
+    cfg["actors"]["implementer"]["runtime"] = "coder-runtime"
+    cfg["actors"]["implementer-high-effort"]["runtime"] = "coder-runtime"
+    cfg["actors"]["reviewer"]["runtime"] = "reviewer-runtime"
     ws = make_workspace(workspace_root=tmp_path, config=cfg)
     ws._record_coder_runtime_result(
         issue={"number": 224},
@@ -667,22 +810,36 @@ def test_workspace_ensure_coder_session_resumes_persisted_codex_thread(tmp_path)
     assert handle.session_id == "thread-224"
 
 
-def test_workspace_raises_on_agent_referencing_unknown_runtime(tmp_path):
-    """YAML shape: agents pointing at runtimes that aren't declared raise ValueError."""
+def test_workspace_raises_on_actor_referencing_unknown_runtime(tmp_path):
+    """YAML shape: actors pointing at runtimes that aren't declared raise ValueError."""
     from workflows.change_delivery.workspace import make_workspace
 
     cfg = {
         "workflow": "change-delivery",
         "schema-version": 1,
         "instance": {"name": "test", "engine-owner": "hermes"},
-        "repository": {"local-path": str(tmp_path), "github-slug": "o/r", "active-lane-label": "active-lane"},
+        "repository": {"local-path": str(tmp_path), "slug": "o/r", "active-lane-label": "active-lane"},
+        "tracker": {"kind": "github", "github_slug": "o/r", "active_states": ["open"], "terminal_states": ["closed"]},
+        "code-host": {"kind": "github", "github_slug": "o/r"},
         "runtimes": {"acpx-codex": {"kind": "acpx-codex", "session-idle-freshness-seconds": 900, "session-idle-grace-seconds": 1800, "session-nudge-cooldown-seconds": 600}},
-        "agents": {
-            "coder": {"default": {"name": "C", "model": "m", "runtime": "nonexistent-runtime"}},
-            "internal-reviewer": {"name": "R", "model": "m", "runtime": "acpx-codex"},
-            "external-reviewer": {"enabled": False, "name": "E"},
+        "actors": {
+            "implementer": {"name": "C", "model": "m", "runtime": "nonexistent-runtime"},
+            "implementer-high-effort": {"name": "C-high", "model": "m-high", "runtime": "acpx-codex"},
+            "reviewer": {"name": "R", "model": "m", "runtime": "acpx-codex"},
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
+        },
         "triggers": {"lane-selector": {"type": "github-label", "label": "l"}},
         "storage": {"ledger": "l", "health": "h", "audit-log": "a"},
     }
@@ -690,3 +847,27 @@ def test_workspace_raises_on_agent_referencing_unknown_runtime(tmp_path):
     with pytest.raises(ValueError) as exc:
         make_workspace(workspace_root=tmp_path, config=cfg)
     assert "nonexistent-runtime" in str(exc.value)
+
+
+def test_workspace_rejects_old_agents_contract_shape(tmp_path):
+    """The public change-delivery contract is actors/stages/gates only."""
+    from workflows.change_delivery.workspace import make_workspace
+
+    cfg = {
+        "workflow": "change-delivery",
+        "schema-version": 1,
+        "instance": {"name": "test", "engine-owner": "hermes"},
+        "repository": {"local-path": str(tmp_path), "slug": "o/r", "active-lane-label": "active-lane"},
+        "tracker": {"kind": "github", "github_slug": "o/r", "active_states": ["open"], "terminal_states": ["closed"]},
+        "code-host": {"kind": "github", "github_slug": "o/r"},
+        "runtimes": {"acpx-codex": {"kind": "acpx-codex"}},
+        "agents": {
+            "coder": {"default": {"name": "C", "model": "m", "runtime": "acpx-codex"}},
+            "internal-reviewer": {"name": "R", "model": "m", "runtime": "acpx-codex"},
+        },
+        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+    }
+    import pytest
+
+    with pytest.raises(ValueError, match="require top-level actors"):
+        make_workspace(workspace_root=tmp_path, config=cfg)

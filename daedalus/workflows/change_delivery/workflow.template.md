@@ -9,15 +9,19 @@ instance:
 repository:
   local-path: /home/you/src/acme-repo
   slug: your-org/your-repo
-  github-slug: your-org/your-repo
   active-lane-label: active-lane
 
 tracker:
   kind: github
+  github_slug: your-org/your-repo
   active_states:
     - open
   terminal_states:
     - closed
+
+code-host:
+  kind: github
+  github_slug: your-org/your-repo
 
 runtimes:
   coder-runtime:
@@ -31,37 +35,55 @@ runtimes:
     max-turns-per-invocation: 24
     timeout-seconds: 1200
 
-agents:
-  coder:
-    default:
-      name: Internal_Coder_Agent
-      model: gpt-5.3-codex-spark/high
-      runtime: coder-runtime
-    high-effort:
-      name: Escalation_Coder_Agent
-      model: gpt-5.4
-      runtime: coder-runtime
+actors:
+  implementer:
+    name: Change_Implementer
+    model: gpt-5.3-codex-spark/high
+    runtime: coder-runtime
 
-  internal-reviewer:
-    name: Internal_Reviewer_Agent
+  implementer-high-effort:
+    name: Change_Implementer_High_Effort
+    model: gpt-5.4
+    runtime: coder-runtime
+
+  reviewer:
+    name: Change_Reviewer
     model: claude-sonnet-4-6
     runtime: reviewer-runtime
-    freeze-coder-while-running: true
 
-  external-reviewer:
-    enabled: false
-    name: External_Reviewer_Agent
-    kind: disabled
+stages:
+  implement:
+    actor: implementer
+    escalation:
+      after-attempts: 2
+      actor: implementer-high-effort
+
+  publish:
+    action: pr.publish
+
+  merge:
+    action: pr.merge
 
 gates:
-  internal-review:
+  pre-publish-review:
+    type: agent-review
+    actor: reviewer
+    new-context: true
     pass-with-findings-tolerance: 1
     require-pass-clean-before-publish: true
     request-cooldown-seconds: 1200
-  external-review:
+
+  maintainer-approval:
+    type: pr-comment-approval
+    enabled: false
     required-for-merge: true
-  merge:
-    require-ci-acceptable: true
+    users: []
+    approvals:
+      - "+1"
+
+  ci-green:
+    type: code-host-checks
+    required-for-merge: true
 
 triggers:
   lane-selector:
@@ -84,8 +106,18 @@ lane-selection:
     - blocked
   tiebreak: oldest
 
-observability:
-  github-comments:
+tracker-feedback:
+  enabled: true
+  comment-mode: append
+  include:
+    - dispatch-implementation-turn
+    - internal-review-completed
+    - publish-ready-pr
+    - push-pr-update
+    - merge-and-promote
+    - operator-attention-transition
+    - operator-attention-recovered
+  state-updates:
     enabled: false
 ---
 
@@ -101,8 +133,9 @@ Shared rules:
 - Stop and surface blockers instead of guessing.
 - Do not publish generated artifacts or unrelated files.
 
-Role intent:
+Actor and gate intent:
 
-- `coder`: implement the next correct change and leave a clean handoff.
-- `internal-reviewer`: review correctness, regressions, and test honesty before publish.
-- `external-reviewer`: provide an optional second-pass review when enabled.
+- `implementer`: make the next scoped code change and leave a clean handoff.
+- `reviewer`: review correctness, regressions, and test honesty in a fresh context.
+- `pre-publish-review`: blocks publish until the configured review policy passes.
+- `maintainer-approval`: optionally waits for registered PR commenters to approve.

@@ -14,14 +14,18 @@ def load_tools():
     return module
 
 
+def _write_workflow_contract(workflow_root: Path) -> None:
+    workflow_root.mkdir(parents=True, exist_ok=True)
+    (workflow_root / "WORKFLOW.md").write_text(
+        "---\nworkflow: change-delivery\nschema-version: 1\n---\n\nPrompt body\n",
+        encoding="utf-8",
+    )
+
+
 def test_execute_workflow_command_lists_workflows_with_no_args(tmp_path, monkeypatch):
     tools = load_tools()
     workflow_root = tmp_path
-    (workflow_root / "config").mkdir()
-    (workflow_root / "config" / "workflow.yaml").write_text(
-        "workflow:\n  name: change-delivery\n  schema-version: 1\n",
-        encoding="utf-8",
-    )
+    _write_workflow_contract(workflow_root)
     monkeypatch.setenv("DAEDALUS_WORKFLOW_ROOT", str(workflow_root))
 
     result = tools.execute_workflow_command("")
@@ -33,11 +37,7 @@ def test_execute_workflow_command_lists_workflows_with_no_args(tmp_path, monkeyp
 def test_execute_workflow_command_routes_to_workflow_cli(tmp_path, monkeypatch):
     tools = load_tools()
     workflow_root = tmp_path
-    (workflow_root / "config").mkdir()
-    (workflow_root / "config" / "workflow.yaml").write_text(
-        "workflow:\n  name: change-delivery\n  schema-version: 1\n",
-        encoding="utf-8",
-    )
+    _write_workflow_contract(workflow_root)
     monkeypatch.setenv("DAEDALUS_WORKFLOW_ROOT", str(workflow_root))
 
     captured = {}
@@ -61,11 +61,7 @@ def test_execute_workflow_command_routes_to_workflow_cli(tmp_path, monkeypatch):
 def test_execute_workflow_command_rejects_unknown_workflow_name(tmp_path, monkeypatch):
     tools = load_tools()
     workflow_root = tmp_path
-    (workflow_root / "config").mkdir()
-    (workflow_root / "config" / "workflow.yaml").write_text(
-        "workflow:\n  name: change-delivery\n  schema-version: 1\n",
-        encoding="utf-8",
-    )
+    _write_workflow_contract(workflow_root)
     monkeypatch.setenv("DAEDALUS_WORKFLOW_ROOT", str(workflow_root))
 
     result = tools.execute_workflow_command("nonexistent-workflow status")

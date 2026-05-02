@@ -102,11 +102,11 @@ Edit the generated contract in your target repo:
 
 Common knobs live in the YAML front matter:
 
-- `tracker` / `repository`: issue source, repo checkout, labels, states
+- `repository` / `tracker` / `code-host`: checkout path, issue source, PR host
 - `runtimes`: runtime profiles such as Codex app-server, CLI agents, or custom commands
-- `agents`: model/runtime bindings for workflow roles
-- `hooks` / `gates`: workflow-specific lifecycle policy
-- `observability` / `server`: comments, webhooks, HTTP status
+- `agent` or `actors`: model/runtime bindings for workflow executors
+- `stages` / `hooks` / `gates`: workflow-specific lifecycle policy
+- `tracker-feedback` / `webhooks` / `server`: tracker updates, outbound notifications, HTTP status
 
 The Markdown body is the workflow policy prompt. The workflow package decides
 how to use it. See the full [WORKFLOW.md guide](docs/workflows/workflow-contract.md).
@@ -120,6 +120,7 @@ how to use it. See the full [WORKFLOW.md guide](docs/workflows/workflow-contract
 | Workflow root | Durable instance data under `~/.hermes/workflows/<owner>-<repo>-<workflow-type>`. |
 | Workflow package | The installed Python implementation that decides the lifecycle for a selected issue. |
 | Tracker | The system Daedalus reads issues from and writes status back to. |
+| Code host | The system Daedalus uses for branches, pull requests, review threads, checks, and merge operations. |
 | Issue | The unit of work selected from a tracker. Workflows should model issues, not one tracker vendor. |
 | Runtime | The adapter that runs an agent or command against a workspace. |
 | Workspace | The isolated checkout/path where the agent does work for an issue. |
@@ -203,13 +204,16 @@ flowchart LR
 
 Stable public boundaries are tracked in [docs/public-contract.md](docs/public-contract.md).
 Readiness and generic-surface guardrails are tracked in
-[docs/harness-engineering.md](docs/harness-engineering.md).
+[docs/harness-engineering.md](docs/harness-engineering.md). For the product
+boundary between Daedalus, Hermes Agent, and Hermes Kanban, see
+[docs/positioning.md](docs/positioning.md).
 
 ## Documentation
 
 | Doc | Purpose |
 |---|---|
 | [Installation](docs/operator/installation.md) | Full install, bootstrap, service, and troubleshooting path. |
+| [Positioning](docs/positioning.md) | Daedalus vs. Hermes Agent vs. Hermes Kanban, and why Kanban is an optional tracker rather than the engine. |
 | [WORKFLOW.md guide](docs/workflows/workflow-contract.md) | Workflow contract structure and examples. |
 | [Bundled workflows](docs/workflows/README.md) | Workflow comparison and templates. |
 | [Architecture](docs/architecture.md) | Engine/workflow boundary and durable runtime model. |

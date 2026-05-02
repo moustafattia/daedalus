@@ -1,6 +1,8 @@
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
@@ -15,10 +17,92 @@ def load_module(module_name: str, relative_path: str):
     return module
 
 
-def test_should_dispatch_claude_repair_handoff_when_local_review_is_actionable_and_routable():
+def _review_json(**overrides):
+    payload = {
+        "verdict": "PASS_CLEAN",
+        "summary": "looks ready",
+        "blockingFindings": [],
+        "majorConcerns": [],
+        "minorSuggestions": [],
+        "requiredNextAction": None,
+    }
+    payload.update(overrides)
+    return json.dumps(payload)
+
+
+def test_run_inter_review_agent_review_via_runtime_uses_command_runtime(tmp_path):
+    reviews_module = load_module("daedalus_workflows_change_delivery_reviews_runtime_command", "workflows/change_delivery/reviews.py")
+    calls = {}
+
+    class FakeRuntime:
+        def run_command(self, *, worktree, command_argv, env=None):
+            calls["worktree"] = worktree
+            calls["argv"] = command_argv
+            return _review_json(verdict="PASS_WITH_FINDINGS", minorSuggestions=["tighten docs"])
+
+    result = reviews_module.run_inter_review_agent_review_via_runtime(
+        issue={"number": 224, "title": "Test"},
+        worktree=tmp_path,
+        lane_memo_path=tmp_path / ".lane-memo.md",
+        lane_state_path=tmp_path / ".lane-state.json",
+        head_sha="abc123",
+        runtime=FakeRuntime(),
+        runtime_cfg={
+            "kind": "hermes-agent",
+            "command": ["hermes", "run", "--model", "{model}", "--prompt", "{prompt_path}", "--issue", "{issue_number}"],
+        },
+        agent_cfg={"name": "Reviewer", "model": "review-model", "runtime": "reviewer-runtime"},
+        session_name="internal-review-224",
+        render_prompt_fn=lambda **kwargs: f"review head {kwargs['head_sha']}",
+    )
+
+    assert result["verdict"] == "PASS_WITH_FINDINGS"
+    assert calls["argv"][:4] == ["hermes", "run", "--model", "review-model"]
+    assert calls["argv"][-1] == "224"
+    prompt_path = Path(calls["argv"][5])
+    assert prompt_path.exists()
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+    assert "review head abc123" in prompt_text
+    assert "Output contract for all runtimes" in prompt_text
+
+
+def test_run_inter_review_agent_review_via_runtime_uses_prompt_runtime(tmp_path):
+    reviews_module = load_module("daedalus_workflows_change_delivery_reviews_runtime_prompt", "workflows/change_delivery/reviews.py")
+    calls = {}
+
+    class FakeRuntime:
+        def ensure_session(self, **kwargs):
+            calls["ensure"] = kwargs
+
+        def run_prompt_result(self, **kwargs):
+            calls["prompt"] = kwargs
+            return SimpleNamespace(output=_review_json(summary="codex reviewed"))
+
+    result = reviews_module.run_inter_review_agent_review_via_runtime(
+        issue={"number": 225, "title": "Test"},
+        worktree=tmp_path,
+        lane_memo_path=None,
+        lane_state_path=None,
+        head_sha="def456",
+        runtime=FakeRuntime(),
+        runtime_cfg={"kind": "codex-app-server", "command": "codex app-server"},
+        agent_cfg={"name": "Reviewer", "model": "gpt-review", "runtime": "codex-runtime"},
+        session_name="internal-review-225",
+        render_prompt_fn=lambda **kwargs: f"review {kwargs['issue']['number']}",
+    )
+
+    assert result["summary"] == "codex reviewed"
+    assert calls["ensure"]["session_name"] == "internal-review-225"
+    assert calls["ensure"]["model"] == "gpt-review"
+    assert calls["prompt"]["session_name"] == "internal-review-225"
+    assert calls["prompt"]["model"] == "gpt-review"
+    assert "Output contract for all runtimes" in calls["prompt"]["prompt"]
+
+
+def test_should_dispatch_internal_review_repair_handoff_when_local_review_is_actionable_and_routable():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
-    result = reviews_module.should_dispatch_claude_repair_handoff(
+    result = reviews_module.should_dispatch_internal_review_repair_handoff(
         lane_state={},
         session_action={"action": "continue-session", "sessionName": "lane-224"},
         internal_review={
@@ -29,7 +113,7 @@ def test_should_dispatch_claude_repair_handoff_when_local_review_is_actionable_a
             "updatedAt": "2026-04-22T01:00:00Z",
         },
         repair_brief={"forHeadSha": "head123", "mustFix": [{"summary": "Fix this"}]},
-        workflow_state="claude_prepublish_findings",
+        workflow_state="pre_publish_review_findings",
         current_head_sha="head123",
         has_open_pr=False,
     )
@@ -37,10 +121,10 @@ def test_should_dispatch_claude_repair_handoff_when_local_review_is_actionable_a
     assert result == {"shouldDispatch": True, "reason": None}
 
 
-def test_should_dispatch_claude_repair_handoff_allows_restart_session():
+def test_should_dispatch_internal_review_repair_handoff_allows_restart_session():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
-    result = reviews_module.should_dispatch_claude_repair_handoff(
+    result = reviews_module.should_dispatch_internal_review_repair_handoff(
         lane_state={},
         session_action={"action": "restart-session", "sessionName": "lane-224"},
         internal_review={
@@ -51,7 +135,7 @@ def test_should_dispatch_claude_repair_handoff_allows_restart_session():
             "updatedAt": "2026-04-22T01:00:00Z",
         },
         repair_brief={"forHeadSha": "head123", "mustFix": [{"summary": "Fix this"}]},
-        workflow_state="claude_prepublish_findings",
+        workflow_state="pre_publish_review_findings",
         current_head_sha="head123",
         has_open_pr=False,
     )
@@ -59,11 +143,11 @@ def test_should_dispatch_claude_repair_handoff_allows_restart_session():
     assert result == {"shouldDispatch": True, "reason": None}
 
 
-def test_should_dispatch_claude_repair_handoff_rejects_duplicate_handoff_for_same_review():
+def test_should_dispatch_internal_review_repair_handoff_rejects_duplicate_handoff_for_same_review():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
-    result = reviews_module.should_dispatch_claude_repair_handoff(
-        lane_state={"sessionControl": {"lastClaudeRepairHandoff": {"sessionName": "lane-224", "headSha": "head123", "reviewedAt": "2026-04-22T01:00:00Z"}}},
+    result = reviews_module.should_dispatch_internal_review_repair_handoff(
+        lane_state={"sessionControl": {"lastInternalReviewRepairHandoff": {"sessionName": "lane-224", "headSha": "head123", "reviewedAt": "2026-04-22T01:00:00Z"}}},
         session_action={"action": "continue-session", "sessionName": "lane-224"},
         internal_review={
             "reviewScope": "local-prepublish",
@@ -73,7 +157,7 @@ def test_should_dispatch_claude_repair_handoff_rejects_duplicate_handoff_for_sam
             "updatedAt": "2026-04-22T01:00:00Z",
         },
         repair_brief={"forHeadSha": "head123", "mustFix": [{"summary": "Fix this"}]},
-        workflow_state="claude_prepublish_findings",
+        workflow_state="pre_publish_review_findings",
         current_head_sha="head123",
         has_open_pr=False,
     )
@@ -81,7 +165,7 @@ def test_should_dispatch_claude_repair_handoff_rejects_duplicate_handoff_for_sam
     assert result == {"shouldDispatch": False, "reason": "repair-handoff-already-sent-for-review"}
 
 
-def test_should_dispatch_codex_cloud_repair_handoff_when_postpublish_review_is_actionable_and_routable():
+def test_should_dispatch_external_review_repair_handoff_when_postpublish_review_is_actionable_and_routable():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
     result = reviews_module.should_dispatch_external_review_repair_handoff(
@@ -148,22 +232,22 @@ def test_local_inter_review_agent_review_count_increments_only_for_new_completed
     assert unchanged == 1
 
 
-def test_single_pass_local_claude_gate_satisfied_handles_pass_clean_and_pass_with_findings_threshold():
+def test_single_pass_local_internal_review_gate_satisfied_handles_pass_clean_and_pass_with_findings_threshold():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
-    pass_clean = reviews_module.single_pass_local_claude_gate_satisfied(
+    pass_clean = reviews_module.single_pass_local_internal_review_gate_satisfied(
         {"reviewScope": "local-prepublish", "status": "completed", "reviewedHeadSha": "abc123", "verdict": "PASS_CLEAN"},
         "abc123",
         {"review": {}},
         pass_with_findings_reviews=1,
     )
-    pass_with_findings = reviews_module.single_pass_local_claude_gate_satisfied(
+    pass_with_findings = reviews_module.single_pass_local_internal_review_gate_satisfied(
         {"reviewScope": "local-prepublish", "status": "completed", "reviewedHeadSha": "old-head", "verdict": "PASS_WITH_FINDINGS"},
         "new-head",
         {"review": {"localClaudeReviewCount": 0, "lastClaudeReviewedHeadSha": "older-head", "lastClaudeVerdict": "PASS_WITH_FINDINGS"}},
         pass_with_findings_reviews=1,
     )
-    rework = reviews_module.single_pass_local_claude_gate_satisfied(
+    rework = reviews_module.single_pass_local_internal_review_gate_satisfied(
         {"reviewScope": "local-prepublish", "status": "completed", "reviewedHeadSha": "abc123", "verdict": "REWORK"},
         "abc123",
         {"review": {}},
@@ -175,17 +259,17 @@ def test_single_pass_local_claude_gate_satisfied_handles_pass_clean_and_pass_wit
     assert rework is False
 
 
-def test_single_pass_local_claude_gate_satisfied_handles_new_key_shape():
+def test_single_pass_local_internal_review_gate_satisfied_handles_new_key_shape():
     """Phase D-5: post-migration lane-state with the new key shape works."""
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
-    pass_clean = reviews_module.single_pass_local_claude_gate_satisfied(
+    pass_clean = reviews_module.single_pass_local_internal_review_gate_satisfied(
         {"reviewScope": "local-prepublish", "status": "completed", "reviewedHeadSha": "abc", "verdict": "PASS_CLEAN"},
         "abc",
         {"review": {"lastInternalReviewedHeadSha": "abc", "lastInternalVerdict": "PASS_CLEAN"}},
         pass_with_findings_reviews=1,
     )
-    pass_with_findings = reviews_module.single_pass_local_claude_gate_satisfied(
+    pass_with_findings = reviews_module.single_pass_local_internal_review_gate_satisfied(
         {"reviewScope": "local-prepublish", "status": "completed", "reviewedHeadSha": "old-head", "verdict": "PASS_WITH_FINDINGS"},
         "new-head",
         {"review": {"localInternalReviewCount": 0, "lastInternalReviewedHeadSha": "older-head", "lastInternalVerdict": "PASS_WITH_FINDINGS"}},
@@ -230,7 +314,7 @@ def test_inter_review_agent_preflight_allows_clean_local_prepublish_run_and_sugg
     result = reviews_module.inter_review_agent_preflight(
         active_lane={"number": 224},
         open_pr=None,
-        workflow_state="awaiting_claude_prepublish",
+        workflow_state="awaiting_pre_publish_review",
         pr_ledger={},
         inter_review_agent_review={"status": "pending", "runId": "run-1"},
         inter_review_agent_job={"nextRunAtMs": 400_000},
@@ -288,10 +372,10 @@ def test_inter_review_agent_preflight_blocks_running_current_head_and_nonready_s
     assert result["wakeSuggested"] is False
     assert "no-active-lane" in result["reasons"]
     assert "no-local-head-candidate" in result["reasons"]
-    assert "workflow-not-awaiting-local-claude" in result["reasons"]
-    assert "single-pass-claude-already-satisfied" in result["reasons"]
-    assert "claude-review-running-current-head" in result["reasons"]
-    assert "claude-review-request-recent" in result["reasons"]
+    assert "workflow-not-awaiting-local-review" in result["reasons"]
+    assert "single-pass-internal-review-already-satisfied" in result["reasons"]
+    assert "internal-review-running-current-head" in result["reasons"]
+    assert "internal-review-request-recent" in result["reasons"]
 
 
 def test_normalize_review_fills_defaults_and_preserves_known_fields():
@@ -395,7 +479,7 @@ def test_normalize_local_inter_review_agent_seed_handles_running_current_timed_o
     assert pending == {"model": "claude-sonnet-4-6"}
 
 
-def test_review_bucket_and_codex_cloud_placeholder_cover_pending_findings_clean_and_blocking_cases():
+def test_review_bucket_and_external_review_placeholder_cover_pending_findings_clean_and_blocking_cases():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
     assert reviews_module.review_bucket({"verdict": "REWORK"}) == "blocking"
@@ -406,14 +490,14 @@ def test_review_bucket_and_codex_cloud_placeholder_cover_pending_findings_clean_
     placeholder = reviews_module.external_review_placeholder(
         required=False,
         status="not_started",
-        summary="Codex Cloud review starts only after publish.",
+        summary="external review review starts only after publish.",
         normalize_review_fn=lambda review, **kwargs: {**review, **kwargs},
         agent_name="External_Reviewer_Agent",
         agent_role="external_reviewer_agent",
     )
 
     assert placeholder["status"] == "not_started"
-    assert placeholder["summary"] == "Codex Cloud review starts only after publish."
+    assert placeholder["summary"] == "external review review starts only after publish."
     assert placeholder["reviewScope"] == "postpublish-pr"
     assert placeholder["required"] is False
     assert placeholder["agent_name"] == "External_Reviewer_Agent"
@@ -472,7 +556,7 @@ def test_inter_review_agent_review_builders_shape_running_failed_and_completed_r
 def test_repair_handoff_payload_builders_shape_claude_and_codex_payloads():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
-    claude_payload = reviews_module.build_claude_repair_handoff_payload(
+    claude_payload = reviews_module.build_internal_review_repair_handoff_payload(
         session_action={"sessionName": "lane-224"},
         issue={"number": 224, "title": "Issue 224"},
         internal_review={"reviewedHeadSha": "abc123", "updatedAt": "2026-04-23T00:10:00Z", "reviewScope": "local-prepublish", "verdict": "REWORK"},
@@ -491,11 +575,11 @@ def test_repair_handoff_payload_builders_shape_claude_and_codex_payloads():
         now_iso="2026-04-23T00:21:00Z",
     )
 
-    assert claude_payload["action"] == "claude-repair-handoff"
+    assert claude_payload["action"] == "internal-review-repair-handoff"
     assert claude_payload["mustFixCount"] == 1
     assert claude_payload["shouldFixCount"] == 2
     assert claude_payload["headSha"] == "abc123"
-    assert codex_payload["action"] == "codex-cloud-repair-handoff"
+    assert codex_payload["action"] == "external-review-repair-handoff"
     assert codex_payload["mustFixCount"] == 0
     assert codex_payload["shouldFixCount"] == 1
     assert codex_payload["headSha"] == "def456"
@@ -514,7 +598,7 @@ def test_record_repair_handoff_helpers_store_payload_under_session_control(tmp_p
     def fake_write(path, payload):
         seen.setdefault("written", []).append((path, payload))
 
-    claude_state = reviews_module.record_claude_repair_handoff(
+    claude_state = reviews_module.record_internal_review_repair_handoff(
         worktree=tmp_path,
         payload={"sessionName": "lane-224", "headSha": "abc123"},
         lane_state_path_fn=lambda worktree: worktree / ".lane-state.json",
@@ -529,8 +613,8 @@ def test_record_repair_handoff_helpers_store_payload_under_session_control(tmp_p
         write_json_fn=fake_write,
     )
 
-    assert claude_state["sessionControl"]["lastClaudeRepairHandoff"]["headSha"] == "abc123"
-    assert codex_state["sessionControl"]["lastCodexCloudRepairHandoff"]["headSha"] == "def456"
+    assert claude_state["sessionControl"]["lastInternalReviewRepairHandoff"]["headSha"] == "abc123"
+    assert codex_state["sessionControl"]["lastExternalReviewRepairHandoff"]["headSha"] == "def456"
     assert seen["loaded"] == [lane_state_path, lane_state_path]
     assert seen["written"][0][0] == lane_state_path
     assert seen["written"][1][0] == lane_state_path
@@ -586,17 +670,17 @@ def test_classify_lane_failure_covers_clean_session_review_and_preflight_paths()
     preflight_blocked = reviews_module.classify_lane_failure(
         implementation={},
         reviews={},
-        preflight={"claudeReview": {"reasons": ["checks-not-acceptable"]}},
+        preflight={"prePublishReview": {"reasons": ["checks-not-acceptable"]}},
     )
 
     assert clean == {"failureClass": None, "detail": None}
     assert session_failure == {"failureClass": "session_stale", "detail": "stale-session"}
-    assert claude_failed == {"failureClass": "claude_review_failed", "detail": "transport_failed"}
-    assert findings_open == {"failureClass": "codex_cloud_findings_open", "detail": "PASS_WITH_FINDINGS"}
-    assert preflight_blocked == {"failureClass": "claude_preflight_blocked", "detail": "checks-not-acceptable"}
+    assert claude_failed == {"failureClass": "internal_review_failed", "detail": "transport_failed"}
+    assert findings_open == {"failureClass": "external_review_findings_open", "detail": "PASS_WITH_FINDINGS"}
+    assert preflight_blocked == {"failureClass": "internal_review_preflight_blocked", "detail": "checks-not-acceptable"}
 
 
-def test_codex_cloud_review_shaping_helpers_cover_thread_mapping_findings_pending_and_clean():
+def test_external_review_review_shaping_helpers_cover_thread_mapping_findings_pending_and_clean():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
     superseded_thread = reviews_module.build_external_review_thread(
@@ -688,30 +772,28 @@ def test_codex_review_mutation_helpers_cover_pr_ready_thread_resolution_and_supe
 
     calls = []
 
-    def fake_run(command, cwd=None):
-        calls.append(("run", command, cwd))
-        return {"ok": True}
+    class FakeCodeHost:
+        def mark_pull_request_ready(self, pr_number):
+            calls.append(("ready", pr_number))
+            return True
 
-    def fake_run_json(command, cwd=None):
-        calls.append(("run_json", command, cwd))
-        return {"data": {"resolveReviewThread": {"thread": {"isResolved": True}}}}
+        def resolve_review_thread(self, thread_id):
+            calls.append(("resolve", thread_id))
+            return True
+
+    code_host = FakeCodeHost()
 
     ready = reviews_module.mark_pr_ready_for_review(
         297,
-        run_fn=fake_run,
-        cwd="/tmp/repo",
-        repo_slug="owner/repo",
+        code_host_client=code_host,
     )
     unresolved_none = reviews_module.mark_pr_ready_for_review(
         None,
-        run_fn=fake_run,
-        cwd="/tmp/repo",
-        repo_slug="owner/repo",
+        code_host_client=code_host,
     )
     resolved = reviews_module.resolve_review_thread(
         "thread-123",
-        run_json_fn=fake_run_json,
-        cwd="/tmp/repo",
+        code_host_client=code_host,
     )
     superseded = reviews_module.resolve_codex_superseded_threads(
         {
@@ -731,52 +813,27 @@ def test_codex_review_mutation_helpers_cover_pr_ready_thread_resolution_and_supe
     assert unresolved_none is False
     assert resolved is True
     assert superseded == ["thread-123"]
-    assert calls[0] == (
-        "run",
-        ["gh", "pr", "ready", "297", "--repo", "owner/repo"],
-        "/tmp/repo",
-    )
-    assert calls[1] == (
-        "run_json",
-        [
-            "gh",
-            "api",
-            "graphql",
-            "-f",
-            "query=mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } } }",
-            "-f",
-            "threadId=thread-123",
-        ],
-        "/tmp/repo",
-    )
+    assert calls == [("ready", 297), ("resolve", "thread-123")]
 
 
 def test_fetch_codex_pr_body_signal_picks_latest_codex_reaction_and_maps_clean_vs_pending():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
-    def fake_run_json(command, cwd=None):
-        assert command == [
-            "gh",
-            "api",
-            "repos/owner/repo/issues/297/reactions",
-            "-H",
-            "Accept: application/vnd.github+json",
-        ]
-        assert cwd == "/tmp/repo"
-        return [
-            {"user": {"login": "random-user"}, "content": "+1", "created_at": "2026-04-23T00:00:00Z"},
-            {"user": {"login": "codex-bot"}, "content": "eyes", "created_at": "2026-04-23T00:01:00Z"},
-            {"user": {"login": "codex-bot"}, "content": "+1", "created_at": "2026-04-23T00:02:00Z"},
-        ]
+    class FakeCodeHost:
+        def fetch_issue_reactions(self, issue_number):
+            assert issue_number == 297
+            return [
+                {"user": {"login": "random-user"}, "content": "+1", "created_at": "2026-04-23T00:00:00Z"},
+                {"user": {"login": "codex-bot"}, "content": "eyes", "created_at": "2026-04-23T00:01:00Z"},
+                {"user": {"login": "codex-bot"}, "content": "+1", "created_at": "2026-04-23T00:02:00Z"},
+            ]
 
     result = reviews_module.fetch_external_review_pr_body_signal(
         297,
-        run_json_fn=fake_run_json,
-        cwd="/tmp/repo",
+        code_host_client=FakeCodeHost(),
         codex_bot_logins={"codex-bot"},
         clean_reactions={"+1"},
         pending_reactions={"eyes"},
-        repo_slug="owner/repo",
     )
 
     assert result == {
@@ -788,7 +845,7 @@ def test_fetch_codex_pr_body_signal_picks_latest_codex_reaction_and_maps_clean_v
     }
 
 
-def test_fetch_codex_cloud_review_uses_cache_and_builds_from_graphql_threads():
+def test_fetch_external_review_review_uses_cache_and_builds_from_graphql_threads():
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_test", "workflows/change_delivery/reviews.py")
 
     cached = reviews_module.fetch_external_review(
@@ -796,9 +853,7 @@ def test_fetch_codex_cloud_review_uses_cache_and_builds_from_graphql_threads():
         current_head_sha="head-1",
         cached_review={"reviewedHeadSha": "head-1", "updatedAt": "cached-ts", "summary": "cached summary"},
         fetch_pr_body_signal_fn=lambda _pr_number: (_ for _ in ()).throw(AssertionError("cache hit should skip signal fetch")),
-        run_json_fn=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cache hit should skip graphql fetch")),
-        cwd="/tmp/repo",
-        repo_slug="owner/repo",
+        code_host_client=object(),
         codex_bot_logins={"codex-bot"},
         cache_seconds=30,
         iso_to_epoch_fn=lambda value: 100 if value == "cached-ts" else None,
@@ -808,47 +863,39 @@ def test_fetch_codex_cloud_review_uses_cache_and_builds_from_graphql_threads():
         agent_name="External_Reviewer_Agent",
     )
 
-    def fake_run_json(command, cwd=None):
-        assert cwd == "/tmp/repo"
-        assert command[:4] == ["gh", "api", "graphql", "-f"]
-        return {
-            "data": {
-                "repository": {
-                    "pullRequest": {
-                        "headRefOid": "head-2",
-                        "reviewThreads": {
-                            "nodes": [
-                                {
-                                    "id": "thread-1",
-                                    "isResolved": False,
-                                    "isOutdated": False,
-                                    "path": "a.py",
-                                    "line": 10,
-                                    "comments": {"nodes": [{"author": {"login": "codex-bot"}, "body": "sev0 blocker", "url": "https://example.com/1", "createdAt": "t1"}]},
-                                },
-                                {
-                                    "id": "thread-2",
-                                    "isResolved": False,
-                                    "isOutdated": False,
-                                    "path": "b.py",
-                                    "line": 20,
-                                    "comments": {"nodes": [{"author": {"login": "codex-bot"}, "body": "minor note", "url": "https://example.com/2", "createdAt": "t2"}]},
-                                },
-                            ]
+    class FakeCodeHost:
+        def fetch_pull_request_review_threads(self, pr_number):
+            assert pr_number == 297
+            return {
+                "headRefOid": "head-2",
+                "reviewThreads": {
+                    "nodes": [
+                        {
+                            "id": "thread-1",
+                            "isResolved": False,
+                            "isOutdated": False,
+                            "path": "a.py",
+                            "line": 10,
+                            "comments": {"nodes": [{"author": {"login": "codex-bot"}, "body": "sev0 blocker", "url": "https://example.com/1", "createdAt": "t1"}]},
                         },
-                    }
-                }
+                        {
+                            "id": "thread-2",
+                            "isResolved": False,
+                            "isOutdated": False,
+                            "path": "b.py",
+                            "line": 20,
+                            "comments": {"nodes": [{"author": {"login": "codex-bot"}, "body": "minor note", "url": "https://example.com/2", "createdAt": "t2"}]},
+                        },
+                    ]
+                },
             }
-        }
 
     built = reviews_module.fetch_external_review(
         297,
         current_head_sha="head-other",
         cached_review=None,
         fetch_pr_body_signal_fn=lambda _pr_number: {"state": "clean", "createdAt": "signal", "content": "+1", "user": "codex-bot"},
-        run_json_fn=fake_run_json,
-        cwd="/tmp/repo",
-        repo_slug="owner/repo",
+        code_host_client=FakeCodeHost(),
         codex_bot_logins={"codex-bot"},
         cache_seconds=30,
         iso_to_epoch_fn=lambda value: {"signal": 50, "t1": 60, "t2": 40}.get(value),
@@ -885,19 +932,18 @@ def test_codex_parsing_and_checks_helpers_cover_severity_summary_and_acceptabili
 
 
 def _repair_handoff_deps(captured: dict):
-    def fake_run_acpx_prompt(*, worktree, session_name, prompt, codex_model):
-        captured["run_acpx"] = {
+    def fake_run_actor_turn(*, worktree, session_name, prompt):
+        captured["run_actor"] = {
             "worktree": str(worktree),
             "session_name": session_name,
             "prompt_len": len(prompt),
-            "codex_model": codex_model,
         }
         return "ok"
 
     def fake_audit(action, summary, **extra):
         captured.setdefault("audit", []).append({"action": action, "summary": summary, **extra})
 
-    return fake_run_acpx_prompt, fake_audit
+    return fake_run_actor_turn, fake_audit
 
 
 def test_maybe_dispatch_repair_handoff_dispatches_claude_branch_when_routable(tmp_path):
@@ -905,7 +951,7 @@ def test_maybe_dispatch_repair_handoff_dispatches_claude_branch_when_routable(tm
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     captured: dict = {}
-    run_acpx, audit = _repair_handoff_deps(captured)
+    run_actor, audit = _repair_handoff_deps(captured)
 
     status = {
         "activeLane": {"number": 224, "title": "T"},
@@ -927,39 +973,38 @@ def test_maybe_dispatch_repair_handoff_dispatches_claude_branch_when_routable(tm
             },
         },
         "openPr": None,
-        "ledger": {"workflowState": "claude_prepublish_findings"},
+        "ledger": {"workflowState": "pre_publish_review_findings"},
     }
     ledger = {
         "repairBrief": {"forHeadSha": "head123", "mustFix": [{"summary": "Fix"}], "shouldFix": []},
-        "workflowState": "claude_prepublish_findings",
+        "workflowState": "pre_publish_review_findings",
     }
 
     result, changed = reviews_module.maybe_dispatch_repair_handoff(
         status=status,
         ledger=ledger,
         now_iso="2026-04-22T00:05:00Z",
-        codex_model="gpt-5.3-codex",
-        run_prompt_fn=run_acpx,
+        run_actor_turn_fn=run_actor,
         audit_fn=audit,
     )
 
     assert changed is True
     assert result["dispatched"] is True
-    assert result["mode"] == "claude_repair_handoff"
+    assert result["mode"] == "internal_review_repair_handoff"
     assert result["issueNumber"] == 224
     assert ledger["internalReviewRepairHandoff"]["sessionName"] == "lane-224"
-    assert captured["run_acpx"]["session_name"] == "lane-224"
-    assert captured["audit"][0]["action"] == "claude-repair-handoff-dispatched"
+    assert captured["run_actor"]["session_name"] == "lane-224"
+    assert captured["audit"][0]["action"] == "internal-review-repair-handoff-dispatched"
     # Record helper actually wrote .lane-state.json
     assert (worktree / ".lane-state.json").exists()
 
 
-def test_maybe_dispatch_repair_handoff_dispatches_codex_cloud_branch_when_routable(tmp_path):
+def test_maybe_dispatch_repair_handoff_dispatches_external_review_branch_when_routable(tmp_path):
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_mdrh", "workflows/change_delivery/reviews.py")
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     captured: dict = {}
-    run_acpx, audit = _repair_handoff_deps(captured)
+    run_actor, audit = _repair_handoff_deps(captured)
 
     status = {
         "activeLane": {"number": 224, "title": "T"},
@@ -992,17 +1037,16 @@ def test_maybe_dispatch_repair_handoff_dispatches_codex_cloud_branch_when_routab
         status=status,
         ledger=ledger,
         now_iso="2026-04-22T00:05:00Z",
-        codex_model="gpt-5.3-codex",
-        run_prompt_fn=run_acpx,
+        run_actor_turn_fn=run_actor,
         audit_fn=audit,
     )
 
     assert changed is True
     assert result["dispatched"] is True
-    assert result["mode"] == "codex_cloud_repair_handoff"
+    assert result["mode"] == "external_review_repair_handoff"
     assert result["issueNumber"] == 224
     assert ledger["externalReviewRepairHandoff"]["sessionName"] == "lane-224"
-    assert captured["audit"][0]["action"] == "codex-cloud-repair-handoff-dispatched"
+    assert captured["audit"][0]["action"] == "external-review-repair-handoff-dispatched"
 
 
 def test_maybe_dispatch_repair_handoff_returns_noop_when_no_dispatch_branch_is_routable(tmp_path):
@@ -1010,7 +1054,7 @@ def test_maybe_dispatch_repair_handoff_returns_noop_when_no_dispatch_branch_is_r
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     captured: dict = {}
-    run_acpx, audit = _repair_handoff_deps(captured)
+    run_actor, audit = _repair_handoff_deps(captured)
 
     status = {
         "activeLane": {"number": 224, "title": "T"},
@@ -1032,27 +1076,25 @@ def test_maybe_dispatch_repair_handoff_returns_noop_when_no_dispatch_branch_is_r
         status=status,
         ledger=ledger,
         now_iso="2026-04-22T00:05:00Z",
-        codex_model="gpt-5.3-codex",
-        run_prompt_fn=run_acpx,
+        run_actor_turn_fn=run_actor,
         audit_fn=audit,
     )
 
     assert changed is False
     assert result["dispatched"] is False
     assert "repair-handoff-not-needed" in result["reason"]
-    assert "run_acpx" not in captured
+    assert "run_actor" not in captured
 
 
 def test_maybe_dispatch_repair_handoff_short_circuits_when_no_active_lane(tmp_path):
     reviews_module = load_module("daedalus_workflows_change_delivery_reviews_mdrh", "workflows/change_delivery/reviews.py")
     captured: dict = {}
-    run_acpx, audit = _repair_handoff_deps(captured)
+    run_actor, audit = _repair_handoff_deps(captured)
     result, changed = reviews_module.maybe_dispatch_repair_handoff(
         status={"activeLane": None, "implementation": {}, "reviews": {}, "openPr": None, "ledger": {}},
         ledger={},
         now_iso="2026-04-22T00:00:00Z",
-        codex_model=None,
-        run_prompt_fn=run_acpx,
+        run_actor_turn_fn=run_actor,
         audit_fn=audit,
     )
     assert changed is False
@@ -1230,7 +1272,7 @@ def test_audit_inter_review_agent_transition_emits_requested_event_when_head_cha
         audit_fn=audit_fn,
         internal_reviewer_agent_name="Internal_Reviewer_Agent",
     )
-    assert any(e["action"] == "claude-review-requested" for e in events)
+    assert any(e["action"] == "internal-review-requested" for e in events)
 
 
 def test_audit_inter_review_agent_transition_emits_completed_event_on_success():
@@ -1250,7 +1292,7 @@ def test_audit_inter_review_agent_transition_emits_completed_event_on_success():
         audit_fn=audit_fn,
         internal_reviewer_agent_name="Internal_Reviewer_Agent",
     )
-    assert any(e["action"] == "claude-review-completed" and e["verdict"] == "PASS_CLEAN" for e in events)
+    assert any(e["action"] == "internal-review-completed" and e["verdict"] == "PASS_CLEAN" for e in events)
 
 
 def test_audit_inter_review_agent_transition_emits_failure_event_with_failure_class():
@@ -1270,7 +1312,7 @@ def test_audit_inter_review_agent_transition_emits_failure_event_with_failure_cl
         audit_fn=audit_fn,
         internal_reviewer_agent_name="Internal_Reviewer_Agent",
     )
-    assert any(e["action"] == "claude-review-failed" for e in events)
+    assert any(e["action"] == "internal-review-failed" for e in events)
 
 
 def test_build_reviews_block_routes_postpublish_defaults_when_pr_is_ready_for_review():
@@ -1282,7 +1324,7 @@ def test_build_reviews_block_routes_postpublish_defaults_when_pr_is_ready_for_re
             "claudeCode": {"reviewedHeadSha": "prsha", "verdict": "PASS_CLEAN"},
             "codexCloud": {"status": "running", "reviewScope": "postpublish-pr"},
         },
-        codex_cloud={"status": "running", "reviewScope": "postpublish-pr"},
+        external_review={"status": "running", "reviewScope": "postpublish-pr"},
         publish_ready=True,
         local_head_sha="prsha",
         local_candidate_exists=False,
@@ -1304,7 +1346,7 @@ def test_build_reviews_block_respects_disabled_external_review_after_publish():
 
     reviews = reviews_module.build_reviews_block(
         existing_reviews={},
-        codex_cloud={
+        external_review={
             "required": False,
             "status": "skipped",
             "summary": "External review disabled.",
@@ -1338,7 +1380,7 @@ def test_build_reviews_block_seeds_local_prepublish_for_draft_pr_state():
 
     reviews = reviews_module.build_reviews_block(
         existing_reviews={"rockClaw": None, "claudeCode": None, "codexCloud": {}},
-        codex_cloud={"required": False, "status": "not_started"},
+        external_review={"required": False, "status": "not_started"},
         publish_ready=False,
         local_head_sha="localsha",
         local_candidate_exists=True,
@@ -1347,7 +1389,7 @@ def test_build_reviews_block_seeds_local_prepublish_for_draft_pr_state():
         external_reviewer_agent_name="External_Reviewer_Agent",
         advisory_reviewer_agent_name="Advisory_Reviewer_Agent",
         now_iso="2026-04-23T00:00:00Z",
-        claude_seed_fn=fake_seed,
+        internal_review_seed_fn=fake_seed,
     )
     assert reviews["internalReview"]["required"] is True
     assert reviews["internalReview"]["reviewScope"] == "local-prepublish"

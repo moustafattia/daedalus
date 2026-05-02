@@ -457,18 +457,30 @@ def format_doctor(
                     status=row_status,
                 )
             )
+        sections = [
+            Section(
+                name=None,
+                rows=[
+                    Row(label="workflow", value=str(result.get("workflow") or EMPTY_VALUE)),
+                    Row(label="overall", value="PASS" if ok else "FAIL", status="pass" if ok else "fail"),
+                ],
+            ),
+            Section(name="checks", rows=rows),
+        ]
+        recommendations = result.get("recommendations") or []
+        if recommendations:
+            sections.append(
+                Section(
+                    name="next steps",
+                    rows=[
+                        Row(label=str(index), value=str(item))
+                        for index, item in enumerate(recommendations, start=1)
+                    ],
+                )
+            )
         return format_panel(
             title="Issue runner doctor",
-            sections=[
-                Section(
-                    name=None,
-                    rows=[
-                        Row(label="workflow", value=str(result.get("workflow") or EMPTY_VALUE)),
-                        Row(label="overall", value="PASS" if ok else "FAIL", status="pass" if ok else "fail"),
-                    ],
-                ),
-                Section(name="checks", rows=rows),
-            ],
+            sections=sections,
             use_color=use_color,
         )
 
@@ -516,10 +528,22 @@ def format_doctor(
         )],
     )
     checks_section = Section(name="checks", rows=rows)
+    sections = [summary_section, checks_section]
+    recommendations = result.get("recommendations") or []
+    if recommendations:
+        sections.append(
+            Section(
+                name="next steps",
+                rows=[
+                    Row(label=str(index), value=str(item))
+                    for index, item in enumerate(recommendations, start=1)
+                ],
+            )
+        )
 
     return format_panel(
         title="Daedalus doctor",
-        sections=[summary_section, checks_section],
+        sections=sections,
         use_color=use_color,
     )
 
@@ -669,42 +693,5 @@ def format_service_status(
     return format_panel(
         title="Daedalus service",
         sections=[identity, install, runtime, paths],
-        use_color=use_color,
-    )
-
-
-# ─── /daedalus get-observability ────────────────────────────────────────
-
-def format_get_observability(
-    record: Mapping[str, Any],
-    *,
-    use_color: bool | None = None,
-) -> str:
-    workflow_name = record.get("workflow") or EMPTY_VALUE
-    gh = record.get("github_comments") or {}
-    source = record.get("source") or "default"
-
-    enabled = bool(gh.get("enabled"))
-    include_events = gh.get("include_events") or []
-
-    if not include_events:
-        events_value = "[] (FIREHOSE — every audit action)"
-        events_status = "warn"
-    else:
-        events_value = ", ".join(include_events)
-        events_status = None
-
-    rows = [
-        Row(label="workflow", value=str(workflow_name)),
-        Row(label="enabled",  value=render_bool(enabled),
-            status=("pass" if enabled else "fail"),
-            detail=f"(source: {source})"),
-        Row(label="mode",     value=str(gh.get("mode") or EMPTY_VALUE)),
-        Row(label="include-events", value=events_value, status=events_status),
-    ]
-
-    return format_panel(
-        title="Daedalus observability config",
-        sections=[Section(name=None, rows=rows)],
         use_color=use_color,
     )

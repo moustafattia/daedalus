@@ -67,15 +67,14 @@ codex:
   read_timeout_ms: 5000
   stall_timeout_ms: 300000
 
-daedalus:
-  runtimes:
-    default:
-      kind: hermes-agent
-      command:
-        - python3
-        - -c
-        - "from pathlib import Path; import sys; prompt = Path(sys.argv[1]).read_text(encoding='utf-8'); print('Daedalus demo signoff: runtime received the issue prompt.'); print(prompt)"
-        - "{prompt_path}"
+runtimes:
+  default:
+    kind: hermes-agent
+    command:
+      - python3
+      - -c
+      - "from pathlib import Path; import sys; prompt = Path(sys.argv[1]).read_text(encoding='utf-8'); print('Daedalus demo signoff: runtime received the issue prompt.'); print(prompt)"
+      - "{prompt_path}"
 
 storage:
   status: memory/workflow-status.json

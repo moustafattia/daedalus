@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import time
 from pathlib import Path
 
@@ -20,6 +21,26 @@ class ClaudeCliRuntime:
 
     def last_activity_ts(self) -> float | None:
         return self._last_activity
+
+    def _run_process(self, command: list[str], *, worktree: Path, env: dict | None = None):
+        kwargs = {"cwd": worktree, "timeout": self._timeout}
+        if env is not None:
+            kwargs["env"] = env
+        try:
+            signature = inspect.signature(self._run)
+        except (TypeError, ValueError):
+            supported_kwargs = kwargs
+        else:
+            accepts_var_kwargs = any(
+                param.kind == inspect.Parameter.VAR_KEYWORD
+                for param in signature.parameters.values()
+            )
+            supported_kwargs = (
+                kwargs
+                if accepts_var_kwargs
+                else {key: value for key, value in kwargs.items() if key in signature.parameters}
+            )
+        return self._run(command, **supported_kwargs)
 
     def ensure_session(
         self,
@@ -51,7 +72,7 @@ class ClaudeCliRuntime:
             prompt,
         ]
         self._record_activity()
-        completed = self._run(cmd, cwd=worktree, timeout=self._timeout)
+        completed = self._run_process(cmd, worktree=worktree)
         self._record_activity()
         return getattr(completed, "stdout", "") or ""
 
@@ -75,6 +96,6 @@ class ClaudeCliRuntime:
         env: dict | None = None,
     ) -> str:
         self._record_activity()
-        completed = self._run(command_argv, cwd=worktree, timeout=self._timeout, env=env)
+        completed = self._run_process(command_argv, worktree=worktree, env=env)
         self._record_activity()
         return getattr(completed, "stdout", "") or ""

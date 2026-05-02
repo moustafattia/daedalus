@@ -1,14 +1,4 @@
-"""Regression: the new /daedalus subcommands actually run via execute_raw_args.
-
-Codex Cloud caught (P1) that ``watch`` / ``set-observability`` / ``get-observability``
-were registered with ``handler=...`` but the central dispatcher
-(``execute_raw_args`` → ``execute_namespace``) only knew about the legacy
-dict-returning commands. Without an explicit branch in ``execute_raw_args``
-the new commands fall through to ``unknown daedalus command``.
-
-These tests pin the dispatch routing so a future refactor can't silently
-re-break it.
-"""
+"""Regression: string-returning /daedalus subcommands run via execute_raw_args."""
 import importlib.util
 import subprocess
 from pathlib import Path
@@ -29,37 +19,6 @@ def load_module(module_name: str, relative_path: str):
 
 def _tools():
     return load_module("daedalus_tools_new_command_dispatch_test", "daedalus_cli.py")
-
-
-def test_set_observability_dispatched_not_falling_through_to_unknown(tmp_path):
-    """``/daedalus set-observability ...`` should reach cmd_set_observability,
-    not error out as ``unknown daedalus command``."""
-    tools = _tools()
-    # Use a tmp workflow root so we don't write to the live workspace.
-    raw = (
-        f"set-observability "
-        f"--workflow-root {tmp_path} "
-        f"--workflow change-delivery "
-        f"--github-comments unset"
-    )
-    out = tools.execute_raw_args(raw)
-    assert "unknown daedalus command" not in out, out
-    # Either a normal output ("removed for change-delivery") or — if the override
-    # file doesn't exist — still a clean message, never the "unknown" string.
-    assert "change-delivery" in out or "removed" in out.lower() or "set" in out.lower()
-
-
-def test_get_observability_dispatched_not_falling_through_to_unknown(tmp_path):
-    tools = _tools()
-    raw = (
-        f"get-observability "
-        f"--workflow-root {tmp_path} "
-        f"--workflow change-delivery"
-    )
-    out = tools.execute_raw_args(raw)
-    assert "unknown daedalus command" not in out, out
-    # A real config-resolution result mentions the workflow + an enabled state.
-    assert "workflow" in out.lower() or "github-comments" in out.lower()
 
 
 def test_watch_dispatched_not_falling_through_to_unknown(tmp_path):

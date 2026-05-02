@@ -14,7 +14,7 @@ import pytest
     "record_codex_cloud_repair_handoff",
     "fetch_codex_pr_body_signal",
 ])
-def test_codex_cloud_alias_dropped(name):
+def test_external_review_alias_dropped(name):
     """All 8 Phase D-2 module-level aliases should be gone."""
     from workflows.change_delivery import reviews
     assert not hasattr(reviews, name), f"{name} alias should have been removed"

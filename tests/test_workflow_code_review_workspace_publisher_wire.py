@@ -1,7 +1,6 @@
-"""build_workspace should wire the comment publisher when observability is on."""
+"""change-delivery audit fanout should publish through shared tracker feedback."""
 import importlib.util
 from pathlib import Path
-from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1] / "daedalus"
@@ -16,140 +15,133 @@ def load_module(module_name: str, relative_path: str):
     return module
 
 
-def _make_minimal_config(workspace_root: Path) -> dict:
-    return {
-        "workflow": "change-delivery",
-        "schemaVersion": 1,
-        "instance": {"name": "test", "engineOwner": "hermes"},
-        "repository": {
-            "localPath": str(workspace_root),
-            "githubSlug": "owner/repo",
-            "activeLaneLabel": "active-lane",
+class FakeTracker:
+    kind = "github"
+
+    def __init__(self):
+        self.calls = []
+
+    def post_feedback(self, **kwargs):
+        self.calls.append(kwargs)
+        return {
+            "ok": True,
+            "kind": self.kind,
+            "issue_id": kwargs["issue_id"],
+            "event": kwargs["event"],
+            "state": kwargs.get("state"),
+        }
+
+
+def test_tracker_feedback_publisher_skips_when_disabled(tmp_path):
+    workspace_module = load_module(
+        "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
+        "workflows/change_delivery/workspace.py",
+    )
+    tracker = FakeTracker()
+
+    publisher = workspace_module._make_tracker_feedback_publisher(
+        workflow_root=tmp_path,
+        tracker_cfg={"kind": "github", "github_slug": "owner/repo"},
+        repo_path=tmp_path,
+        workflow_yaml={"tracker-feedback": {"enabled": False}},
+        get_active_issue_number=lambda: 329,
+        get_workflow_state=lambda: "under_review",
+        get_is_operator_attention=lambda: False,
+        tracker_client=tracker,
+    )
+
+    publisher(action="merge-and-promote", summary="Merged PR", extra={"mergedPrNumber": 1})
+
+    assert tracker.calls == []
+
+
+def test_tracker_feedback_publisher_posts_included_audit_event(tmp_path):
+    workspace_module = load_module(
+        "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
+        "workflows/change_delivery/workspace.py",
+    )
+    tracker = FakeTracker()
+
+    publisher = workspace_module._make_tracker_feedback_publisher(
+        workflow_root=tmp_path,
+        tracker_cfg={"kind": "github", "github_slug": "owner/repo"},
+        repo_path=tmp_path,
+        workflow_yaml={
+            "tracker-feedback": {
+                "enabled": True,
+                "comment-mode": "append",
+                "include": ["merge-and-promote"],
+                "state-updates": {"enabled": False},
+            }
         },
-        "auditLogPath": str(workspace_root / "memory" / "audit.jsonl"),
-        "ledgerPath": str(workspace_root / "memory" / "ledger.json"),
-        "healthPath": str(workspace_root / "memory" / "health.json"),
-        "cronJobsPath": str(workspace_root / "cron-jobs.json"),
-        "hermesCronJobsPath": str(workspace_root / "hermes-cron-jobs.json"),
-        "sessionsStatePath": str(workspace_root / "state" / "sessions"),
-        # … minimal stubs for the rest. Do NOT fully replicate workflow.yaml here;
-        # only fields that build_workspace dereferences before the audit wiring.
-    }
-
-
-def test_make_publisher_returns_callable_even_when_initially_disabled(tmp_path):
-    """When github-comments.enabled=false at startup, a publisher is STILL
-    returned so a later /daedalus set-observability --github-comments on
-    override takes effect at the next audit event without a service restart.
-    The publisher's per-call re-resolution is the gate — not this factory.
-    Calling the publisher when disabled is a no-op (no gh CLI calls)."""
-    import subprocess
-    workspace_module = load_module(
-        "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
-        "workflows/change_delivery/workspace.py",
-    )
-    fake_run_calls = []
-
-    def fake_run(*args, **kwargs):
-        fake_run_calls.append(args)
-        # If we ever reach here, the gate failed to short-circuit.
-        raise AssertionError("publisher must not call gh when disabled")
-
-    publisher = workspace_module._make_comment_publisher(
-        workflow_root=tmp_path,
-        repo_slug="owner/repo",
-        workflow_yaml={"observability": {"github-comments": {"enabled": False}}},
         get_active_issue_number=lambda: 329,
         get_workflow_state=lambda: "under_review",
         get_is_operator_attention=lambda: False,
-        run_fn=fake_run,
+        tracker_client=tracker,
     )
-    assert callable(publisher)
-    publisher(action="merge-and-promote", summary="ok", extra={"mergedPrNumber": 1})
-    assert fake_run_calls == []  # short-circuited inside publisher()
+
+    publisher(action="merge-and-promote", summary="Merged PR", extra={"mergedPrNumber": 382})
+
+    assert len(tracker.calls) == 1
+    call = tracker.calls[0]
+    assert call["issue_id"] == "329"
+    assert call["event"] == "merge-and-promote"
+    assert call["summary"] == "Merged PR"
+    assert call["state"] is None
+    assert call["metadata"]["workflow"] == "change-delivery"
+    assert call["metadata"]["workflow_state"] == "under_review"
+    assert call["metadata"]["mergedPrNumber"] == 382
 
 
-def test_disabled_then_override_enabled_publisher_takes_effect(tmp_path):
-    """After flipping enabled=true via the runtime override file, the same
-    publisher instance starts emitting — no restart needed."""
-    import json
+def test_tracker_feedback_publisher_builds_from_tracker_config(tmp_path, monkeypatch):
     workspace_module = load_module(
         "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
         "workflows/change_delivery/workspace.py",
     )
-    fake_run_calls = []
+    tracker = FakeTracker()
+    captured = {}
 
-    def fake_run(argv, **kwargs):
-        fake_run_calls.append(argv)
-        from unittest import mock
-        result = mock.Mock()
-        result.returncode = 0
-        result.stdout = "https://github.com/o/r/issues/329#issuecomment-99\n"
-        result.stderr = ""
-        return result
+    def fake_build_tracker_client(**kwargs):
+        captured.update(kwargs)
+        return tracker
 
-    publisher = workspace_module._make_comment_publisher(
+    monkeypatch.setattr(workspace_module, "build_tracker_client", fake_build_tracker_client)
+
+    publisher = workspace_module._make_tracker_feedback_publisher(
         workflow_root=tmp_path,
-        repo_slug="owner/repo",
-        workflow_yaml={"observability": {"github-comments": {"enabled": False}}},
-        get_active_issue_number=lambda: 329,
-        get_workflow_state=lambda: "under_review",
-        get_is_operator_attention=lambda: False,
-        run_fn=fake_run,
-    )
-    # First call: still disabled, no gh.
-    publisher(action="merge-and-promote", summary="ok", extra={"mergedPrNumber": 1})
-    assert fake_run_calls == []
-
-    # Operator flips on via override file (mirrors /daedalus set-observability).
-    override_dir = tmp_path / "runtime" / "state" / "daedalus"
-    override_dir.mkdir(parents=True, exist_ok=True)
-    (override_dir / "observability-overrides.json").write_text(json.dumps({
-        "change-delivery": {"github-comments": {"enabled": True, "set-at": "2026-04-26T00:00:00Z"}}
-    }))
-
-    # Same publisher instance now emits.
-    publisher(action="merge-and-promote", summary="ok", extra={"mergedPrNumber": 1})
-    assert len(fake_run_calls) == 1
-    assert fake_run_calls[0][0] == "gh"
-
-
-def test_make_publisher_returns_callable_when_enabled(tmp_path):
-    workspace_module = load_module(
-        "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
-        "workflows/change_delivery/workspace.py",
-    )
-    publisher = workspace_module._make_comment_publisher(
-        workflow_root=tmp_path,
-        repo_slug="owner/repo",
-        workflow_yaml={"observability": {"github-comments": {"enabled": True}}},
+        tracker_cfg={"kind": "github", "github_slug": "tracker-owner/tracker-repo"},
+        repo_path=tmp_path / "checkout",
+        workflow_yaml={"tracker-feedback": {"enabled": True, "include": ["merge-and-promote"]}},
         get_active_issue_number=lambda: 329,
         get_workflow_state=lambda: "under_review",
         get_is_operator_attention=lambda: False,
     )
-    assert callable(publisher)
+
+    publisher(action="merge-and-promote", summary="Merged PR", extra={})
+
+    assert captured["tracker_cfg"] == {"kind": "github", "github_slug": "tracker-owner/tracker-repo"}
+    assert captured["repo_path"] == tmp_path / "checkout"
+    assert tracker.calls[0]["issue_id"] == "329"
 
 
-def test_publisher_skips_when_no_active_issue(tmp_path):
-    """When no active lane exists, the publisher silently skips."""
+def test_tracker_feedback_publisher_skips_when_no_active_issue(tmp_path):
     workspace_module = load_module(
         "daedalus_workflow_change_delivery_workspace_publisher_wire_test",
         "workflows/change_delivery/workspace.py",
     )
-    fake_run_calls = []
+    tracker = FakeTracker()
 
-    def fake_run(*args, **kwargs):
-        fake_run_calls.append(args)
-        raise AssertionError("publisher should not have called gh when issue=None")
-
-    publisher = workspace_module._make_comment_publisher(
+    publisher = workspace_module._make_tracker_feedback_publisher(
         workflow_root=tmp_path,
-        repo_slug="owner/repo",
-        workflow_yaml={"observability": {"github-comments": {"enabled": True}}},
+        tracker_cfg={"kind": "github", "github_slug": "owner/repo"},
+        repo_path=tmp_path,
+        workflow_yaml={"tracker-feedback": {"enabled": True, "include": ["merge-and-promote"]}},
         get_active_issue_number=lambda: None,
         get_workflow_state=lambda: "no_active_lane",
         get_is_operator_attention=lambda: False,
-        run_fn=fake_run,
+        tracker_client=tracker,
     )
+
     publisher(action="merge-and-promote", summary="x", extra={"mergedPrNumber": 1})
-    assert fake_run_calls == []
+
+    assert tracker.calls == []

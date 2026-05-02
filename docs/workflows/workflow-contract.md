@@ -60,10 +60,11 @@ The YAML front matter is structured operator configuration:
 
 - `workflow` selects the workflow package.
 - `instance` names the workflow instance.
-- `tracker` and `repository` configure where issues and code live.
+- `repository` identifies the target checkout, `tracker` selects the issue source,
+  and workflows that publish PRs use `code-host` for branch/PR/merge operations.
 - `tracker-feedback` controls tracker-facing comments and optional state updates.
 - `runtimes` and `agents` bind workflow roles to execution backends.
-- `hooks`, `gates`, `observability`, and `server` configure workflow-specific behavior.
+- `hooks`, `gates`, `webhooks`, and `server` configure workflow-specific behavior.
 
 Each workflow validates this section against its own schema before dispatch.
 
@@ -87,12 +88,33 @@ The validator checks:
 | Repository path | Missing or non-directory `repository.local-path` |
 | Workflow preflight | Tracker/runtime references that cannot dispatch safely |
 
+## Runtime Presets
+
+Use `configure-runtime` when you want the plugin to update the YAML front matter
+for a known runtime shape instead of editing role bindings by hand:
+
+```bash
+hermes daedalus configure-runtime --runtime hermes-final --role agent
+hermes daedalus configure-runtime --runtime hermes-chat --role reviewer
+hermes daedalus configure-runtime --runtime codex-service --role implementer
+```
+
+Built-in presets are `hermes-final`, `hermes-chat`, and `codex-service`.
+`issue-runner` supports `agent`; `change-delivery` supports the actor names in
+`actors:` such as `implementer`, `implementer-high-effort`, `reviewer`, and
+`all`.
+Run `hermes daedalus validate` and `hermes daedalus doctor` after changing a
+binding. Doctor reports each role-to-runtime binding and whether the required
+CLI or external Codex service appears reachable. Use
+`hermes daedalus runtime-matrix --execute` when you want to run a tiny prompt
+through the configured role runtimes without touching trackers or code hosts.
+
 ## Markdown Body
 
 The Markdown body is policy text. Workflows decide how to use it:
 
 - `issue-runner` renders it as the issue prompt template.
-- `change-delivery` composes it into workflow-specific role prompts.
+- `change-delivery` composes it into workflow-specific actor prompts.
 
 Treat edits to the body like prompt changes: review them carefully and rely on
 hot reload to keep the last known good config if a bad edit lands.
@@ -105,5 +127,5 @@ hot reload to keep the last known good config if a bad edit lands.
 | [`docs/examples/change-delivery.workflow.md`](../examples/change-delivery.workflow.md) | You want the opinionated issue-to-PR-to-merge contract. |
 
 For production, start from the same examples and fill in tracker credentials,
-real runtime profiles, retention limits, hooks, gates, and observability
+real runtime profiles, retention limits, hooks, gates, and tracker feedback
 settings before running `hermes daedalus service-up`.

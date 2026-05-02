@@ -951,6 +951,8 @@ class CodexAppServerRuntime:
         params = message.get("params")
         if not isinstance(params, dict):
             params = {}
+        if not self._message_matches_active_run(method, params, state=state):
+            return False
         state.last_event = method
 
         if method in {"protocol/error", "error"}:
@@ -1009,9 +1011,70 @@ class CodexAppServerRuntime:
             self._notify_progress(state)
             return True
         elif self._is_request_notification(method):
-            state.last_message = f"unsupported app-server request: {method}"
+            pass
         self._notify_progress(state)
         return False
+
+    def _message_matches_active_run(self, method: str, params: dict[str, Any], *, state: _RunState) -> bool:
+        thread_id = self._message_thread_id(params)
+        turn_id = self._message_turn_id(params)
+
+        # Shared app-server endpoints can emit unscoped errors for other turns.
+        # Request/response errors are still handled by _AppServerClient.request.
+        if method == "error" and not thread_id and not turn_id and state.thread_id and state.turn_id:
+            return False
+        if thread_id and state.thread_id and thread_id != state.thread_id:
+            return False
+        if turn_id and state.turn_id and turn_id != state.turn_id:
+            return False
+        if thread_id and state.thread_id is None:
+            return method == "thread/started"
+        if turn_id and state.turn_id is None:
+            return method == "turn/started"
+        return True
+
+    def _message_thread_id(self, params: dict[str, Any]) -> str | None:
+        return self._first_message_id(
+            params,
+            direct_keys=("threadId", "thread_id"),
+            id_object_key="thread",
+            nested_keys=("item",),
+        )
+
+    def _message_turn_id(self, params: dict[str, Any]) -> str | None:
+        return self._first_message_id(
+            params,
+            direct_keys=("turnId", "turn_id"),
+            id_object_key="turn",
+            nested_keys=("item",),
+        )
+
+    def _first_message_id(
+        self,
+        params: dict[str, Any],
+        *,
+        direct_keys: tuple[str, ...],
+        id_object_key: str,
+        nested_keys: tuple[str, ...],
+    ) -> str | None:
+        for key in direct_keys:
+            value = params.get(key)
+            if value not in (None, ""):
+                return str(value)
+        nested = params.get(id_object_key)
+        if isinstance(nested, dict):
+            value = nested.get("id")
+            if value not in (None, ""):
+                return str(value)
+        for key in nested_keys:
+            nested = params.get(key)
+            if not isinstance(nested, dict):
+                continue
+            for direct_key in direct_keys:
+                value = nested.get(direct_key)
+                if value not in (None, ""):
+                    return str(value)
+        return None
 
     def _is_request_notification(self, method: str) -> bool:
         return method.startswith("item/") or method.startswith("mcpServer/")

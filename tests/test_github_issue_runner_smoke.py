@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -14,11 +15,51 @@ def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[s
     return subprocess.run(cmd, check=check, capture_output=True, text=True)
 
 
+def _run_json(cmd: list[str]) -> object:
+    return json.loads(_run(cmd).stdout or "null")
+
+
+def _write_fail_once_runtime(path: Path, *, marker_path: Path) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "import sys",
+                f"marker = Path({str(marker_path)!r})",
+                "prompt = Path(sys.argv[1]).read_text(encoding='utf-8')",
+                "if not marker.exists():",
+                "    marker.write_text('failed-once\\n', encoding='utf-8')",
+                "    print('intentional smoke failure after reading prompt:', prompt[:80], file=sys.stderr)",
+                "    raise SystemExit(7)",
+                "print('signed off after retry')",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _wait_for_supervised_futures(workspace, *, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        futures = list(workspace._supervisor_futures.values())
+        if futures and all(future.done() for future in futures):
+            return
+        time.sleep(0.05)
+    raise AssertionError("supervised smoke worker did not finish")
+
+
+def _issue_comment_bodies(*, repo: str, issue_number: str) -> list[str]:
+    comments = _run_json(["gh", "api", f"repos/{repo}/issues/{issue_number}/comments"])
+    assert isinstance(comments, list)
+    return [str(comment.get("body") or "") for comment in comments if isinstance(comment, dict)]
+
+
 @pytest.mark.skipif(
     not os.environ.get("DAEDALUS_GITHUB_SMOKE_REPO"),
     reason="set DAEDALUS_GITHUB_SMOKE_REPO=owner/repo to run the live GitHub smoke",
 )
-def test_live_github_issue_runner_selects_dispatches_and_reconciles_terminal_issue(tmp_path):
+def test_live_github_issue_runner_feedback_retry_recovery_and_cleanup(tmp_path):
     from workflows.issue_runner.workspace import load_workspace_from_config
 
     smoke_repo = os.environ["DAEDALUS_GITHUB_SMOKE_REPO"].strip()
@@ -70,6 +111,9 @@ def test_live_github_issue_runner_selects_dispatches_and_reconciles_terminal_iss
 
         workflow_root = tmp_path / "workflow"
         workflow_root.mkdir()
+        runtime_script = tmp_path / "fail_once_runtime.py"
+        fail_marker = tmp_path / "runtime-failed-once.marker"
+        _write_fail_once_runtime(runtime_script, marker_path=fail_marker)
         cfg = {
             "workflow": "issue-runner",
             "schema-version": 1,
@@ -88,6 +132,23 @@ def test_live_github_issue_runner_selects_dispatches_and_reconciles_terminal_iss
                 "model": "local-smoke",
                 "runtime": "smoke",
                 "max_concurrent_agents": 1,
+                "max_retry_backoff_ms": 1,
+            },
+            "tracker-feedback": {
+                "enabled": True,
+                "comment-mode": "upsert",
+                "include": [
+                    "issue.selected",
+                    "issue.dispatched",
+                    "issue.running",
+                    "issue.failed",
+                    "issue.retry_scheduled",
+                    "issue.completed",
+                ],
+                "state-updates": {
+                    "enabled": True,
+                    "on-completed": "closed",
+                },
             },
             "daedalus": {
                 "runtimes": {
@@ -95,8 +156,7 @@ def test_live_github_issue_runner_selects_dispatches_and_reconciles_terminal_iss
                         "kind": "hermes-agent",
                         "command": [
                             sys.executable,
-                            "-c",
-                            "from pathlib import Path; import sys; print(Path(sys.argv[1]).read_text())",
+                            str(runtime_script),
                             "{prompt_path}",
                         ],
                     }
@@ -118,30 +178,52 @@ def test_live_github_issue_runner_selects_dispatches_and_reconciles_terminal_iss
         )
         workspace = load_workspace_from_config(workspace_root=workflow_root)
 
-        result = workspace.tick()
+        first = workspace.supervise_once()
+        assert first["ok"] is True
+        assert first["selectedIssue"]["id"] == issue_number
+        assert first["dispatchedWorkers"][0]["issue_id"] == issue_number
 
-        assert result["ok"] is True
-        assert result["selectedIssue"]["id"] == issue_number
-        assert Path(result["outputPath"]).read_text(encoding="utf-8")
+        _wait_for_supervised_futures(workspace)
+        failed = workspace.supervise_once()
+        assert failed["completedResults"][0]["ok"] is False
+        assert failed["completedResults"][0]["retry"]["issue_id"] == issue_number
         scheduler = workspace._load_scheduler_state()
         assert scheduler["retry_queue"][0]["issue_id"] == issue_number
+        assert scheduler["retry_queue"][0]["error"]
 
-        _run(
-            [
-                "gh",
-                "issue",
-                "close",
-                issue_number,
-                "--repo",
-                smoke_repo,
-                "--comment",
-                "Closing Daedalus issue-runner smoke issue.",
-            ]
-        )
+        time.sleep(0.05)
+        retry_dispatch = workspace.supervise_once()
+        assert retry_dispatch["selectedIssue"]["id"] == issue_number
+        assert retry_dispatch["dispatchedWorkers"][0]["issue_id"] == issue_number
+        assert retry_dispatch["dispatchedWorkers"][0]["attempt"] == 2
+
+        _wait_for_supervised_futures(workspace)
+        completed = workspace.supervise_once()
+        assert completed["completedResults"][0]["ok"] is True
+        assert completed["completedResults"][0]["retry"] is None
+        assert Path(completed["completedResults"][0]["outputPath"]).read_text(encoding="utf-8") == "signed off after retry\n"
+        assert workspace._load_scheduler_state().get("retry_queue") == []
+
+        issue_view = _run_json(["gh", "issue", "view", issue_number, "--repo", smoke_repo, "--json", "state,labels"])
+        assert isinstance(issue_view, dict)
+        assert str(issue_view["state"]).lower() == "closed"
+        assert label in {item["name"] for item in issue_view.get("labels") or []}
+
+        comment_bodies = _issue_comment_bodies(repo=smoke_repo, issue_number=issue_number)
+        for event in [
+            "issue.selected",
+            "issue.dispatched",
+            "issue.running",
+            "issue.failed",
+            "issue.retry_scheduled",
+            "issue.completed",
+        ]:
+            assert any(f"Daedalus update: {event}" in body for body in comment_bodies), event
+            assert sum(f"daedalus-feedback:issue-runner:{event}" in body for body in comment_bodies) == 1
 
         cleanup_result = None
         for _ in range(10):
-            cleanup_result = workspace.tick()
+            cleanup_result = workspace.supervise_once()
             cleaned = cleanup_result.get("cleanup") or []
             if any(str(item.get("issue_id")) == issue_number for item in cleaned):
                 break

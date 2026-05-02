@@ -378,7 +378,7 @@ Recommended order:
 9. add heartbeat / lease refresh and a one-shot shadow iteration loop shell
 10. only then build the long-running service loop and plugin control surface
 11. first active-execution slice should usually wrap the existing workflow package's side-effect command (for example `dispatch-implementation-turn`) while Daedalus owns leases, action rows, and execution accounting
-12. when expanding active execution beyond the first slice, keep the same pattern: add or reuse a dedicated workflow CLI subcommand per side effect (for example `dispatch-claude-review`, `dispatch-repair-handoff`, `push-pr-update`, or `publish-ready-pr`) and route Daedalus execution through a small action-runner registry keyed by Daedalus `action_type`
+12. when expanding active execution beyond the first slice, keep the same pattern: add or reuse a dedicated workflow CLI subcommand per side effect (for example `dispatch-internal-review`, `dispatch-repair-handoff`, `push-pr-update`, or `publish-ready-pr`) and route Daedalus execution through a small action-runner registry keyed by Daedalus `action_type`
 - when the next active slice is a repair-handoff path, do not route Daedalus through a generic implementation command and hope workflow internals happen to do the right thing; add a dedicated workflow command (for example `dispatch-repair-handoff`) backed by a shared helper that both direct execution and reconcile/tick can call
 - that shared-helper extraction matters because duplicated repair-handoff logic across reconcile and direct execution will drift, and then Daedalus active mode and workflow-derived status will disagree in deeply annoying ways
 

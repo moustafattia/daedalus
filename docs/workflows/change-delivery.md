@@ -1,17 +1,19 @@
 # `change-delivery`
 
-`change-delivery` is the opinionated bundled SDLC workflow for GitHub-backed
-issue-to-PR delivery.
+`change-delivery` is the bundled SDLC workflow for issue-to-PR delivery. It is
+GitHub-first today for tracker and code-host operations, but the public workflow
+contract models issues, actors, stages, and gates rather than GitHub-specific
+role names.
 
 ## What it does
 
 It takes a GitHub issue through:
 
 1. lane selection
-2. implementation
-3. internal review
+2. implementation by a configured actor
+3. pre-publish gate review
 4. PR publish
-5. external review
+5. optional maintainer approval from PR comments/reactions
 6. merge and promotion
 
 Use `bootstrap --workflow change-delivery` when you want this lifecycle instead
@@ -19,7 +21,7 @@ of the default generic `issue-runner` workflow.
 
 ## Use it when
 
-- GitHub is your tracker and PR system
+- GitHub is your tracker or you want the first-class GitHub PR system
 - you want built-in review and merge gates
 - you want the most complete Daedalus operator surface today
 
@@ -30,27 +32,38 @@ of the default generic `issue-runner` workflow.
 
 ## Key config blocks
 
-- `repository`: repo checkout, repo slug, GitHub slug, active-lane label
-- `tracker`: GitHub-backed issue source and issue state mapping
-- `runtimes`: shared runtime backend profiles used by the workflow roles
-- `agents`: the workflow roles and their runtime/model bindings
-- `gates`: publish/merge policy
+- `repository`: generic repo identity, checkout path, active-lane label
+- `tracker`: issue source, issue state mapping, tracker feedback target
+- `code-host`: PR, review, CI, and merge host
+- `runtimes`: shared runtime backend profiles
+- `actors`: named executors with model/runtime bindings
+- `stages`: lifecycle steps that call actors or engine actions
+- `gates`: review, approval, and code-host checks
 - `triggers`: lane selector
 - `lane-selection`: issue filtering/ranking
-- `observability`: comments/webhooks integration
+- `tracker-feedback`: tracker-facing lifecycle comments
+- `webhooks` / `server`: outbound notifications and HTTP status
 
-`change-delivery` composes the shared `runtimes/` backends with workflow-specific
-prompts, reviewers, GitHub behavior, and merge policy.
+`change-delivery` composes shared `runtimes/`, `trackers/`, and `code_hosts/`
+backends with workflow-specific prompts, stages, and gates.
+
+Runtime-backed stages are dispatched through the same shared stage boundary used
+by `issue-runner`. Each actor selects a runtime with `actors.<name>.runtime`;
+the workflow owns prompts and gates, while the runtime profile owns execution.
+
+See the detailed [change-delivery contract spec](change-delivery-contract.md)
+for the actor/stage/gate mapping.
 
 ## Codex Runtime Options
 
-The default template uses `acpx-codex` for the coder role. To run the coder
-through Codex app-server instead, change only `runtimes` and
-`agents.coder.*.runtime` in `WORKFLOW.md`:
+The default template uses `acpx-codex` for the implementer actor and
+`claude-cli` for the reviewer actor. To run either actor through Codex
+app-server instead, change only `runtimes` and the matching
+`actors.*.runtime` binding in `WORKFLOW.md`:
 
 ```yaml
 runtimes:
-  coder-runtime:
+  codex-runtime:
     kind: codex-app-server
     mode: external
     endpoint: ws://127.0.0.1:4500
@@ -60,12 +73,15 @@ runtimes:
     thread_sandbox: workspace-write
     turn_sandbox_policy: workspace-write
 
-agents:
-  coder:
-    default:
-      name: Internal_Coder_Agent
-      model: gpt-5.5
-      runtime: coder-runtime
+actors:
+  implementer:
+    name: Change_Implementer
+    model: gpt-5.5
+    runtime: codex-runtime
+  reviewer:
+    name: Change_Reviewer
+    model: gpt-5.5
+    runtime: codex-runtime
 ```
 
 When `codex-app-server` is selected, Daedalus stores
@@ -113,6 +129,7 @@ or interrupted service run.
 ## Related docs
 
 - [Architecture](../architecture.md)
+- [Change-delivery contract spec](change-delivery-contract.md)
 - [Lanes](../concepts/lanes.md)
 - [Reviewers](../concepts/reviewers.md)
 - [Failures](../concepts/failures.md)

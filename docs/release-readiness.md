@@ -11,6 +11,7 @@ should be backed by documentation, tests, or an operator smoke path.
 - Reference workflow: `issue-runner`.
 - Flagship workflow: `change-delivery`.
 - First-class tracker: GitHub.
+- First-class code host: GitHub.
 - Experimental tracker: Linear.
 - Preferred contract: repo-owned `WORKFLOW.md` or `WORKFLOW-<workflow>.md`.
 
@@ -19,7 +20,8 @@ should be backed by documentation, tests, or an operator smoke path.
 | Area | Status | Evidence |
 |---|---|---|
 | Repo-owned workflow contract | Strong | `WORKFLOW*.md` loader, bootstrap, examples, template drift tests |
-| Tracker abstraction | Good | Shared GitHub, local JSON, and experimental Linear clients |
+| Tracker abstraction | Good | Shared GitHub, local JSON, and experimental Linear clients; `change-delivery` separates `tracker` from `code-host` |
+| Code-host abstraction | Good | Shared GitHub client owns PR create/list/ready/merge, reactions, and review-thread GraphQL |
 | Long-running scheduler | Good | `issue-runner run`, worker supervision, retries, persisted scheduler state |
 | Workspace lifecycle | Good | Sanitized issue workspaces, hooks, terminal cleanup, root containment |
 | Codex app-server | Good | Managed stdio, external WebSocket, thread resume, token/rate-limit metrics |
@@ -32,11 +34,11 @@ should be backed by documentation, tests, or an operator smoke path.
 | Area | Status | Evidence |
 |---|---|---|
 | Repo knowledge as system of record | Strong | Architecture, workflow, operator, security, and conformance docs |
-| Public-surface guardrails | Strong | Generic examples, placeholder-only `projects/`, packaging checks |
+| Public-surface guardrails | Strong | Generic examples, placeholder-only `projects/`, packaging checks, CLI/docs drift checks |
 | Agent-legible workflows | Good | Workflow docs link the default templates and operator paths |
 | Custom structural checks | Good | Public harness tests and workflow-template drift checks |
-| Live integration evidence | Partial | GitHub and real Codex app-server smoke tests are opt-in |
-| Recurring cleanup discipline | Partial | Guardrails exist, but no scheduled quality task yet |
+| Live integration evidence | Partial | Opt-in GitHub smoke covers feedback, retry recovery, and terminal cleanup; change-delivery Codex smoke creates its own GitHub issue and workflow root; real Codex app-server smokes remain opt-in |
+| Recurring cleanup discipline | Good | Scheduled release-scorecard workflow checks evidence paths weekly and on demand |
 
 ## Gates Before Community Launch
 
@@ -47,18 +49,20 @@ should be backed by documentation, tests, or an operator smoke path.
 5. Keep Linear documented as experimental until it has first-class operator docs.
 6. Keep workflow examples synchronized with packaged templates.
 7. Keep Codex app-server real-runtime tests opt-in and fake protocol tests in CI.
-8. Add live GitHub coverage for comments, labels, and failure recovery before
-   calling GitHub automation production-grade.
-9. Add an end-to-end `change-delivery` Codex app-server smoke before calling the
-   flagship workflow app-server-complete.
-10. Add scheduled cleanup or scorecard refresh work before claiming mature
+8. Keep the live GitHub smoke runnable before calling GitHub automation
+   production-grade.
+9. Expand the `change-delivery` Codex app-server smoke from live lane dispatch
+   into a full issue-to-PR-to-review-to-merge E2E before calling the flagship
+   workflow app-server-complete.
+10. Keep the scheduled scorecard green before claiming mature
     harness-engineering discipline.
 
 ## Next Hardening Slice
 
-The highest-leverage next implementation slice is live integration evidence:
+The highest-leverage next implementation slice is deeper flagship E2E evidence:
 
-1. Extend the GitHub smoke to cover issue comments, labels, and retry/failure
-   recovery.
-2. Add a skipped-by-default `change-delivery` Codex app-server end-to-end smoke.
-3. Add docs/CLI drift checks for commands shown in operator docs.
+1. Extend the `change-delivery` Codex app-server smoke through PR creation or
+   update, not only lane dispatch.
+2. Add internal-review loop evidence for `change-delivery` with a bounded,
+   cleanup-safe fixture.
+3. Add release-candidate evidence output to `scripts/smoke-live.sh`.

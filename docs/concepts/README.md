@@ -33,7 +33,7 @@
 │  │  • Lanes         │      │  • Events        │      │  • Migration     │  │
 │  │  • Actions       │      │  • Observability │      │                  │  │
 │  │  • Reviewers     │      │  • Webhooks      │      │                  │  │
-│  │  • Shadow/Active │      │  • Comments      │      │                  │  │
+│  │  • Shadow/Active │      │  • Tracker Feed  │      │                  │  │
 │  └──────────────────┘      └──────────────────┘      └──────────────────┘  │
 │                                                                            │
 └────────────────────────────────────────────────────────────────────────────┘
@@ -62,7 +62,7 @@ example. They are useful, but they are not the generic engine contract.
 
 | Concept | One-Liner | Read This If... |
 |:---|:---|:---|
-| [**Lanes**](./lanes.md) | The `change-delivery` unit of work. One labeled GitHub issue becomes one lane carried through code/review/merge. | ...you want to see the full lifecycle of the opinionated SDLC workflow. |
+| [**Lanes**](./lanes.md) | The `change-delivery` unit of work. One selected tracker issue becomes one lane carried through code/review/merge. | ...you want to see the full lifecycle of the opinionated SDLC workflow. |
 | [**Reviewers**](./reviewers.md) | The multi-stage review pipeline used by `change-delivery`. | ...you want to see how publish/merge gates are structured. |
 | [**Failures**](./failures.md) | `change-delivery` failure/action state. `issue-runner` retry state is documented in its workflow page. | ...you want to know what happens when a review or merge step fails. |
 | [**Operator Attention**](./operator-attention.md) | How `change-delivery` escalates when automation reaches its limit. | ...you want to know when Daedalus asks for help. |
@@ -91,7 +91,7 @@ How code gets written, reviewed, and shipped by explicit actors with defined rol
 |:---|:---|:---|
 | [**Runtimes**](./runtimes.md) | The thing Daedalus shells out to. Claude CLI, Codex, or any subprocess that speaks the session protocol. | ...you want to add a new AI backend or local tool. |
 | [**Sessions**](./sessions.md) | The runtime's handle to a persistent or one-shot execution context. | ...you want to understand how Daedalus manages long-lived coder sessions. |
-| [**Reviewers**](./reviewers.md) | Multi-stage review pipeline: internal (Claude), external (Codex Cloud), advisory (optional). | ...you want to see how review gates are structured and enforced. |
+| [**Reviewers**](./reviewers.md) | Multi-stage review pipeline: internal, external (external review), advisory (optional). | ...you want to see how review gates are structured and enforced. |
 
 **The narrative arc:** *Runtimes* execute → *Sessions* persist state → *Reviewers* gate quality.
 
@@ -104,11 +104,11 @@ How Daedalus talks to the outside world and lets operators see what's happening.
 | Concept | One-Liner | Read This If... |
 |:---|:---|:---|
 | [**Events**](./events.md) | Append-only JSONL history of everything that happened. Replayable, auditable, immutable. | ...you want to debug what the system did last Tuesday. |
-| [**Observability**](./observability.md) | Three surfaces: watch TUI, HTTP status server, and GitHub comment audit trails. | ...you want to monitor health without SSHing into the box. |
+| [**Observability**](./observability.md) | Watch TUI, HTTP status server, and tracker feedback surfaces. | ...you want to monitor health without SSHing into the box. |
 | [**Webhooks**](./webhooks.md) | Pluggable outbound subscribers for audit events. Slack, HTTP JSON, with SSRF guard. | ...you want notifications in your team's chat. |
-| [**Comments**](./comments.md) | Publish audit events as comments on the active GitHub issue or PR. | ...you want a public, timestamped record of what Daedalus did. |
+| [**Tracker Feedback**](./tracker-feedback.md) | Publish workflow updates back to the tracker issue. | ...you want a public, timestamped record of what Daedalus did. |
 
-**The narrative arc:** *Events* record → *Observability* surfaces → *Webhooks* notify → *Comments* document.
+**The narrative arc:** *Events* record → *Observability* surfaces → *Webhooks* notify → *Tracker Feedback* documents.
 
 ---
 
@@ -140,7 +140,7 @@ GitHub Issue ──► [Lanes] ──► [Leases] claim ownership
               [Events] record ──► [Observability] surface
                     │                    │
                     ▼                    ▼
-              [Comments] publish    [Webhooks] notify
+              [Tracker Feedback]    [Webhooks] notify
                     │
                     ▼
               [Failures] tracked ──► [Stalls] detected

@@ -10,7 +10,8 @@ coverage:
 
 - `issue-runner` is the default managed workflow and uses the shared tracker
   boundary.
-- `change-delivery` is the opinionated GitHub-backed SDLC workflow.
+- `change-delivery` is the opinionated GitHub-first SDLC workflow, with
+  `tracker` and `code-host` kept as separate config boundaries.
 - GitHub is the first-class production tracker adapter.
 - `local-json` exists for local development and deterministic tests.
 - Linear remains an experimental adapter until the GitHub path has real
@@ -25,6 +26,8 @@ The harness tests should catch these regressions before review:
 - release readiness must keep the public-beta posture and launch gates explicit
 - public examples must use generic placeholders like `your-org/your-repo`
 - bundled workflow templates must match their public docs copies
+- documented `/daedalus`, `/workflow`, and `hermes daedalus ...` commands must
+  map to real parser surfaces
 - bootstrap must safely promote `WORKFLOW.md` to `WORKFLOW-<workflow>.md`
   without overwriting existing named contracts
 - `daedalus/projects/` must stay placeholder-only in the public repository
@@ -34,15 +37,20 @@ The harness tests should catch these regressions before review:
   real app-server smoke opt-in
 - Issue-runner cleanup tests must prove `before_remove` runs before terminal
   workspaces are deleted
+- live smoke entrypoints must stay discoverable through `scripts/smoke-live.sh`
+- release-readiness evidence must keep passing the scheduled
+  `release-scorecard.yml` check
 
 ## Next Checks
 
 Add tests for the next hardening slice in this order:
 
-1. CLI/docs drift checks for every command shown in the install guide.
-2. End-to-end `change-delivery` Codex app-server smoke around a real active
-   lane, PR update, and review loop.
-3. Live GitHub recovery coverage for labels, comments, and failure replay.
+1. Extend the `change-delivery` Codex app-server smoke from live lane dispatch
+   into PR creation/update and internal-review loop evidence.
+2. Add a markdown or JSON artifact mode to `scripts/smoke-live.sh` so operators
+   can archive the exact live-smoke evidence from a release candidate.
+3. Connect release-scorecard output to the release process instead of only
+   checking that evidence paths exist.
 
 ## Harness Principles
 
@@ -78,3 +86,22 @@ pytest tests/test_runtimes_codex_app_server.py \
 
 See [operator/codex-app-server-smoke.md](operator/codex-app-server-smoke.md)
 for the fake/real split and token accounting rule.
+
+## Live Smoke Harness
+
+`scripts/smoke-live.sh` is the single local entrypoint for opt-in live smokes:
+
+```bash
+scripts/smoke-live.sh --list
+scripts/smoke-live.sh
+```
+
+It runs only configured smokes, based on required environment variables, and
+skips the rest.
+
+## Release Scorecard
+
+`.github/workflows/release-scorecard.yml` runs `python
+scripts/release_scorecard.py --check` weekly and on demand. The script keeps
+`docs/release-readiness.md` anchored to concrete evidence paths instead of
+letting the scorecard drift into prose.

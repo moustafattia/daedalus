@@ -52,7 +52,7 @@ reasons = [
 These reasons are:
 - Stored in `lanes.operator_attention_reason` (SQLite)
 - Emitted in the `operator-attention-transition` audit event
-- Rendered in the GitHub comment header (⚠️ operator-attention)
+- Published through tracker feedback when `operator-attention-transition` is included
 - Shown in `/daedalus doctor` and `/daedalus status`
 
 ### Reason format
@@ -129,7 +129,7 @@ Emitted when a lane **leaves** operator attention:
 }
 ```
 
-The comment publisher listens for both events to render/clear the ⚠️ sticky header on GitHub.
+Tracker feedback can include both events so the issue timeline records the escalation and recovery.
 
 ---
 
@@ -185,6 +185,6 @@ where action = 'operator-attention-transition'
 - Transition emission: `daedalus/workflows/change_delivery/orchestrator.py` (`emit_operator_attention_transition`)
 - Ingestion protection: `daedalus/runtime.py` (`ingest_legacy_status`, `ON CONFLICT DO UPDATE`)
 - Threshold config: `daedalus/workflows/change_delivery/workspace.py` (`lane_operator_attention_retry_threshold`, `lane_operator_attention_no_progress_threshold`)
-- Comment rendering: `daedalus/workflows/change_delivery/comments.py` (⚠️ header)
+- Tracker feedback fanout: `daedalus/workflows/change_delivery/workspace.py`
 - Event taxonomy: `daedalus/workflows/change_delivery/event_taxonomy.py`
 - Tests: `tests/test_workflow_change_delivery_operator_attention_audit.py`

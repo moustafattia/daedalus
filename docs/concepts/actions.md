@@ -10,7 +10,7 @@ This page describes the `change-delivery` action queue. `issue-runner` uses shar
 
 | Workflow semantic action | Daedalus execution action |
 |---|---|
-| `run_claude_review` | `request_internal_review` |
+| `run_internal_review` | `request_internal_review` |
 | `publish_ready_pr` | `publish_pr` |
 | `merge_and_promote` | `merge_pr` |
 | `dispatch_codex_turn` | `dispatch_implementation_turn` |
@@ -35,7 +35,7 @@ That translation boundary is deliberate. The workflow package speaks **workflow 
 
 | Action | When dispatched |
 |---|---|
-| `request_internal_review` | Local unpublished branch exists and needs Claude gate before publish. |
+| `request_internal_review` | Local unpublished branch exists and needs internal review gate before publish. |
 
 ### PR lifecycle actions
 

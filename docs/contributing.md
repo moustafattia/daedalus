@@ -100,7 +100,7 @@ pytest -n auto  # parallel (requires pytest-xdist)
 
 ## Adding a workflow stage
 
-The current change-delivery workflow has stages: `implementing` → `awaiting_claude_prepublish` → `ready_to_publish` → `under_review` → `approved` → `merged`.
+The current change-delivery workflow has stages: `implementing` → `awaiting_pre_publish_review` → `ready_to_publish` → `under_review` → `approved` → `merged`.
 
 To add a new stage:
 

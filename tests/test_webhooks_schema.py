@@ -1,7 +1,6 @@
 """Phase C schema validation."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -23,9 +22,16 @@ def _base_config():
         "instance": {"name": "test", "engine-owner": "hermes"},
         "repository": {
             "local-path": "/tmp/x",
-            "github-slug": "x/y",
+            "slug": "x/y",
             "active-lane-label": "active",
         },
+        "tracker": {
+            "kind": "github",
+            "github_slug": "x/y",
+            "active_states": ["open"],
+            "terminal_states": ["closed"],
+        },
+        "code-host": {"kind": "github", "github_slug": "x/y"},
         "runtimes": {
             "codex-acpx": {
                 "kind": "acpx-codex",
@@ -34,12 +40,24 @@ def _base_config():
                 "session-nudge-cooldown-seconds": 600,
             },
         },
-        "agents": {
-            "coder": {"default": {"name": "c", "model": "m", "runtime": "codex-acpx"}},
-            "internal-reviewer": {"name": "ir", "model": "m", "runtime": "codex-acpx"},
-            "external-reviewer": {"enabled": True, "name": "er"},
+        "actors": {
+            "implementer": {"name": "c", "model": "m", "runtime": "codex-acpx"},
+            "implementer-high-effort": {"name": "c-hi", "model": "m-hi", "runtime": "codex-acpx"},
+            "reviewer": {"name": "ir", "model": "m", "runtime": "codex-acpx"},
         },
-        "gates": {"internal-review": {}, "external-review": {}, "merge": {}},
+        "stages": {
+            "implement": {
+                "actor": "implementer",
+                "escalation": {"after-attempts": 2, "actor": "implementer-high-effort"},
+            },
+            "publish": {"action": "pr.publish"},
+            "merge": {"action": "pr.merge"},
+        },
+        "gates": {
+            "pre-publish-review": {"type": "agent-review", "actor": "reviewer"},
+            "maintainer-approval": {"type": "pr-comment-approval", "enabled": False},
+            "ci-green": {"type": "code-host-checks"},
+        },
         "triggers": {"lane-selector": {"type": "label", "label": "active"}},
         "storage": {"ledger": "x", "health": "x", "audit-log": "x"},
     }
@@ -92,18 +110,6 @@ def test_schema_rejects_extra_property_on_subscription():
     cfg["webhooks"] = [{"name": "wh", "kind": "http-json", "urls": "https://x"}]  # typo
     with pytest.raises(ValidationError):
         Draft7Validator(_schema()).validate(cfg)
-
-
-def test_existing_installed_workflow_yaml_still_validates():
-    plugin_dir = Path.home() / ".hermes" / "plugins" / "daedalus"
-    if not plugin_dir.exists():
-        pytest.skip("installed workflow plugin not present on this host")
-    workflow_root = plugin_dir.resolve().parents[2]
-    workflow_yaml = workflow_root / "config" / "workflow.yaml"
-    if not workflow_yaml.exists():
-        pytest.skip("installed workflow config not present on this host")
-    cfg = yaml.safe_load(workflow_yaml.read_text())
-    Draft7Validator(_schema()).validate(cfg)
 
 
 def test_schema_rejects_excessive_timeout():

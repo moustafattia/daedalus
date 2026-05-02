@@ -5,6 +5,7 @@ Entry point for everything that won't fit on the [project landing page](../READM
 ## Start here
 
 - **[architecture.md](architecture.md)** — the big picture. What Daedalus is, what it isn't, how the pieces fit together.
+- **[positioning.md](positioning.md)** — Daedalus vs. Hermes Agent vs. Hermes Kanban, and where integration boundaries belong.
 - **[operator/installation.md](operator/installation.md)** — the supported install, scaffold, verify, and supervise flow.
 - **[workflows/README.md](workflows/README.md)** — the two bundled workflows, when to use each, and where their templates live.
 - **[public-contract.md](public-contract.md)** — the stability boundary for the first public release.
@@ -16,7 +17,7 @@ Entry point for everything that won't fit on the [project landing page](../READM
 ## How to read these docs
 
 - Generic docs describe the plugin engine: contracts, state stores, runtimes, trackers, service supervision, and observability.
-- Workflow docs describe lifecycle policy. `issue-runner` is the generic tracker-driven path; `change-delivery` is the opinionated GitHub-backed issue-to-merge path.
+- Workflow docs describe lifecycle policy. `issue-runner` is the generic tracker-driven path; `change-delivery` is the opinionated issue-to-merge path with GitHub as the first-class tracker/code-host pair.
 - Operator docs describe installed deployments. SQL examples often focus on `change-delivery`, but shared engine execution state is SQLite-backed for both workflows.
 
 ## Concepts
@@ -31,7 +32,7 @@ What each abstraction *means* — read these before reading code.
 | [Runtimes](concepts/runtimes.md) | The shared execution backends: `claude-cli`, `acpx-codex`, `hermes-agent`, `codex-app-server`. |
 | [Events](concepts/events.md) | Runtime JSONL events plus workflow audit files. Symphony §10.4 taxonomy + `daedalus.*` namespace. |
 | [Stalls](concepts/stalls.md) | `last_activity_ts()` + `stall.timeout_ms` (Symphony §8.5). |
-| [Hot-reload & preflight](concepts/hot-reload.md) | Workflow-contract reload (`WORKFLOW.md` first, legacy `workflow.yaml` still loadable) + per-tick preflight (Symphony §6.2 + §6.3). |
+| [Hot-reload & preflight](concepts/hot-reload.md) | Repo-owned `WORKFLOW.md` / `WORKFLOW-<name>.md` reload + per-tick preflight (Symphony §6.2 + §6.3). |
 | [Shadow → active](concepts/shadow-active.md) | The promotion gate from observation to execution. |
 
 ## Operator surface
@@ -49,10 +50,11 @@ Day-2 commands and observability.
 
 - [Bundled workflows](workflows/README.md) — overview of `change-delivery` and `issue-runner`
 - [WORKFLOW.md guide](workflows/workflow-contract.md) — repo-owned contract location, front matter, and Markdown body
-- [change-delivery](workflows/change-delivery.md) — opinionated GitHub SDLC workflow
+- [change-delivery](workflows/change-delivery.md) — opinionated issue-to-PR SDLC workflow
+- [change-delivery contract spec](workflows/change-delivery-contract.md) — actor/stage/gate contract and engine mapping
 - [issue-runner](workflows/issue-runner.md) — generic tracker-driven reference workflow
 - [examples/issue-runner.workflow.md](examples/issue-runner.workflow.md) — copyable default generic tracker-driven contract
-- [examples/change-delivery.workflow.md](examples/change-delivery.workflow.md) — copyable GitHub-backed SDLC contract
+- [examples/change-delivery.workflow.md](examples/change-delivery.workflow.md) — copyable GitHub-first SDLC contract
 
 ## History & decisions
 
@@ -64,6 +66,7 @@ Day-2 commands and observability.
 docs/
 ├── README.md                this file
 ├── architecture.md          big picture
+├── positioning.md           product boundaries vs. Hermes Agent and Hermes Kanban
 ├── public-contract.md       stable public surfaces for the first release
 ├── symphony-conformance.md  current spec alignment vs. remaining gaps
 ├── harness-engineering.md   public-readiness checks and guardrails

@@ -10,6 +10,7 @@ if _PLUGIN_ROOT_STR not in sys.path:
 
 from daedalus.workflows.__main__ import *  # noqa: F401,F403
 from daedalus.workflows.__main__ import main as _main
+from daedalus.workflows.__main__ import _resolve_workflow_root
 
 
 if __name__ == "__main__":

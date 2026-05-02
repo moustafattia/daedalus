@@ -8,8 +8,9 @@ specific lifecycle. Today we bundle two workflow surfaces:
 - `issue_runner/` — the generic tracker-driven reference workflow
 
 Shared workflow mechanics live under `shared/`. Shared execution backends live
-under top-level `runtimes/`, and shared tracker integrations live under
-top-level `trackers/`.
+under top-level `runtimes/`, shared tracker integrations live under
+top-level `trackers/`, and PR/merge integrations live under top-level
+`code_hosts/`.
 
 Workflows are loaded by name through `workflows.<slug>`. The dispatcher
 in `__init__.py` enforces a small contract: every workflow package must
@@ -45,8 +46,6 @@ workflows/
     ├── event_taxonomy.py    # Symphony-aligned event names (§10.4)
     ├── github.py            # GitHub API surface (issues, PRs, labels)
     ├── reviews.py           # review aggregation across reviewer agents
-    ├── comments.py          # reviewer comment serialization
-    ├── comments_publisher.py
     ├── sessions.py          # per-turn agent invocation bookkeeping
     ├── prompts.py           # prompt loading + parameter binding
     ├── prompts/             # prompt templates (coder, reviewer, repair)
@@ -57,7 +56,6 @@ workflows/
     ├── schema.yaml          # JSON Schema for the workflow's config
     ├── status.py            # status projections used by /workflow status
     ├── health.py            # health checks used by /workflow doctor
-    ├── observability.py     # event log + metrics
     ├── migrations.py        # config migrations
     ├── workspace.py         # workspace bootstrap (config + paths + db)
     ├── actions.py           # the action enum the runtime dispatches on
@@ -77,8 +75,7 @@ workflows/
 ## How a workflow runs
 
 1. Daedalus loads the repo-owned `WORKFLOW.md` / `WORKFLOW-<workflow>.md`
-   contract referenced by the workflow root pointer (or legacy
-   `config/workflow.yaml` when migrating older instances).
+   contract referenced by the workflow root pointer.
 2. The dispatcher imports the workflow package referenced by
    `workflow:` in the config (e.g. `change-delivery`).
 3. `make_workspace(workflow_root, config)` returns the workspace

@@ -23,7 +23,7 @@ from workflows.change_delivery.reviews import (
     has_local_candidate,
     inter_review_agent_target_head,
     local_inter_review_agent_review_count,
-    single_pass_local_claude_gate_satisfied,
+    single_pass_local_internal_review_gate_satisfied,
 )
 from workflows.change_delivery.sessions import (
     decide_session_action,
@@ -255,7 +255,7 @@ def normalize_status(status: dict[str, Any], workflow_root: Path | None = None) 
     open_pr = normalized.get("openPr")
     ledger = normalized.get("ledger") or {}
     reviews = normalized.get("reviews") or {}
-    codex_cloud = get_review(reviews, "externalReview")
+    external_review = get_review(reviews, "externalReview")
 
     implementation["sessionActionRecommendation"] = decide_session_action(
         active_session_health=implementation.get("activeSessionHealth"),
@@ -273,7 +273,7 @@ def normalize_status(status: dict[str, Any], workflow_root: Path | None = None) 
         review_loop_state=normalized.get("derivedReviewLoopState") or ledger.get("reviewLoopState"),
         ledger_state=ledger.get("workflowState"),
         ledger_pr_head_sha=((ledger.get("pr") or {}).get("headSha")),
-        codex_reviewed_head_sha=codex_cloud.get("reviewedHeadSha"),
+        codex_reviewed_head_sha=external_review.get("reviewedHeadSha"),
         now_epoch=int(time.time()),
     )
 
@@ -411,7 +411,7 @@ def assemble_status_payload(
     review_loop_state: str | None,
     merge_blocked: bool,
     merge_blockers: list[str],
-    claude_preflight: dict[str, Any],
+    pre_publish_review_preflight: dict[str, Any],
     detailed_jobs: dict[str, Any],
     hermes_job_names: list[str],
     missing_core_jobs: list[str],
@@ -490,14 +490,12 @@ def assemble_status_payload(
         },
         "reviews": {
             **reviews,
-            "interReviewAgent": get_review(reviews, "internalReview") or None,
         },
         "derivedReviewLoopState": review_loop_state,
         "derivedMergeBlocked": merge_blocked,
         "derivedMergeBlockers": merge_blockers,
         "preflight": {
-            "claudeReview": claude_preflight,
-            "interReviewAgent": claude_preflight,
+            "prePublishReview": pre_publish_review_preflight,
         },
         "nextAction": next_action,
         "coreJobs": detailed_jobs,
@@ -526,8 +524,8 @@ def derive_latest_progress(
 ) -> dict[str, Any]:
     """Return the meaningful-progress marker the lane state payload should record.
 
-    Mirrors the wrapper's ``_derive_latest_progress``: promotes the Codex Cloud
-    completion timestamp to ``kind="approved"`` when the PR is cleanly reviewed,
+    Mirrors the wrapper's ``_derive_latest_progress``: promotes the external
+    review completion timestamp to ``kind="approved"`` when the PR is cleanly reviewed,
     otherwise falls back to the implementation status / ledger workflow state.
     """
     impl = implementation or {}
@@ -538,16 +536,16 @@ def derive_latest_progress(
         "at": impl.get("updatedAt") or now_iso,
     }
     external_review = get_review(reviews, "externalReview")
-    codex_updated_at = external_review.get("updatedAt")
+    external_review_updated_at = external_review.get("updatedAt")
     if (
         open_pr
         and review_loop_state == "clean"
         and not merge_blocked
         and external_review.get("status") == "completed"
         and external_review.get("verdict") == "PASS_CLEAN"
-        and codex_updated_at
+        and external_review_updated_at
     ):
-        return {"kind": "approved", "at": codex_updated_at}
+        return {"kind": "approved", "at": external_review_updated_at}
     return default
 
 
@@ -690,12 +688,12 @@ def apply_active_lane_ledger_transition(
         approval["approvedAt"] = now_iso if ledger["workflowState"] == "approved" else None
         approval["approvedHeadSha"] = (open_pr or {}).get("headRefOid") if ledger["workflowState"] == "approved" else None
         approval["pendingReason"] = None if ledger["workflowState"] == "approved" else (
-            "open-review-findings" if review_loop_state in {"findings_open", "rework_required"} else "awaiting-codex-cloud"
+            "open-review-findings" if review_loop_state in {"findings_open", "rework_required"} else "awaiting-external-review"
         )
     else:
         local_candidate = has_local_candidate(local_head_sha, implementation.get("commitsAhead"))
-        claude_current = current_inter_review_agent_matches_local_head(internal_review, local_head_sha)
-        single_pass_gate = single_pass_local_claude_gate_satisfied(
+        internal_review_current = current_inter_review_agent_matches_local_head(internal_review, local_head_sha)
+        single_pass_gate = single_pass_local_internal_review_gate_satisfied(
             previous_internal_review or internal_review,
             local_head_sha,
             implementation.get("laneState"),
@@ -704,20 +702,20 @@ def apply_active_lane_ledger_transition(
         ledger["workflowState"] = resolve_prepublish_workflow_state(
             local_candidate=local_candidate,
             single_pass_gate_satisfied=single_pass_gate,
-            claude_current=claude_current,
-            claude_verdict=internal_review.get("verdict"),
+            internal_review_current=internal_review_current,
+            internal_review_verdict=internal_review.get("verdict"),
         )
         ledger["reviewState"] = ledger["workflowState"]
         approval["status"] = "not-approved"
         approval["approvedAt"] = None
         approval["approvedHeadSha"] = None
         approval["pendingReason"] = (
-            "awaiting-local-claude" if ledger["workflowState"] != "ready_to_publish" else "awaiting-publish"
+            "awaiting-local-review" if ledger["workflowState"] != "ready_to_publish" else "awaiting-publish"
         )
     ledger["repairBrief"] = repair_brief
     if repair_brief is not None and not publish_ready:
-        ledger["workflowState"] = "claude_prepublish_findings"
-        ledger["reviewState"] = "claude_prepublish_findings"
+        ledger["workflowState"] = "pre_publish_review_findings"
+        ledger["reviewState"] = "pre_publish_review_findings"
         approval["pendingReason"] = "open-review-findings"
     if operator_attention_needed:
         ledger["workflowState"] = "operator_attention_required"
@@ -781,27 +779,27 @@ def resolve_prepublish_workflow_state(
     *,
     local_candidate: bool,
     single_pass_gate_satisfied: bool,
-    claude_current: bool,
-    claude_verdict: str | None,
+    internal_review_current: bool,
+    internal_review_verdict: str | None,
 ) -> str:
     """Classify the pre-publish workflow state for an active lane.
 
     Ordered rules (first match wins):
 
     1. No local candidate yet -> ``implementing_local``.
-    2. Pre-publish Claude gate already satisfied on the current head ->
+    2. Pre-publish internal review gate already satisfied on the current head ->
        ``ready_to_publish``.
-    3. Claude review completed against the current head with actionable
-       findings -> ``claude_prepublish_findings``.
-    4. Fallback -> ``awaiting_claude_prepublish``.
+    3. Internal review completed against the current head with actionable
+       findings -> ``pre_publish_review_findings``.
+    4. Fallback -> ``awaiting_pre_publish_review``.
     """
     if not local_candidate:
         return "implementing_local"
     if single_pass_gate_satisfied:
         return "ready_to_publish"
-    if claude_current and claude_verdict in {"PASS_WITH_FINDINGS", "REWORK"}:
-        return "claude_prepublish_findings"
-    return "awaiting_claude_prepublish"
+    if internal_review_current and internal_review_verdict in {"PASS_WITH_FINDINGS", "REWORK"}:
+        return "pre_publish_review_findings"
+    return "awaiting_pre_publish_review"
 
 
 def increment_no_progress_ticks(
@@ -952,20 +950,12 @@ def write_lane_state(
             "lastInternalReviewedHeadSha": ((get_review(reviews, "internalReview")).get("reviewedHeadSha")) or get_lane_state_review_field(existing.get("review"), "lastInternalReviewedHeadSha"),
             "lastInternalVerdict": ((get_review(reviews, "internalReview")).get("verdict")) or ((existing.get("review") or {}).get("lastInternalVerdict")),
             "localInternalReviewCount": local_inter_review_agent_review_count((get_review(reviews, "internalReview") or None), existing),
-            "currentClaudeRunId": ((get_review(reviews, "internalReview")).get("runId")),
-            "currentClaudeTargetHeadSha": inter_review_agent_target_head((get_review(reviews, "internalReview") or None)),
-            "currentClaudeStatus": ((get_review(reviews, "internalReview")).get("status")),
-            "currentClaudeTerminalState": ((get_review(reviews, "internalReview")).get("terminalState")),
-            "lastClaudeFailureClass": ((get_review(reviews, "internalReview")).get("failureClass")),
-            "lastInterReviewAgentReviewedHeadSha": ((get_review(reviews, "internalReview")).get("reviewedHeadSha")) or ((existing.get("review") or {}).get("lastInterReviewAgentReviewedHeadSha")),
-            "lastInterReviewAgentVerdict": ((get_review(reviews, "internalReview")).get("verdict")) or ((existing.get("review") or {}).get("lastInterReviewAgentVerdict")),
-            "localInterReviewAgentReviewCount": local_inter_review_agent_review_count((get_review(reviews, "internalReview") or None), existing),
-            "currentInterReviewAgentRunId": ((get_review(reviews, "internalReview")).get("runId")),
-            "currentInterReviewAgentTargetHeadSha": inter_review_agent_target_head((get_review(reviews, "internalReview") or None)),
-            "currentInterReviewAgentStatus": ((get_review(reviews, "internalReview")).get("status")),
-            "currentInterReviewAgentTerminalState": ((get_review(reviews, "internalReview")).get("terminalState")),
-            "lastInterReviewAgentFailureClass": ((get_review(reviews, "internalReview")).get("failureClass")),
-            "lastCodexCloudReviewedHeadSha": (get_review(reviews, "externalReview").get("reviewedHeadSha")),
+            "currentInternalReviewRunId": ((get_review(reviews, "internalReview")).get("runId")),
+            "currentInternalReviewTargetHeadSha": inter_review_agent_target_head((get_review(reviews, "internalReview") or None)),
+            "currentInternalReviewStatus": ((get_review(reviews, "internalReview")).get("status")),
+            "currentInternalReviewTerminalState": ((get_review(reviews, "internalReview")).get("terminalState")),
+            "lastInternalReviewFailureClass": ((get_review(reviews, "internalReview")).get("failureClass")),
+            "lastExternalReviewReviewedHeadSha": (get_review(reviews, "externalReview").get("reviewedHeadSha")),
         },
         "failure": {
             "lastClass": failure_class,

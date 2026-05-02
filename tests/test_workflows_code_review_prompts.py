@@ -50,7 +50,7 @@ def test_render_implementation_dispatch_prompt_includes_issue_summary_for_restar
     assert 'Issue summary:' in result
     assert 'Full issue body for restart turns.' in result
     assert 'Open PR: #301 https://example.com/pull/301' in result
-    assert 'The local branch has already passed the Claude pre-publish gate.' in result
+    assert 'The local branch has already passed the pre-publish internal review gate.' in result
 
 
 def test_render_implementation_dispatch_prompt_prepends_shared_workflow_policy():
@@ -73,10 +73,10 @@ def test_render_implementation_dispatch_prompt_prepends_shared_workflow_policy()
     assert '# Role-Specific Instructions' in result
 
 
-def test_render_claude_repair_handoff_prompt_includes_review_summary_and_fix_lists():
+def test_render_internal_review_repair_handoff_prompt_includes_review_summary_and_fix_lists():
     prompts_module = load_module("daedalus_workflows_change_delivery_prompts_test", "workflows/change_delivery/prompts.py")
 
-    result = prompts_module.render_claude_repair_handoff_prompt(
+    result = prompts_module.render_internal_review_repair_handoff_prompt(
         issue={"number": 224, "title": "Issue 224"},
         internal_review={"reviewedHeadSha": "abc123", "summary": "Claude found some stuff."},
         repair_brief={"mustFix": [{"summary": "Fix A"}], "shouldFix": [{"summary": "Fix B"}]},
@@ -86,7 +86,7 @@ def test_render_claude_repair_handoff_prompt_includes_review_summary_and_fix_lis
     )
 
     assert 'Internal_Reviewer_Agent pre-publish review found follow-up work for issue #224 on local head abc123.' in result
-    assert 'Claude summary:' in result
+    assert 'Internal review summary:' in result
     assert 'Claude found some stuff.' in result
     assert '- Fix A' in result
     assert '- Fix B' in result
@@ -98,7 +98,7 @@ def test_render_external_reviewer_repair_handoff_prompt_includes_pr_url_and_guar
 
     result = prompts_module.render_external_reviewer_repair_handoff_prompt(
         issue={"number": 224, "title": "Issue 224"},
-        external_review={"reviewedHeadSha": "def456", "summary": "Codex Cloud found follow-up work."},
+        external_review={"reviewedHeadSha": "def456", "summary": "external review found follow-up work."},
         repair_brief={"mustFix": [], "shouldFix": [{"summary": "Tighten edge case"}]},
         lane_memo_path=None,
         lane_state_path=None,

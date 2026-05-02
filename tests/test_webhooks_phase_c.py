@@ -226,13 +226,13 @@ def test_disabled_via_enabled_false():
 
 def test_event_filter_glob_matches_exact():
     from workflows.change_delivery.webhooks import event_matches
-    assert event_matches({"action": "run_claude_review"}, ["run_claude_review"]) is True
-    assert event_matches({"action": "merge_and_promote"}, ["run_claude_review"]) is False
+    assert event_matches({"action": "run_internal_review"}, ["run_internal_review"]) is True
+    assert event_matches({"action": "merge_and_promote"}, ["run_internal_review"]) is False
 
 
 def test_event_filter_glob_matches_prefix():
     from workflows.change_delivery.webhooks import event_matches
-    assert event_matches({"action": "run_claude_review"}, ["run_*"]) is True
+    assert event_matches({"action": "run_internal_review"}, ["run_*"]) is True
     assert event_matches({"action": "run_internal_review"}, ["run_*"]) is True
     assert event_matches({"action": "merge_and_promote"}, ["run_*"]) is False
 
@@ -255,7 +255,7 @@ def test_event_filter_multiple_globs_or():
     globs = ["merge_*", "operator_*"]
     assert event_matches({"action": "merge_and_promote"}, globs) is True
     assert event_matches({"action": "operator_attention_required"}, globs) is True
-    assert event_matches({"action": "run_claude_review"}, globs) is False
+    assert event_matches({"action": "run_internal_review"}, globs) is False
 
 
 def test_filtered_subscriber_does_not_deliver_unmatched_events():
@@ -268,7 +268,7 @@ def test_filtered_subscriber_does_not_deliver_unmatched_events():
     }]
     wh = build_webhooks(cfg, run_fn=None)[0]
     assert wh.matches({"action": "merge_and_promote"}) is True
-    assert wh.matches({"action": "run_claude_review"}) is False
+    assert wh.matches({"action": "run_internal_review"}) is False
 
 
 def test_build_webhooks_rejects_file_url():

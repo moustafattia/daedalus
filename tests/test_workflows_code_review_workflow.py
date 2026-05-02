@@ -25,7 +25,7 @@ def test_derive_next_action_prefers_merge_for_clean_published_pr():
             "implementation": {"localHeadSha": "abc123", "sessionActionRecommendation": {"action": "continue-session"}, "laneState": {}},
             "reviews": {},
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "under_review"},
             "derivedReviewLoopState": "clean",
             "derivedMergeBlocked": False,
@@ -53,7 +53,7 @@ def test_derive_next_action_uses_fresh_session_noop_for_healthy_implementation_l
             },
             "reviews": {},
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "implementing_local"},
             "derivedReviewLoopState": "awaiting_reviews",
             "derivedMergeBlocked": False,
@@ -80,7 +80,7 @@ def test_derive_next_action_promotes_ready_local_branch_even_when_health_is_stal
             },
             "reviews": {},
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "ready_to_publish"},
             "derivedReviewLoopState": "awaiting_reviews",
             "derivedMergeBlocked": False,
@@ -109,7 +109,7 @@ def test_derive_next_action_pushes_pr_update_when_local_head_is_ahead_of_pr():
             },
             "reviews": {},
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "findings_open"},
             "derivedReviewLoopState": "findings_open",
             "derivedMergeBlocked": True,
@@ -137,7 +137,7 @@ def test_derive_next_action_dispatches_turn_when_no_progress_budget_is_reached()
             },
             "reviews": {},
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "implementing_local"},
             "derivedReviewLoopState": "awaiting_reviews",
             "derivedMergeBlocked": False,
@@ -165,7 +165,7 @@ def test_derive_next_action_dispatches_retry_turn_when_failure_budget_is_reached
             },
             "reviews": {},
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "findings_open"},
             "derivedReviewLoopState": "findings_open",
             "derivedMergeBlocked": True,
@@ -178,7 +178,7 @@ def test_derive_next_action_dispatches_retry_turn_when_failure_budget_is_reached
     assert result["reason"] == "failure-retry-budget-reached"
 
 
-def test_derive_next_action_dispatches_claude_repair_handoff_when_review_is_actionable_and_session_is_routable():
+def test_derive_next_action_dispatches_internal_review_repair_handoff_when_review_is_actionable_and_session_is_routable():
     workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
@@ -201,8 +201,8 @@ def test_derive_next_action_dispatches_claude_repair_handoff_when_review_is_acti
                 }
             },
             "repairBrief": {"forHeadSha": "head123", "mustFix": [{"summary": "Fix it"}]},
-            "preflight": {"claudeReview": {"shouldRun": False}},
-            "ledger": {"workflowState": "claude_prepublish_findings"},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
+            "ledger": {"workflowState": "pre_publish_review_findings"},
             "derivedReviewLoopState": "findings_open",
             "derivedMergeBlocked": True,
             "nextAction": {"type": "noop", "reason": "old-wrapper-value"},
@@ -210,11 +210,11 @@ def test_derive_next_action_dispatches_claude_repair_handoff_when_review_is_acti
     )
 
     assert result["type"] == "dispatch_codex_turn"
-    assert result["mode"] == "claude_repair_handoff"
-    assert result["reason"] == "claude-findings-need-repair"
+    assert result["mode"] == "internal_review_repair_handoff"
+    assert result["reason"] == "internal-review-findings-need-repair"
 
 
-def test_derive_next_action_dispatches_claude_repair_handoff_from_stale_lane_with_ledger_brief():
+def test_derive_next_action_dispatches_internal_review_repair_handoff_from_stale_lane_with_ledger_brief():
     workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
@@ -237,9 +237,9 @@ def test_derive_next_action_dispatches_claude_repair_handoff_from_stale_lane_wit
                 }
             },
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {
-                "workflowState": "claude_prepublish_findings",
+                "workflowState": "pre_publish_review_findings",
                 "repairBrief": {"forHeadSha": "head123", "mustFix": [{"summary": "Fix it"}]},
             },
             "derivedReviewLoopState": "rework_required",
@@ -250,11 +250,11 @@ def test_derive_next_action_dispatches_claude_repair_handoff_from_stale_lane_wit
     )
 
     assert result["type"] == "dispatch_codex_turn"
-    assert result["mode"] == "claude_repair_handoff"
-    assert result["reason"] == "claude-findings-need-repair"
+    assert result["mode"] == "internal_review_repair_handoff"
+    assert result["reason"] == "internal-review-findings-need-repair"
 
 
-def test_derive_next_action_dispatches_codex_cloud_repair_handoff_when_review_is_actionable_and_session_is_routable():
+def test_derive_next_action_dispatches_external_review_repair_handoff_when_review_is_actionable_and_session_is_routable():
     workflow_module = load_module("daedalus_workflows_change_delivery_workflow_test", "workflows/change_delivery/workflow.py")
 
     result = workflow_module.derive_next_action(
@@ -277,7 +277,7 @@ def test_derive_next_action_dispatches_codex_cloud_repair_handoff_when_review_is
                 }
             },
             "repairBrief": {"forHeadSha": "prsha", "mustFix": [{"summary": "Fix it"}]},
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "findings_open"},
             "derivedReviewLoopState": "findings_open",
             "derivedMergeBlocked": True,
@@ -286,8 +286,8 @@ def test_derive_next_action_dispatches_codex_cloud_repair_handoff_when_review_is
     )
 
     assert result["type"] == "dispatch_codex_turn"
-    assert result["mode"] == "codex_cloud_repair_handoff"
-    assert result["reason"] == "codex-cloud-findings-need-repair"
+    assert result["mode"] == "external_review_repair_handoff"
+    assert result["reason"] == "external-review-findings-need-repair"
 
 
 def test_derive_next_action_dispatches_postpublish_repair_when_codex_findings_require_restart():
@@ -312,7 +312,7 @@ def test_derive_next_action_dispatches_postpublish_repair_when_codex_findings_re
                 }
             },
             "repairBrief": {"forHeadSha": "prsha", "mustFix": [{"summary": "Fix it"}]},
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "findings_open"},
             "derivedReviewLoopState": "findings_open",
             "derivedMergeBlocked": True,
@@ -322,7 +322,7 @@ def test_derive_next_action_dispatches_postpublish_repair_when_codex_findings_re
 
     assert result["type"] == "dispatch_codex_turn"
     assert result["mode"] == "postpublish_repair"
-    assert result["reason"] == "codex-cloud-findings-need-repair"
+    assert result["reason"] == "external-review-findings-need-repair"
 
 
 def test_derive_next_action_falls_back_to_wrapper_value_for_unhandled_cases():
@@ -341,7 +341,7 @@ def test_derive_next_action_falls_back_to_wrapper_value_for_unhandled_cases():
             },
             "reviews": {},
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "findings_open"},
             "derivedReviewLoopState": "findings_open",
             "derivedMergeBlocked": True,
@@ -373,7 +373,7 @@ def test_derive_next_action_short_circuits_when_claude_review_is_running_on_loca
                 }
             },
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "implementing_local"},
             "derivedReviewLoopState": "awaiting_reviews",
             "derivedMergeBlocked": False,
@@ -382,7 +382,7 @@ def test_derive_next_action_short_circuits_when_claude_review_is_running_on_loca
     )
 
     assert result["type"] == "noop"
-    assert result["reason"] == "claude-review-running"
+    assert result["reason"] == "internal-review-running"
     assert result["issueNumber"] == 224
     assert result["headSha"] == "head123"
 
@@ -401,7 +401,7 @@ def test_derive_next_action_honors_configurable_no_progress_tick_budget():
         },
         "reviews": {},
         "repairBrief": None,
-        "preflight": {"claudeReview": {"shouldRun": False}},
+        "preflight": {"prePublishReview": {"shouldRun": False}},
         "ledger": {"workflowState": "implementing_local"},
         "derivedReviewLoopState": "awaiting_reviews",
         "derivedMergeBlocked": False,
@@ -430,7 +430,7 @@ def test_derive_next_action_honors_configurable_failure_retry_budget():
         },
         "reviews": {},
         "repairBrief": None,
-        "preflight": {"claudeReview": {"shouldRun": False}},
+        "preflight": {"prePublishReview": {"shouldRun": False}},
         "ledger": {"workflowState": "findings_open"},
         "derivedReviewLoopState": "findings_open",
         "derivedMergeBlocked": True,
@@ -464,7 +464,7 @@ def test_derive_next_action_uses_has_local_candidate_for_push_pr_update_check():
             },
             "reviews": {},
             "repairBrief": None,
-            "preflight": {"claudeReview": {"shouldRun": False}},
+            "preflight": {"prePublishReview": {"shouldRun": False}},
             "ledger": {"workflowState": "findings_open"},
             "derivedReviewLoopState": "findings_open",
             "derivedMergeBlocked": True,

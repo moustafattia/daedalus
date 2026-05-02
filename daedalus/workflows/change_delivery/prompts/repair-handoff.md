@@ -4,10 +4,10 @@ Issue: #{issue_number} {issue_title}
 {lane_state_line}
 Read .lane-memo.md and .lane-state.json first; they are authoritative.
 Do not publish yet.
-Stay in the same lane and fix the current Claude pre-publish findings on the local branch.
-After fixes, run focused validation, update the local branch head, and stop for Claude re-review.
+Stay in the same lane and fix the current pre-publish internal review findings on the local branch.
+After fixes, run focused validation, update the local branch head, and stop for internal re-review.
 
-Claude summary:
+Internal review summary:
 {review_summary}
 
 Current must-fix items:

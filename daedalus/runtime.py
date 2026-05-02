@@ -40,6 +40,7 @@ from workflows.change_delivery.event_taxonomy import (
     canonicalize as canonicalize_event_type,
 )
 from workflows.change_delivery.status import build_status as build_workflow_status
+from workflows.change_delivery.storage import ensure_change_delivery_state_files
 import sys
 
 def _load_migration_module():
@@ -316,6 +317,12 @@ def init_daedalus_db(*, workflow_root: Path, project_key: str) -> dict[str, Any]
     # 1. Filesystem-level migration (renames relay-era files if present).
     #    Done before opening the DB so we don't open a stale empty file.
     _load_migration_module().migrate_filesystem_state(workflow_root)
+
+    try:
+        contract = load_workflow_contract(workflow_root)
+        state_files = ensure_change_delivery_state_files(workflow_root, contract.config)
+    except (FileNotFoundError, WorkflowContractError, OSError, UnicodeDecodeError):
+        state_files = ensure_change_delivery_state_files(workflow_root)
 
     # 2. Resolve canonical paths and open the DB.
     paths = runtime_paths(workflow_root)
@@ -607,7 +614,7 @@ def init_daedalus_db(*, workflow_root: Path, project_key: str) -> dict[str, Any]
             ),
         )
         conn.commit()
-        return {"ok": True, "db_path": str(db_path), "project_key": project_key}
+        return {"ok": True, "db_path": str(db_path), "project_key": project_key, "state_files": state_files}
     finally:
         conn.close()
 
@@ -1002,21 +1009,22 @@ def _merge_state_from_status(legacy_status: dict[str, Any]) -> str:
     return "not_ready"
 
 
-def _review_from_status(reviews: dict[str, Any], *keys: str) -> tuple[dict[str, Any], str | None]:
-    for key in keys:
-        review = reviews.get(key)
-        if isinstance(review, dict) and review:
-            return review, key
-    return {}, None
-
-
 def _required_review_flags(legacy_status: dict[str, Any]) -> tuple[int, int]:
     reviews = legacy_status.get("reviews") or {}
-    internal_review, _ = _review_from_status(reviews, "internalReview", "claudeCode")
-    external_review, _ = _review_from_status(reviews, "externalReview", "codexCloud")
+    internal_review = reviews.get("internalReview") or {}
+    external_review = reviews.get("externalReview") or {}
     internal_required = 1 if internal_review.get("required") else 0
     external_required = 1 if external_review.get("required") else 0
     return internal_required, external_required
+
+
+def _implementation_backend_type(impl: dict[str, Any]) -> str:
+    return str(
+        impl.get("sessionRuntime")
+        or impl.get("runtimeKind")
+        or impl.get("backendType")
+        or "acpx-codex"
+    )
 
 
 def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], now_iso: str | None = None) -> dict[str, Any]:
@@ -1030,6 +1038,7 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
     lane_state = (impl.get("laneState") or {}).get("implementation") or {}
     reviews = legacy_status.get("reviews") or {}
     internal_required, external_required = _required_review_flags(legacy_status)
+    implementation_backend = _implementation_backend_type(impl)
     repo_path = legacy_status.get("repo") or ""
     merge_blockers_json = json.dumps(legacy_status.get("derivedMergeBlockers") or [])
     repair_brief_json = json.dumps((legacy_status.get("ledger") or {}).get("repairBrief"))
@@ -1103,7 +1112,7 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
             (
                 lane_id, issue_number, active_lane.get("url") or "", active_lane.get("title") or "",
                 repo_path, impl.get("worktree"), impl.get("branch"), None, effort_label,
-                "acpx-codex", "active", (legacy_status.get("ledger") or {}).get("workflowState") or "unknown",
+                implementation_backend, "active", (legacy_status.get("ledger") or {}).get("workflowState") or "unknown",
                 legacy_status.get("derivedReviewLoopState") or (legacy_status.get("ledger") or {}).get("reviewState") or "unknown",
                 _merge_state_from_status(legacy_status), impl.get("localHeadSha"), ((impl.get("laneState") or {}).get("pr") or {}).get("lastPublishedHeadSha"),
                 (legacy_status.get("openPr") or {}).get("number"), (legacy_status.get("openPr") or {}).get("url"),
@@ -1140,7 +1149,7 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
               updated_at=excluded.updated_at
             """,
             (
-                actor_id, lane_id, "Internal_Coder_Agent", "Internal_Coder_Agent", "acpx-codex",
+                actor_id, lane_id, "Internal_Coder_Agent", "Internal_Coder_Agent", implementation_backend,
                 impl.get("sessionName"), impl.get("resumeSessionId"), impl.get("codexModel"),
                 "healthy" if (impl.get("activeSessionHealth") or {}).get("healthy") else "unhealthy",
                 (impl.get("sessionActionRecommendation") or {}).get("action"), now_iso,
@@ -1155,11 +1164,11 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
                 }, sort_keys=True), now_iso, now_iso,
             ),
         )
-        for reviewer_scope, legacy_keys, reviewer_role in (
-            ("internal", ("internalReview", "claudeCode"), "Internal_Reviewer_Agent"),
-            ("external", ("externalReview", "codexCloud"), "External_Reviewer_Agent"),
+        for reviewer_scope, review_key, reviewer_role in (
+            ("internal", "internalReview", "Internal_Reviewer_Agent"),
+            ("external", "externalReview", "External_Reviewer_Agent"),
         ):
-            review, review_key = _review_from_status(reviews, *legacy_keys)
+            review = reviews.get(review_key) or {}
             if not review:
                 continue
             review_id = f"review:{lane_id}:{reviewer_scope}"
@@ -1210,7 +1219,13 @@ def ingest_legacy_status(*, workflow_root: Path, legacy_status: dict[str, Any], 
                     review.get("summary"),
                     review.get("requestedAt"),
                     review.get("updatedAt") if review.get("status") == "completed" else None,
-                    json.dumps({"source": "legacy-status-ingest", "legacyKey": review_key}, sort_keys=True),
+                    json.dumps(
+                        {
+                            "source": "legacy-status-ingest",
+                            "reviewKey": review_key,
+                        },
+                        sort_keys=True,
+                    ),
                     now_iso,
                     now_iso,
                 ),
@@ -1256,18 +1271,52 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
     actor_metadata = _parse_json_blob(actor_row.get("metadata_json")) or {}
     session_control = actor_metadata.get("sessionControl") or {}
     repair_brief = _parse_json_blob(lane_row.get("repair_brief_json")) or {}
+    internal_review_status = str((internal_review or {}).get("status") or "").strip()
+    internal_review_head = (internal_review or {}).get("reviewed_head_sha") or (internal_review or {}).get("requested_head_sha")
+    internal_review_needs_request = bool(
+        current_head_sha
+        and lane_row.get("required_internal_review")
+        and (
+            internal_review is None
+            or internal_review_status in {"", "not_started", "pending"}
+            or (
+                internal_review_status == "completed"
+                and internal_review_head != current_head_sha
+            )
+        )
+    )
     has_actionable_repair_brief = bool(
         current_head_sha
         and repair_brief.get("forHeadSha") == current_head_sha
         and (repair_brief.get("mustFix") or repair_brief.get("shouldFix"))
     )
-    last_codex_cloud_handoff = session_control.get("lastCodexCloudRepairHandoff") or {}
-    repair_handoff_already_sent = bool(
-        last_codex_cloud_handoff.get("sessionName") == actor_row.get("backend_identity")
-        and last_codex_cloud_handoff.get("headSha") == current_head_sha
-        and external_review
-        and last_codex_cloud_handoff.get("reviewedAt") == external_review.get("completed_at")
+    last_external_review_handoff = session_control.get("lastExternalReviewRepairHandoff") or {}
+    last_internal_review_handoff = session_control.get("lastInternalReviewRepairHandoff") or {}
+    internal_review_completed_at = (internal_review or {}).get("completed_at")
+    local_repair_handoff_already_sent = bool(
+        last_internal_review_handoff.get("sessionName") == actor_row.get("backend_identity")
+        and last_internal_review_handoff.get("headSha") == current_head_sha
+        and internal_review
+        and last_internal_review_handoff.get("reviewedAt") == internal_review_completed_at
     )
+    repair_handoff_already_sent = bool(
+        last_external_review_handoff.get("sessionName") == actor_row.get("backend_identity")
+        and last_external_review_handoff.get("headSha") == current_head_sha
+        and external_review
+        and last_external_review_handoff.get("reviewedAt") == external_review.get("completed_at")
+    )
+    if (
+        workflow_state in {"implementing_local", "implementing"}
+        and not active_pr_number
+        and internal_review_needs_request
+    ):
+        return [{
+            "action_type": "request_internal_review",
+            "lane_id": lane_row.get("lane_id"),
+            "issue_number": lane_row.get("issue_number"),
+            "target_head_sha": current_head_sha,
+            "reason": "internal-review-pending",
+        }]
     if (
         workflow_state in {"implementing_local", "implementing"}
         and not active_pr_number
@@ -1299,7 +1348,29 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
             "reason": "implementation-in-progress",
         }]
     if (
-        workflow_state in {"claude_prepublish_findings", "rework_required"}
+        workflow_state in {"pre_publish_review_findings", "rework_required"}
+        and not active_pr_number
+        and internal_review
+        and internal_review.get("status") == "completed"
+        and internal_review.get("verdict") in {"PASS_WITH_FINDINGS", "REWORK"}
+        and current_head_sha
+        and internal_review.get("reviewed_head_sha") == current_head_sha
+        and internal_review.get("review_scope") == "local-prepublish"
+        and has_actionable_repair_brief
+        and actor_row.get("runtime_status") == "healthy"
+        and actor_row.get("session_action_recommendation") in {"continue-session", "poke-session"}
+        and actor_row.get("backend_identity")
+        and not local_repair_handoff_already_sent
+    ):
+        return [{
+            "action_type": "dispatch_repair_handoff",
+            "lane_id": lane_row.get("lane_id"),
+            "issue_number": lane_row.get("issue_number"),
+            "target_head_sha": current_head_sha,
+            "reason": "local-review-findings-need-repair",
+        }]
+    if (
+        workflow_state in {"pre_publish_review_findings", "rework_required"}
         and not active_pr_number
         and internal_review
         and internal_review.get("status") == "completed"
@@ -1331,12 +1402,9 @@ def derive_shadow_actions_for_lane(*, lane_row: dict[str, Any], reviews: list[di
             "reason": "local-repair-head-ahead-of-published-pr",
         }]
     if (
-        workflow_state == "awaiting_claude_prepublish"
+        workflow_state == "awaiting_pre_publish_review"
         and not active_pr_number
-        and lane_row.get("required_internal_review")
-        and internal_review
-        and internal_review.get("status") == "pending"
-        and current_head_sha
+        and internal_review_needs_request
     ):
         return [{
             "action_type": "request_internal_review",
@@ -1468,6 +1536,17 @@ def persist_shadow_actions(*, workflow_root: Path, lane_id: str, now_iso: str | 
                         "mode": "shadow",
                     },
                 })
+            else:
+                existing = conn.execute(
+                    """
+                    SELECT action_id
+                    FROM lane_actions
+                    WHERE idempotency_key=?
+                    """,
+                    (idempotency_key,),
+                ).fetchone()
+                if existing:
+                    persisted.append({**action, "action_id": dict(existing)["action_id"]})
         conn.commit()
     finally:
         conn.close()
@@ -1654,7 +1733,7 @@ def _run_legacy_publish_pr(*, workflow_root: Path) -> dict[str, Any]:
 
 
 def _run_legacy_request_internal_review(*, workflow_root: Path) -> dict[str, Any]:
-    return _run_workflow_cli_json(workflow_root=workflow_root, command="dispatch-claude-review")
+    return _run_workflow_cli_json(workflow_root=workflow_root, command="dispatch-internal-review")
 
 
 def _run_legacy_merge_pr(*, workflow_root: Path) -> dict[str, Any]:
@@ -2367,7 +2446,7 @@ def _semantic_completion_events_for_action(
     impl_status = (post_legacy_status or {}).get("implementation") or {}
     open_pr_status = (post_legacy_status or {}).get("openPr") or {}
     reviews = (post_legacy_status or {}).get("reviews") or {}
-    internal_review = reviews.get("claudeCode") or {}
+    internal_review = reviews.get("internalReview") or {}
     events: list[dict[str, Any]] = []
     if action_type in {"dispatch_implementation_turn", "dispatch_repair_handoff", "restart_actor_session"} and result.get("dispatched"):
         local_head_sha = impl_status.get("localHeadSha") or lane_after.get("current_head_sha") or lane_before.get("current_head_sha")
@@ -2933,6 +3012,7 @@ def _analyze_ambiguous_failure(
     failure_class: str,
     failure_summary: str,
     now_iso: str,
+    project_key: str,
     failure_analyst: Any | None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     analysis_input = _build_failure_analysis_input(
@@ -2952,7 +3032,7 @@ def _analyze_ambiguous_failure(
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Workflow_Orchestrator",
-            "project_key": _project_key_for(workflow_root),
+            "project_key": project_key,
             "lane_id": action.get("lane_id"),
             "issue_number": None,
             "head_sha": action.get("target_head_sha"),
@@ -2998,7 +3078,7 @@ def _analyze_ambiguous_failure(
             "event_version": 1,
             "created_at": now_iso,
             "producer": "Workflow_Orchestrator",
-            "project_key": _project_key_for(workflow_root),
+            "project_key": project_key,
             "lane_id": action.get("lane_id"),
             "issue_number": None,
             "head_sha": action.get("target_head_sha"),
@@ -3301,6 +3381,7 @@ def execute_requested_action(
                     failure_class=raw_failure_class,
                     failure_summary=failure_summary,
                     now_iso=now_iso,
+                    project_key=_project_key_for(workflow_root),
                     failure_analyst=failure_analyst,
                 )
                 recovery["metadata"] = {
