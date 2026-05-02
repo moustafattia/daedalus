@@ -973,7 +973,7 @@ def append_engine_event_to_connection(
         f"{workflow}:{safe_event_type}:{int(float(created_at_epoch) * 1000)}:{uuid.uuid4().hex[:8]}"
     )
     event_payload = dict(payload or {})
-    conn.execute(
+    inserted = conn.execute(
         """
         INSERT OR IGNORE INTO engine_events (
           workflow, event_id, run_id, work_id, event_type, severity,
@@ -992,6 +992,18 @@ def append_engine_event_to_connection(
             _json_dumps(event_payload),
         ),
     )
+    if inserted.rowcount == 0:
+        row = conn.execute(
+            """
+            SELECT workflow, event_id, run_id, work_id, event_type, severity,
+                   created_at, created_at_epoch, payload_json
+            FROM engine_events
+            WHERE event_id=?
+            """,
+            (safe_event_id,),
+        ).fetchone()
+        if row is not None:
+            return {**_event_row_to_dict(row), "inserted": False}
     return {
         "workflow": workflow,
         "event_id": safe_event_id,
@@ -1002,6 +1014,7 @@ def append_engine_event_to_connection(
         "created_at": created_at,
         "created_at_epoch": float(created_at_epoch),
         "payload": event_payload,
+        "inserted": True,
     }
 
 

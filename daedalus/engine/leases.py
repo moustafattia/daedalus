@@ -60,6 +60,66 @@ def acquire_engine_lease(
     now_epoch = iso_to_epoch(now_iso) or int(time.time())
     expires_iso = epoch_to_iso(now_epoch + ttl_seconds)
     lease_id = f"lease:{lease_scope}:{lease_key}"
+    metadata_json = json.dumps(metadata, sort_keys=True) if metadata else None
+
+    inserted = conn.execute(
+        """
+        INSERT OR IGNORE INTO leases (
+          lease_id, lease_scope, lease_key, owner_instance_id, owner_role,
+          acquired_at, expires_at, released_at, release_reason, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
+        """,
+        (
+            lease_id,
+            lease_scope,
+            lease_key,
+            owner_instance_id,
+            owner_role,
+            now_iso,
+            expires_iso,
+            metadata_json,
+        ),
+    )
+    if inserted.rowcount == 1:
+        return {
+            "acquired": True,
+            "lease_id": lease_id,
+            "owner_instance_id": owner_instance_id,
+            "expires_at": expires_iso,
+        }
+
+    updated = conn.execute(
+        """
+        UPDATE leases
+        SET owner_instance_id=?, owner_role=?, acquired_at=?, expires_at=?,
+            released_at=NULL, release_reason=NULL, metadata_json=?
+        WHERE lease_scope=? AND lease_key=?
+          AND (
+            owner_instance_id=?
+            OR released_at IS NOT NULL
+            OR expires_at <= ?
+          )
+        """,
+        (
+            owner_instance_id,
+            owner_role,
+            now_iso,
+            expires_iso,
+            metadata_json,
+            lease_scope,
+            lease_key,
+            owner_instance_id,
+            now_iso,
+        ),
+    )
+    if updated.rowcount == 1:
+        return {
+            "acquired": True,
+            "lease_id": lease_id,
+            "owner_instance_id": owner_instance_id,
+            "expires_at": expires_iso,
+        }
+
     row = conn.execute(
         "SELECT owner_instance_id, expires_at, released_at FROM leases WHERE lease_scope=? AND lease_key=?",
         (lease_scope, lease_key),
@@ -67,44 +127,42 @@ def acquire_engine_lease(
     if row:
         current_owner, expires_at, released_at = row
         expires_at_epoch = iso_to_epoch(expires_at)
-        if not released_at and expires_at_epoch and expires_at_epoch > now_epoch and current_owner != owner_instance_id:
+        if expires_at_epoch is None:
+            fallback = conn.execute(
+                """
+                UPDATE leases
+                SET owner_instance_id=?, owner_role=?, acquired_at=?, expires_at=?,
+                    released_at=NULL, release_reason=NULL, metadata_json=?
+                WHERE lease_scope=? AND lease_key=? AND owner_instance_id=? AND expires_at=?
+                """,
+                (
+                    owner_instance_id,
+                    owner_role,
+                    now_iso,
+                    expires_iso,
+                    metadata_json,
+                    lease_scope,
+                    lease_key,
+                    current_owner,
+                    expires_at,
+                ),
+            )
+            if fallback.rowcount == 1:
+                return {
+                    "acquired": True,
+                    "lease_id": lease_id,
+                    "owner_instance_id": owner_instance_id,
+                    "expires_at": expires_iso,
+                }
+            row = conn.execute(
+                "SELECT owner_instance_id FROM leases WHERE lease_scope=? AND lease_key=?",
+                (lease_scope, lease_key),
+            ).fetchone()
+            current_owner = row[0] if row else current_owner
+        if not released_at and current_owner != owner_instance_id:
             return {"acquired": False, "lease_id": lease_id, "owner_instance_id": current_owner}
-        conn.execute(
-            """
-            UPDATE leases
-            SET owner_instance_id=?, owner_role=?, acquired_at=?, expires_at=?,
-                released_at=NULL, release_reason=NULL, metadata_json=?
-            WHERE lease_scope=? AND lease_key=?
-            """,
-            (
-                owner_instance_id,
-                owner_role,
-                now_iso,
-                expires_iso,
-                json.dumps(metadata, sort_keys=True) if metadata else None,
-                lease_scope,
-                lease_key,
-            ),
-        )
     else:
-        conn.execute(
-            """
-            INSERT INTO leases (
-              lease_id, lease_scope, lease_key, owner_instance_id, owner_role,
-              acquired_at, expires_at, released_at, release_reason, metadata_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
-            """,
-            (
-                lease_id,
-                lease_scope,
-                lease_key,
-                owner_instance_id,
-                owner_role,
-                now_iso,
-                expires_iso,
-                json.dumps(metadata, sort_keys=True) if metadata else None,
-            ),
-        )
+        return {"acquired": False, "lease_id": lease_id, "owner_instance_id": None}
     return {
         "acquired": True,
         "lease_id": lease_id,
@@ -123,24 +181,29 @@ def release_engine_lease(
     release_reason: str | None = None,
 ) -> dict[str, Any]:
     init_engine_leases(conn)
+    updated = conn.execute(
+        """
+        UPDATE leases
+        SET released_at=?, release_reason=?
+        WHERE lease_scope=? AND lease_key=? AND owner_instance_id=?
+        """,
+        (now_iso, release_reason, lease_scope, lease_key, owner_instance_id),
+    )
+    if updated.rowcount == 1:
+        return {
+            "released": True,
+            "lease_id": f"lease:{lease_scope}:{lease_key}",
+            "owner_instance_id": owner_instance_id,
+        }
+
     row = conn.execute(
         "SELECT owner_instance_id FROM leases WHERE lease_scope=? AND lease_key=?",
         (lease_scope, lease_key),
     ).fetchone()
-    if not row or row[0] != owner_instance_id:
-        return {"released": False, "reason": "not-owner"}
-    conn.execute(
-        """
-        UPDATE leases
-        SET released_at=?, release_reason=?
-        WHERE lease_scope=? AND lease_key=?
-        """,
-        (now_iso, release_reason, lease_scope, lease_key),
-    )
     return {
-        "released": True,
-        "lease_id": f"lease:{lease_scope}:{lease_key}",
-        "owner_instance_id": owner_instance_id,
+        "released": False,
+        "reason": "not-owner",
+        "owner_instance_id": row[0] if row else None,
     }
 
 

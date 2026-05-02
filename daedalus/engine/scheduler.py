@@ -81,7 +81,7 @@ def restore_scheduler_state(payload: dict[str, Any], *, now_epoch: float) -> Res
         retry_entries=retry_entries,
         recovered_running=recovered_running,
         codex_totals=dict(payload.get("codex_totals") or payload.get("codexTotals") or {}),
-        codex_threads=restore_codex_threads(payload.get("codex_threads") or {}),
+        codex_threads=restore_codex_threads(payload.get("codex_threads") or payload.get("codexThreads") or {}),
     )
 
 
