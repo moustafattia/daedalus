@@ -17,8 +17,25 @@ BUST_SRC = ASSETS / "source" / "sprints-emblem.png"
 
 FONT_DISPLAY = ASSETS / "fonts" / "PlayfairDisplay.ttf"
 FONT_DISPLAY_ITALIC = ASSETS / "fonts" / "PlayfairDisplay-Italic.ttf"
-FONT_MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
-FONT_SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+
+def _first_existing(*paths: str) -> str:
+    for path in paths:
+        if Path(path).exists():
+            return path
+    return paths[0]
+
+
+FONT_MONO = _first_existing(
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    "C:/Windows/Fonts/consola.ttf",
+    "C:/Windows/Fonts/CascadiaMono.ttf",
+)
+FONT_SANS = _first_existing(
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+)
 
 # ── canvas ───────────────────────────────────────────────────────────────
 W, H = 1200, 400
@@ -63,7 +80,14 @@ TITLE_EMBLEM_H = 170
 # Title block vertical offsets relative to TITLE_Y.
 OFFSET_SUBTITLE_1 = 170
 OFFSET_SUBTITLE_2 = 218
-OFFSET_FLOW = 286
+OFFSET_FLOW = 270
+TAGLINE_TEXT = "supervised autonomous coding workflows"
+
+# Animated code column on the right side.
+CODE_X = 720
+
+# Bottom workflow stage line.
+FLOW_FONT_SIZE = 21
 # Caption underneath the title block:
 #   "A Hermes Agent plugin  ·  Reads issues, writes PRs."
 # (The GitHub-now/Linear-next roadmap line moved into the README so it

@@ -56,6 +56,10 @@ def caption_sans_small() -> ImageFont.ImageFont:
     return font(config.FONT_SANS, 13)
 
 
+def flow_stage() -> ImageFont.ImageFont:
+    return font(config.FONT_SANS, config.FLOW_FONT_SIZE)
+
+
 def code() -> ImageFont.ImageFont:
     return font(config.FONT_MONO, 14)
 
