@@ -62,6 +62,31 @@ SPRINTS_STALL_TERMINATED = "sprints.stall.terminated"
 _DEFAULT_TIMEOUT_MS = 300_000
 
 
+def parse_actor_output(raw_output: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(raw_output)
+    except json.JSONDecodeError as original_error:
+        decoder = json.JSONDecoder()
+        candidates: list[dict[str, Any]] = []
+        for index, char in enumerate(raw_output):
+            if char != "{":
+                continue
+            try:
+                value, end = decoder.raw_decode(raw_output[index:])
+            except json.JSONDecodeError:
+                continue
+            if raw_output[index + end :].strip():
+                continue
+            if isinstance(value, dict):
+                candidates.append(value)
+        if not candidates:
+            raise original_error
+        parsed = candidates[-1]
+    if not isinstance(parsed, dict):
+        raise TypeError("actor output must be a JSON object")
+    return parsed
+
+
 @dataclass
 class WorkflowState:
     workflow: str = ""
@@ -349,7 +374,7 @@ def run_stage_actor(
     )
     raw_output = runtime_result.output
     try:
-        parsed = json.loads(raw_output)
+        parsed = parse_actor_output(raw_output)
     except json.JSONDecodeError as exc:
         set_lane_status(
             config=config,
@@ -359,7 +384,7 @@ def run_stage_actor(
         )
         _persist_runtime_state(config=config, state=state)
         raise RuntimeError(f"actor {actor_name} returned invalid JSON: {exc}") from exc
-    if not isinstance(parsed, dict):
+    except TypeError as exc:
         set_lane_status(
             config=config,
             lane=lane,
@@ -367,7 +392,7 @@ def run_stage_actor(
             reason=f"actor {actor_name} output was not an object",
         )
         _persist_runtime_state(config=config, state=state)
-        raise RuntimeError(f"actor {actor_name} output must be a JSON object")
+        raise RuntimeError(str(exc)) from exc
     record_actor_output(config=config, lane=lane, actor_name=actor_name, output=parsed)
     apply_actor_output_status(
         config=config, lane=lane, actor_name=actor_name, output=parsed
