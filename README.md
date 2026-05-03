@@ -12,6 +12,12 @@ runtimes, stores state, and exposes operator commands. Policy belongs in
 
 ## Quick Start
 
+Prerequisites:
+
+- Hermes-Agent installed
+- Git and tracker credentials available to the runtime
+- Linux with `systemd --user` for `hermes sprints daemon up`
+
 ```bash
 sudo apt install python3-yaml python3-jsonschema
 hermes plugins install attmous/sprints --enable
@@ -38,6 +44,74 @@ Inside Hermes:
 /workflow change-delivery tick
 ```
 
+To run the first lane, add the `active` label to one eligible issue. The daemon
+will pick it up on the next tick.
+
+## Mental Model
+
+Sprints is a multi-lane workflow orchestrator.
+
+```text
+tracker issue -> lane ledger -> orchestrator tick -> actor runtime turn -> gate -> next stage
+                                                              |              |
+                                                              `-> retry      `-> operator_attention
+```
+
+A lane is one issue, pull request, or task with durable state. The orchestrator
+observes eligible lanes and decides what should happen next. Actors work on one
+lane at a time through a configured runtime.
+
+The engine stores mechanics: SQLite state, leases, retries, runtime sessions,
+events, and projections. The workflow owns policy: stages, gates, actor rules,
+tracker criteria, completion cleanup, and output contracts.
+
+## Default Workflow
+
+The default workflow template is `change-delivery`.
+
+```text
+active issue -> deliver -> review -> done
+                 |          |
+                 |          `-> reviewer reviews the pull request
+                 `-> implementer pulls, edits, debugs, commits, pushes, and opens the pull request
+```
+
+By default, only open issues with label `active` are eligible. Completed issues
+have `active` removed and `done` added, so they are not selected again.
+
+Default concurrency is one active lane:
+
+```yaml
+concurrency:
+  max-active-lanes: 1
+  max-implementers: 1
+  max-reviewers: 1
+```
+
+Lane states are internal orchestration state, not tracker status:
+
+| State | Meaning |
+| --- | --- |
+| `claimed` | The lane is reserved and must not be duplicated. |
+| `running` | An actor is working on the lane. |
+| `waiting` | Actor output is ready for orchestrator evaluation. |
+| `retry_queued` | Retry is scheduled and not ready or not yet dispatched. |
+| `operator_attention` | The operator must unblock the lane. |
+| `complete` | The workflow finished successfully. |
+| `released` | The claim was removed because the lane is terminal or no longer eligible. |
+
+## Runtime And Daemon
+
+Two services are involved:
+
+| Service | Job |
+| --- | --- |
+| `codex-app-server` | Runtime listener that executes actor turns. |
+| `sprints daemon` | Workflow loop that triggers ticks, reconciles lanes, and dispatches actors. |
+
+If the daemon is not running, the workflow only advances when an operator runs a
+manual tick.
+
 ## What Sprints Owns
 
 | Area | Meaning |
@@ -46,11 +120,11 @@ Inside Hermes:
 | Runtime dispatch | Actor turns through Codex app-server, Hermes Agent, Claude, ACPX, or command-backed runtime profiles. |
 | Durable state | SQLite runs, events, leases, retries, runtime sessions, and status projections. |
 | Operator surface | `/sprints`, `/workflow change-delivery`, daemon control, watch output, and runtime diagnostics. |
-| Trackers | GitHub and Linear client boundaries. |
+| Trackers | Issue discovery and issue status/label updates. |
+| Code hosts | Branch and pull request mechanics. GitHub currently provides both tracker and code-host boundaries. |
+| Skills | Reusable actor mechanics such as `pull`, `debug`, `commit`, and `push`. |
 
 ## Workflow Model
-
-The default workflow template is `change-delivery`.
 
 Each contract defines:
 
@@ -80,6 +154,7 @@ sprints/
 |-- engine/       # SQLite-backed state
 |-- observe/      # read-only operator views
 |-- runtimes/     # runtime adapters and turn dispatch
+|-- skills/       # actor skill instructions
 |-- trackers/     # GitHub and Linear trackers
 `-- workflows/    # WORKFLOW.md loader and workflow runner
 ```
@@ -91,8 +166,11 @@ sprints/
 | [Installation](docs/operator/installation.md) | Install, bootstrap, validate, run. |
 | [Architecture](docs/architecture.md) | Current package boundaries. |
 | [Workflow Contract](docs/workflows/workflow-contract.md) | `WORKFLOW.md` structure. |
+| [Workflow Daemon](docs/operator/workflow-daemon.md) | Tick loop and service control. |
+| [Codex App Server](docs/operator/codex-app-server.md) | Default runtime listener. |
 | [Runtimes](docs/concepts/runtimes.md) | Actor/runtime execution path. |
 | [Engine](docs/concepts/engine.md) | Durable state model. |
+| [Skills](sprints/skills/README.md) | Actor skill packages. |
 | [Slash Commands](docs/operator/slash-commands.md) | Command reference. |
 | [Security](docs/security.md) | Trust model and execution risk. |
 

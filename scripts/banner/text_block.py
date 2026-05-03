@@ -65,7 +65,7 @@ def draw(im: Image.Image, *, frame: int) -> None:
     )
     d.text(
         (x, y + config.OFFSET_SUBTITLE_2),
-        "for supervised autonomous coding agents' workflows",
+        config.TAGLINE_TEXT,
         font=typography.tagline(),
         fill=(*config.CYAN, 255),
     )

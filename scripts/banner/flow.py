@@ -57,7 +57,7 @@ def _line_extent(font, anchor_x: int) -> tuple[int, int]:
 
 def draw(im: Image.Image, *, anchor: tuple[int, int], frame: int) -> None:
     """Paint the animated flow line into `im` at ``anchor``."""
-    font = typography.caption_sans()
+    font = typography.flow_stage()
     anchor_x, anchor_y = anchor
     xs = _token_x_positions(font, anchor_x)
 

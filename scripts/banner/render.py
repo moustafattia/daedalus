@@ -65,7 +65,7 @@ def render_frame(scene: Scene, f: int) -> Image.Image:
     # occupies the right side of the banner.
     code_layer = Image.new("RGBA", (config.W, config.H), (0, 0, 0, 0))
     cd = ImageDraw.Draw(code_layer)
-    code_x = 870
+    code_x = config.CODE_X
     code_overlays.draw_block(
         cd,
         code_overlays.AGENTS_BLOCK,
