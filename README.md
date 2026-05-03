@@ -25,10 +25,6 @@ On April 27, 2026, OpenAI published
 an open-source spec for Codex orchestration. That playbook helped me cut through
 parts of my own implementation, reduce code size, and close many design gaps.
 
-Sprints is not Symphony. It is a Hermes-Agent-focused implementation of the same
-question: how do we make agentic software delivery durable, reviewable, and safe
-to operate, with clear handoff between agents and humans?
-
 My goal is to keep improving Sprints until it becomes genuinely useful to the
 [Hermes-Agent](https://hermes-agent.nousresearch.com/) community.
 
