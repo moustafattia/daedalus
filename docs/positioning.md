@@ -9,8 +9,8 @@ operator controls.
 
 | Product | Owns |
 | --- | --- |
-| Hermes Agent | Interactive agent runtime and model/tool execution. |
-| Hermes Sprints | Durable workflow execution around repo-owned `WORKFLOW.md`. |
+| Hermes-Agent | Interactive agent runtime and model/tool execution. |
+| Sprints | Durable workflow execution around repo-owned `WORKFLOW.md`. |
 | Trackers | Work item source and status surface. |
 | Code hosts | Branches, PRs, checks, reviews, and merge. |
 
