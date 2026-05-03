@@ -1,7 +1,7 @@
 # Sprints
 
 <p align="center">
-  <img src="assets/sprints-banner.gif" alt="Hermes Sprints banner">
+  <img src="assets/sprints-readme-banner.png" alt="Hermes Sprints banner">
 </p>
 
 Sprints is a Hermes-Agent plugin for durable supervised workflow execution.
