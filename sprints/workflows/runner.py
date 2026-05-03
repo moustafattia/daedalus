@@ -914,7 +914,10 @@ def _apply_decision(
     if decision.decision == "retry":
         return queue_lane_retry(config=config, lane=lane, decision=decision)
     if decision.decision == "advance":
-        advance_lane(config=config, lane=lane, target=decision.target)
+        target_stage = (
+            decision.target if decision.target in config.stages else decision.stage
+        )
+        advance_lane(config=config, lane=lane, target=target_stage)
         return {"lane_id": lane["lane_id"], "decision": "advance"}
     if decision.decision == "run_actor":
         if decision.stage != lane_stage(lane):
