@@ -20,16 +20,17 @@ My background is in Agile software delivery, where teams move work through
 issues, implementation, review, feedback, and completion. With Sprints, I am
 trying to recreate that delivery loop around AI agents and humans in the loop.
 
-On April 27, 2026, OpenAI published **Symphony**, an open-source spec for Codex
-orchestration. That playbook helped me cut through parts of my own
-implementation, reduce code size, and close many design gaps.
+On April 27, 2026, OpenAI published
+[**Symphony**](https://openai.com/index/open-source-codex-orchestration-symphony/),
+an open-source spec for Codex orchestration. That playbook helped me cut through
+parts of my own implementation, reduce code size, and close many design gaps.
 
 Sprints is not Symphony. It is a Hermes-Agent-focused implementation of the same
 question: how do we make agentic software delivery durable, reviewable, and safe
 to operate, with clear handoff between agents and humans?
 
 My goal is to keep improving Sprints until it becomes genuinely useful to the
-Hermes-Agent community.
+[Hermes-Agent](https://hermes-agent.nousresearch.com/) community.
 
 ## Quick Start
 
