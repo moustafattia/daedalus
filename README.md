@@ -4,7 +4,7 @@
   <img src="assets/sprints-banner.gif" alt="Hermes Sprints banner">
 </p>
 
-Hermes Sprints is a Hermes plugin for durable supervised workflow execution.
+Sprints is a Hermes plugin for durable supervised workflow execution.
 
 Sprints writes a repo-owned `WORKFLOW.md`, dispatches actors through configured
 runtimes, stores state, and exposes operator commands. Policy belongs in
