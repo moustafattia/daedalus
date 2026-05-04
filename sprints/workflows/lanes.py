@@ -1170,6 +1170,16 @@ def complete_lane(*, config: WorkflowConfig, lane: dict[str, Any], reason: str) 
         )
         return
     auto_merge = _auto_merge_completed_pull_request(config=config, lane=lane)
+    if auto_merge.get("status") == "waiting":
+        lane["completion_auto_merge"] = auto_merge
+        set_lane_status(
+            config=config,
+            lane=lane,
+            status="waiting",
+            actor=None,
+            reason=str(auto_merge.get("reason") or "auto-merge is waiting"),
+        )
+        return
     if auto_merge.get("status") == "error":
         set_lane_operator_attention(
             config=config,
@@ -1247,6 +1257,12 @@ def _auto_merge_completed_pull_request(
                 "pull_request": {"number": pr_number, "already_merged": True},
             }
         if not readiness.get("ready"):
+            if _merge_readiness_is_transient(readiness):
+                return {
+                    "status": "waiting",
+                    "reason": _merge_readiness_error(readiness),
+                    "readiness": readiness,
+                }
             return {
                 "status": "error",
                 "error": _merge_readiness_error(readiness),
@@ -1322,6 +1338,25 @@ def _merge_readiness_error(readiness: dict[str, Any]) -> str:
     if len(blockers) == 1:
         return message or "pull request is not ready to merge"
     return f"{message or 'pull request is not ready to merge'} (+{len(blockers) - 1} more)"
+
+
+def _merge_readiness_is_transient(readiness: dict[str, Any]) -> bool:
+    blockers = (
+        readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []
+    )
+    if not blockers:
+        return False
+    for blocker in blockers:
+        if not isinstance(blocker, dict):
+            return False
+        kind = str(blocker.get("kind") or "").strip()
+        state = str(blocker.get("state") or "").strip().upper()
+        if kind in {"mergeability_unknown", "check_pending"}:
+            continue
+        if kind == "merge_state_blocked" and state in {"UNKNOWN", "BLOCKED"}:
+            continue
+        return False
+    return True
 
 
 def release_lane(*, config: WorkflowConfig, lane: dict[str, Any], reason: str) -> None:
