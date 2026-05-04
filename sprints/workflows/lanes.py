@@ -667,13 +667,30 @@ def _review_changes_are_pending(lane: dict[str, Any]) -> bool:
         return False
     if str(lane.get("status") or "").strip() != "waiting":
         return False
-    review = lane_mapping(lane, "actor_outputs").get("reviewer")
+    actor_outputs = lane_mapping(lane, "actor_outputs")
+    if _stale_reviewer_changes_were_superseded(lane=lane, actor_outputs=actor_outputs):
+        return False
+    review = actor_outputs.get("reviewer")
     if not isinstance(review, dict):
         return False
     return str(review.get("status") or "").strip().lower() in {
         "changes_requested",
         "needs_changes",
     }
+
+
+def _stale_reviewer_changes_were_superseded(
+    *, lane: dict[str, Any], actor_outputs: dict[str, Any]
+) -> bool:
+    implementation = actor_outputs.get("implementer")
+    if not isinstance(implementation, dict):
+        return False
+    if str(implementation.get("status") or "").strip().lower() != "done":
+        return False
+    last_output = lane.get("last_actor_output")
+    if not isinstance(last_output, dict) or last_output != implementation:
+        return False
+    return int(lane.get("attempt") or 1) > 1
 
 
 def _clear_superseded_reviewer_changes(

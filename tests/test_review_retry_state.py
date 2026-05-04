@@ -90,3 +90,43 @@ def test_successful_retry_delivery_clears_stale_reviewer_changes(tmp_path):
     assert lane["actor_outputs"]["implementer"] == output
     assert "reviewer" not in lane["actor_outputs"]
     assert lane["superseded_actor_outputs"][0]["actor"] == "reviewer"
+
+
+def test_existing_retry_state_with_stale_reviewer_changes_can_resume(tmp_path):
+    config = _config(tmp_path)
+    implementation = {
+        "status": "done",
+        "pull_request": {
+            "number": 36,
+            "state": "open",
+            "url": "https://github.example/pr/36",
+        },
+        "verification": [{"command": "pytest", "status": "passed"}],
+    }
+    lane = {
+        "lane_id": "github#31",
+        "stage": "review",
+        "status": "waiting",
+        "attempt": 2,
+        "pending_retry": None,
+        "last_actor_output": implementation,
+        "actor_outputs": {
+            "implementer": implementation,
+            "reviewer": {
+                "status": "changes_requested",
+                "summary": "Fix CLI dispatch.",
+                "required_fixes": [{"file": "src/pkg/cli.py"}],
+            },
+        },
+    }
+
+    validate_decision_for_lane(
+        config=config,
+        lane=lane,
+        decision=OrchestratorDecision(
+            decision="run_actor",
+            stage="review",
+            lane_id="github#31",
+            target="reviewer",
+        ),
+    )
