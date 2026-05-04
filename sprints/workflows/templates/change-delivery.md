@@ -24,6 +24,11 @@ retry:
   initial-delay-seconds: 0
   backoff-multiplier: 2
   max-delay-seconds: 300
+notifications:
+  review-changes-requested:
+    pull-request-review: true
+    pull-request-comment: false
+    issue-comment: true
 completion:
   remove_labels: [active]
   add_labels: [done]
@@ -44,6 +49,7 @@ actors:
     skills: [pull, debug, commit, push]
   reviewer:
     runtime: codex
+    skills: [review]
 stages:
   deliver:
     actors: [implementer]
@@ -122,16 +128,26 @@ evidence. Move from `review` to `done` only when the reviewer returned
 `status: approved` and the lane still has a pull request URL. The runner
 enforces these mechanical contracts.
 
+When the reviewer returns `changes_requested` or `needs_changes`, do not
+complete the lane. Return a `retry` decision with `stage: deliver` and
+`target: implementer`. Pass the full review output through `inputs.review`,
+`inputs.required_fixes`, `inputs.findings`, `inputs.verification_gaps`, and
+`inputs.feedback`. The runner posts the reviewer findings to the pull request
+as a formal change request and to the source issue when notification config is
+enabled. The runner refuses any other lane transition while review fixes are
+pending.
+
 The implementer owns pull, edit, debug, commit, push, and pull request
 creation. Send work back with `retry` when actor output is incomplete or
 internally inconsistent. Raise `operator_attention` for actor `blocked`/`failed`
 outputs, missing permissions, unclear acceptance criteria, risky migrations,
 pull request creation failure, or external review decisions.
 
-Retries are durable lane state, not immediate recursion. The runner stores the
-target stage, target actor, feedback, attempt, due time, and retry history. It
-enforces `retry.max-attempts` and backoff before dispatch. When the retry limit
-is reached, raise `operator_attention` instead of requesting another retry.
+Retries are durable lane state, not immediate recursion. The engine owns retry
+attempt limits, backoff, due-time planning, and the retry queue row. The lane
+keeps the target stage, target actor, feedback, attempt, due time, and retry
+history as actor handoff context. When the retry limit is reached, raise
+`operator_attention` instead of requesting another retry.
 
 Return JSON only:
 
@@ -172,6 +188,9 @@ Attempt:
 Retry:
 {{ retry }}
 
+Review feedback:
+{{ review_feedback }}
+
 ## Policy
 
 Work on exactly one lane. Use the injected actor skills in this loop:
@@ -185,6 +204,11 @@ Work on exactly one lane. Use the injected actor skills in this loop:
 Keep scope tight. Preserve user changes. Run focused verification that proves
 the touched behavior still works. The `push` skill owns pull request creation or
 update.
+
+When `review_feedback` or `retry` contains reviewer findings, keep working on
+the same lane branch and pull request. Apply every concrete `required_fixes`
+item, address findings that have production impact, refresh verification,
+commit, push, and return an updated pull request payload.
 
 Never ask for interactive escalation. If auth, permissions, sandbox, or tooling
 fail, return `blocked` with structured blockers and enough artifacts for
@@ -247,6 +271,12 @@ Review exactly one lane and its pull request for correctness, regressions,
 missing verification, and production risk. Focus on actionable findings. Do not
 mutate unrelated lane state and do not request interactive escalation.
 
+If the pull request needs fixes, return `changes_requested` with non-empty
+`required_fixes`. Each required fix must be concrete enough for the implementer
+to apply without more conversation. Use `blocked` only when review cannot be
+completed because of missing permissions, missing PR data, or inaccessible
+artifacts.
+
 ## Output
 
 Return JSON only:
@@ -254,9 +284,28 @@ Return JSON only:
 {
   "status": "approved|changes_requested|blocked|failed",
   "summary": "review summary",
-  "findings": [],
-  "required_fixes": [],
-  "verification_gaps": [],
+  "findings": [
+    {
+      "severity": "low|medium|high",
+      "file": "path/to/file",
+      "line": 123,
+      "issue": "specific concern",
+      "impact": "why it matters"
+    }
+  ],
+  "required_fixes": [
+    {
+      "file": "path/to/file",
+      "change": "specific fix required",
+      "reason": "why this fix is required"
+    }
+  ],
+  "verification_gaps": [
+    {
+      "command": "missing or insufficient verification",
+      "reason": "what needs proof"
+    }
+  ],
   "blockers": [],
-  "next_recommendation": "complete"
+  "next_recommendation": "complete|retry_deliver"
 }

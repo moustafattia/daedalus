@@ -15,6 +15,7 @@ sessions, and exposes a workflow-scoped API for that state.
 | `state.py` | SQL reads and writes for scheduler state, runs, and events |
 | `scheduler.py` | In-memory scheduler snapshot shape |
 | `lifecycle.py` | Pure transitions for running and retry entries |
+| `retries.py` | Retry policy, attempt limits, backoff, and due-time planning |
 | `leases.py` | SQLite-backed leases |
 | `retention.py` | Event retention config normalization |
 | `reports.py` | CLI report builders for runs and events |
@@ -49,8 +50,18 @@ records a tracker-neutral work item row so operators can inspect lane state from
 the engine DB.
 
 `engine_runtime_sessions` is the durable projection of actor runtime/session
-state. Workflow lanes still keep runtime metadata for orchestrator context, but
-runtime start/progress/result hooks upsert the engine session row directly.
+state. Each actor dispatch also creates an `engine_runs` row with `mode=actor`.
+Workflow lanes still keep runtime metadata for orchestrator context, but runtime
+start/progress/result hooks upsert the engine session row directly and link it
+to the actor run ID.
+
+`EngineStore.running_runs(mode="actor")` is the dispatch guard input. Workflow
+code uses it to refuse duplicate actor work when a prior actor run is still
+marked `running`.
+
+`engine_retry_queue` is owned through `EngineStore.schedule_retry()`. Workflows
+decide that a lane should retry; the engine computes the next attempt, checks
+the retry limit, computes backoff, and persists the due retry projection.
 
 ## Deferred
 
@@ -59,8 +70,8 @@ Workflow lane JSON still owns rich lane state and policy context.
 
 Later engine ownership waves:
 
-- move retry wakeups into the engine so due retries can drive workflow ticks
-  instead of waiting for an external tick
+- let due retries actively wake workflow ticks instead of only shortening daemon
+  sleep on the next loop
 - make lane lifecycle transitions engine-owned instead of `set_lane_status()`
   mutating JSON first and recording a projection second
 - make actor dispatch/run/session updates transactional around engine run

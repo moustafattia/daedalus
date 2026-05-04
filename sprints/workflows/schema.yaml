@@ -89,6 +89,20 @@ properties:
         type: integer
         minimum: 0
     additionalProperties: true
+  notifications:
+    type: object
+    properties:
+      review-changes-requested:
+        type: object
+        properties:
+          pull-request-review:
+            type: boolean
+          pull-request-comment:
+            type: boolean
+          issue-comment:
+            type: boolean
+        additionalProperties: true
+    additionalProperties: true
   completion:
     type: object
     properties:

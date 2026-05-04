@@ -412,7 +412,9 @@ flowchart LR
     Issue --> Claim --> Deliver --> Implementer --> DeliveryGate
     DeliveryGate --> Review --> Reviewer --> ReviewGate --> Done --> Cleanup
     DeliveryGate -. "missing PR or verification" .-> Attention["operator_attention"]
-    ReviewGate -. "not approved" .-> Retry["retry or operator_attention"]
+    ReviewGate -. "changes requested" .-> Retry["retry deliver"]
+    Retry -. "review findings" .-> Implementer
+    ReviewGate -. "blocked or failed" .-> Attention["operator_attention"]
 ```
 
 The implementer owns the full delivery loop:
@@ -432,6 +434,13 @@ The runner only completes review when the reviewer output has:
 
 - `status: approved`
 - an existing pull request URL on the lane
+
+When the reviewer returns `changes_requested` or `needs_changes`, the
+orchestrator must retry `deliver` with the reviewer findings as feedback. The
+runner rejects any other transition while those fixes are pending. Before the
+implementer gets the retry handoff, the runner can post the findings as a
+formal pull request change request and to the source issue. Notification records
+are fingerprinted so repeated ticks do not repost the same review side effect.
 
 On successful completion, configured cleanup removes `active`, adds `done`, and
 releases the lane lease.
@@ -465,6 +474,7 @@ Planning rules enforced by the runner:
 - one decision per lane per tick
 - no dispatch for terminal lanes
 - no duplicate dispatch for `running` lanes
+- no dispatch when an active runtime session or actor run already exists for the lane
 - retry lanes can only dispatch their due retry target
 - actor concurrency is checked before dispatch
 - lane stage must match the decision unless it is a valid next-stage handoff
@@ -475,16 +485,35 @@ Actors do not run in `workflows/`. They cross the runtime boundary.
 
 ```text
 runner.run_stage_actor
+  -> guard lane/runtime/run dispatch
+  -> engine.start_run(mode=actor)
+  -> engine.upsert_runtime_session
   -> workflows.actors.actor_runtime_plan
   -> workflows.actors.append_actor_skill_docs
   -> runtimes.build_runtimes
   -> runtimes.turns.run_runtime_stage
   -> selected runtime adapter
+  -> engine.finish_run
 ```
 
 `runtimes/turns.py` normalizes one Sprints turn. A backend may internally have
 its own protocol turns, sessions, or event stream, but workflow code sees one
 prompt/result exchange plus metadata.
+
+Every actor dispatch gets a durable `engine_runs` row with `mode=actor`.
+Runtime session rows, lane runtime metadata, and runtime events all carry the
+same `run_id`. When a running lane is stale, reconciliation marks that runtime
+session and actor run `interrupted` before moving the lane to operator attention.
+
+Runtime session status is normalized to:
+
+| Status | Meaning |
+| --- | --- |
+| `running` | Actor turn is active. |
+| `completed` | Actor returned a valid successful handoff. |
+| `blocked` | Actor returned blockers or the output contract forced operator attention. |
+| `failed` | Runtime failed or actor output was structurally invalid. |
+| `interrupted` | A stale running turn was recovered by reconciliation. |
 
 Runtime examples:
 
@@ -577,6 +606,7 @@ Code-host responsibilities:
 
 - list open pull requests
 - create pull requests
+- comment on pull requests and issues
 - mark pull requests ready
 - merge pull requests
 - inspect review threads and reactions
@@ -607,7 +637,7 @@ Engine tables:
 | `engine_retry_queue` | Durable retry projection and due-time lookup. |
 | `engine_runtime_sessions` | Runtime session/thread/turn metadata by work item. |
 | `engine_runtime_totals` | Token and turn totals. |
-| `engine_runs` | Durable run records. |
+| `engine_runs` | Durable daemon, tick, and actor run records. |
 | `engine_events` | Event timeline by workflow, run, and work item. |
 | `leases` | SQLite-backed mutual exclusion for daemon and lane claims. |
 
@@ -621,8 +651,9 @@ The current state split is intentional but transitional:
 | Operator inspection | engine reports plus workflow status |
 
 Later engine waves can move more ownership into `engine/`, especially retry
-wakeups and transactional lane lifecycle transitions. Workflow policy should
-still stay outside the engine.
+wakeups and transactional lane lifecycle transitions. Retry attempt limits,
+backoff, due-time planning, and retry queue persistence are already engine-owned.
+Workflow policy should still stay outside the engine.
 
 ## Reconciliation
 
@@ -630,7 +661,7 @@ Before each dispatch, the runner reconciles three external realities:
 
 | Reconcile Path | What It Checks | Result |
 | --- | --- | --- |
-| Runtime reconciliation | Running lanes whose runtime session has not progressed within `recovery.running-stale-seconds`. | Marks lane `operator_attention` with runtime/session artifacts. |
+| Runtime reconciliation | Running lanes whose runtime session has not progressed within `recovery.running-stale-seconds`. | Marks the runtime session and actor run `interrupted`, then moves the lane to `operator_attention` with artifacts. |
 | Tracker reconciliation | Active lane issue still exists and remains eligible. | Updates issue payload or releases lane. |
 | Pull request reconciliation | Open PRs matching lane branch. | Updates `lane.pull_request`. |
 
@@ -645,29 +676,36 @@ Retries are durable lane state, not immediate recursion.
 flowchart LR
     FailedOutput["Incomplete actor output"]
     Orchestrator["retry decision"]
-    Pending["lane.pending_retry"]
-    EngineRetry["engine_retry_queue"]
+    EngineRetry["engine schedules retry"]
+    Pending["lane.pending_retry projection"]
     Sleep["daemon sleep until due"]
     Dispatch["run retry target"]
     Limit["operator_attention"]
 
-    FailedOutput --> Orchestrator --> Pending --> EngineRetry --> Sleep --> Dispatch
-    Orchestrator -. "attempt >= max" .-> Limit
+    FailedOutput --> Orchestrator --> EngineRetry --> Pending --> Sleep --> Dispatch
+    EngineRetry -. "attempt >= max" .-> Limit
 ```
 
-`queue_lane_retry()` records:
+`queue_lane_retry()` asks `EngineStore.schedule_retry()` to compute and persist:
+
+- next attempt
+- retry limit exhaustion
+- backoff delay
+- due time
+- `engine_retry_queue` row
+
+The lane keeps a workflow-facing retry projection for actor handoff:
 
 - target stage
 - target actor/action
 - reason and feedback inputs
-- next attempt
 - queued time
-- due time
-- max attempts
 - retry history
 
 The daemon shortens sleep when a retry is due soon. The runner validates that
-retry dispatch uses the queued target and only runs after the due time.
+retry dispatch uses the queued target and only runs after the due time. When a
+queued retry is dispatched, the runner consumes the retry projection and clears
+the engine queue row before marking the lane running.
 
 ## Failure And Recovery
 
@@ -678,7 +716,8 @@ retry dispatch uses the queued target and only runs after the due time.
 | Implementer omits PR or verification | Delivery contract fails; lane becomes `operator_attention`. |
 | Reviewer requests changes without concrete fixes | Lane becomes `operator_attention`. |
 | Runtime command fails | Lane becomes `operator_attention`; runtime result metadata is recorded when available. |
-| Running lane goes stale | Reconciliation marks `actor_interrupted`. |
+| Duplicate dispatch guard trips | Lane becomes `operator_attention`; active session/run conflicts are recorded. |
+| Running lane goes stale | Reconciliation marks the actor run `interrupted` and the lane `operator_attention`. |
 | Retry limit exceeded | Lane becomes `operator_attention`. |
 | Tracker cleanup fails | Completion is stopped and artifacts are recorded. |
 | Issue loses eligibility | Lane is released. |
@@ -728,6 +767,8 @@ These rules protect the mental model:
 - One actor turn works on exactly one lane.
 - One tick may return many decisions, but at most one decision per lane.
 - No duplicate work is dispatched for a running lane.
+- No duplicate actor turn is dispatched while an active runtime session or actor
+  run already exists for the lane.
 - Tracker state is eligibility, not orchestration ownership.
 - Engine leases protect ownership; lane JSON keeps rich context.
 - Runtime adapters return normalized results; workflows do not know backend

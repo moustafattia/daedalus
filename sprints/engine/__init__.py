@@ -16,6 +16,7 @@ from .leases import (
     release_engine_lease,
 )
 from .retention import normalize_event_retention
+from .retries import RetryPolicy, RetrySchedule, plan_retry, retry_delay_seconds
 from .scheduler import (
     RestoredSchedulerState,
     build_scheduler_payload,
@@ -50,6 +51,7 @@ from .state import (
     read_engine_run,
     read_engine_runs,
     read_engine_scheduler_state,
+    running_engine_runs_from_connection,
     save_engine_scheduler_state,
     save_engine_scheduler_state_to_connection,
     start_engine_run_to_connection,
@@ -70,6 +72,8 @@ __all__ = [
     "EngineStore",
     "RestoredSchedulerState",
     "RetryEntry",
+    "RetryPolicy",
+    "RetrySchedule",
     "RunningWork",
     "WorkItemRef",
     "WorkResult",
@@ -106,8 +110,11 @@ __all__ = [
     "release_engine_lease",
     "restore_scheduler_state",
     "retry_delay",
+    "retry_delay_seconds",
     "retry_due_at",
     "retry_queue_snapshot",
+    "plan_retry",
+    "running_engine_runs_from_connection",
     "running_snapshot",
     "runtime_sessions_snapshot",
     "save_engine_scheduler_state",

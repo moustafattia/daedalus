@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from engine import EngineStore
+from engine import EngineStore, RetryPolicy
 from trackers import (
     build_code_host_client,
     build_tracker_client,
@@ -21,6 +24,8 @@ from workflows.paths import runtime_paths
 
 _RUNNER_INSTANCE_ID = f"{os.getpid()}:{uuid.uuid4().hex[:12]}"
 _TERMINAL_LANE_STATUSES = {"complete", "released"}
+_RUNTIME_RUNNING_STATUSES = {"running"}
+_RUNTIME_FINAL_STATUSES = {"completed", "failed", "interrupted", "blocked"}
 
 
 def build_workflow_facts(config: WorkflowConfig, state: Any) -> dict[str, Any]:
@@ -214,6 +219,16 @@ def reconcile_runtime_lanes(
         age = now - _iso_to_epoch(timestamp, default=now)
         if age < stale_seconds:
             continue
+        record_actor_runtime_interrupted(
+            config=config,
+            lane=lane,
+            reason="actor_interrupted",
+            message=(
+                "actor was still marked running from an earlier tick; "
+                f"last update was {int(age)}s ago"
+            ),
+            age_seconds=int(age),
+        )
         session = lane_mapping(lane, "runtime_session")
         set_lane_operator_attention(
             config=config,
@@ -229,8 +244,6 @@ def reconcile_runtime_lanes(
                 "pull_request": lane.get("pull_request"),
             },
         )
-        session["status"] = "interrupted"
-        session["interrupted_at"] = _now_iso()
         interrupted.append(str(lane.get("lane_id") or ""))
     if interrupted:
         return {"status": "interrupted", "lanes": interrupted}
@@ -436,6 +449,8 @@ def validate_decision_for_lane(
         "operator_attention",
     }:
         raise RuntimeError(f"lane {lane.get('lane_id')} requires operator attention")
+    if _review_changes_are_pending(lane):
+        _validate_review_changes_retry(lane=lane, decision=decision)
     if decision.decision != "retry" and decision.stage != lane_stage(lane):
         current_stage = config.stages.get(lane_stage(lane))
         if (
@@ -488,6 +503,42 @@ def _validate_retry_dispatch(
         )
 
 
+def _review_changes_are_pending(lane: dict[str, Any]) -> bool:
+    if lane_stage(lane) != "review":
+        return False
+    if str(lane.get("status") or "").strip() != "waiting":
+        return False
+    review = lane_mapping(lane, "actor_outputs").get("reviewer")
+    if not isinstance(review, dict):
+        return False
+    return str(review.get("status") or "").strip().lower() in {
+        "changes_requested",
+        "needs_changes",
+    }
+
+
+def _validate_review_changes_retry(
+    *, lane: dict[str, Any], decision: OrchestratorDecision
+) -> None:
+    if decision.decision == "operator_attention":
+        return
+    if decision.decision != "retry":
+        raise RuntimeError(
+            f"lane {lane.get('lane_id')} has pending review changes; "
+            "orchestrator must retry deliver"
+        )
+    if decision.stage != "deliver":
+        raise RuntimeError(
+            f"lane {lane.get('lane_id')} has pending review changes; "
+            f"retry stage must be 'deliver', not {decision.stage!r}"
+        )
+    if decision.target != "implementer":
+        raise RuntimeError(
+            f"lane {lane.get('lane_id')} has pending review changes; "
+            "retry target must be 'implementer'"
+        )
+
+
 def validate_actor_capacity(
     *,
     config: WorkflowConfig,
@@ -503,6 +554,47 @@ def validate_actor_capacity(
         limit = concurrency["max_active_lanes"]
     if dispatch_counts.get(actor_name, 0) >= limit:
         raise RuntimeError(f"concurrency limit reached for actor {actor_name}")
+
+
+def guard_actor_dispatch(
+    *,
+    config: WorkflowConfig,
+    lane: dict[str, Any],
+    actor_name: str,
+    stage_name: str,
+) -> dict[str, Any]:
+    lane_id = str(lane.get("lane_id") or "").strip()
+    conflicts = _actor_dispatch_conflicts(
+        config=config,
+        lane=lane,
+        lane_id=lane_id,
+        actor_name=actor_name,
+        stage_name=stage_name,
+    )
+    if not conflicts:
+        return {"allowed": True, "conflicts": []}
+    set_lane_operator_attention(
+        config=config,
+        lane=lane,
+        reason="duplicate_dispatch_guard",
+        message=(
+            f"refusing to dispatch {actor_name} for lane {lane_id}; "
+            "active runtime work is already recorded"
+        ),
+        artifacts=lane_recovery_artifacts(
+            lane,
+            {
+                "actor": actor_name,
+                "stage": stage_name,
+                "conflicts": conflicts,
+            },
+        ),
+    )
+    return {
+        "allowed": False,
+        "reason": "duplicate_dispatch_guard",
+        "conflicts": conflicts,
+    }
 
 
 def advance_lane(
@@ -541,9 +633,18 @@ def advance_lane(
 def queue_lane_retry(
     *, config: WorkflowConfig, lane: dict[str, Any], decision: OrchestratorDecision
 ) -> dict[str, Any]:
-    retry = _retry_config(config)
     current_attempt = max(int(lane.get("attempt") or 1), 1)
-    next_attempt = current_attempt + 1
+    schedule = _engine_store(config).schedule_retry(
+        work_id=str(lane.get("lane_id") or ""),
+        entry=_retry_engine_entry(lane),
+        policy=_retry_policy(config),
+        current_attempt=current_attempt,
+        error=decision.reason or "retry requested",
+        delay_type="workflow-retry",
+        run_id=_lane_run_id(lane),
+        now_iso=_now_iso(),
+    )
+    next_attempt = int(schedule.get("next_attempt") or current_attempt)
     record = _retry_record(
         config=config,
         lane=lane,
@@ -552,7 +653,7 @@ def queue_lane_retry(
         next_attempt=next_attempt,
     )
     retry_history = lane_list(lane, "retry_history")
-    if current_attempt >= retry["max_attempts"]:
+    if schedule.get("status") == "limit_exceeded":
         record["status"] = "limit_exceeded"
         retry_history.append(record)
         set_lane_operator_attention(
@@ -561,7 +662,7 @@ def queue_lane_retry(
             reason="retry_limit_exceeded",
             message=(
                 f"retry limit exceeded for stage {decision.stage!r}; "
-                f"attempt {current_attempt} reached max {retry['max_attempts']}"
+                f"attempt {current_attempt} reached max {schedule['max_attempts']}"
             ),
             artifacts={
                 "retry": record,
@@ -577,8 +678,8 @@ def queue_lane_retry(
             "reason": "retry_limit_exceeded",
         }
 
-    delay_seconds = _retry_delay_seconds(config=config, next_attempt=next_attempt)
-    due_at_epoch = time.time() + delay_seconds
+    delay_seconds = int(schedule.get("delay_seconds") or 0)
+    due_at_epoch = float(schedule.get("due_at_epoch") or time.time())
     record.update(
         {
             "status": "queued",
@@ -600,10 +701,9 @@ def queue_lane_retry(
         "delay_seconds": delay_seconds,
         "due_at": record["due_at"],
         "due_at_epoch": due_at_epoch,
-        "max_attempts": retry["max_attempts"],
+        "max_attempts": schedule["max_attempts"],
     }
     retry_history.append(record)
-    _upsert_engine_retry(config=config, lane=lane)
     set_lane_status(
         config=config,
         lane=lane,
@@ -618,6 +718,13 @@ def queue_lane_retry(
         "attempt": next_attempt,
         "due_at": record["due_at"],
     }
+
+
+def consume_lane_retry(*, config: WorkflowConfig, lane: dict[str, Any]) -> None:
+    if not isinstance(lane.get("pending_retry"), dict):
+        return
+    lane["pending_retry"] = None
+    _clear_engine_retry(config=config, lane=lane)
 
 
 def lane_retry_inputs(
@@ -803,16 +910,26 @@ def record_actor_runtime_start(
     stage_name: str,
     runtime_meta: dict[str, Any],
 ) -> None:
+    started_at = _now_iso()
     session = lane_mapping(lane, "runtime_session")
+    run = _start_engine_actor_run(
+        config=config,
+        lane=lane,
+        actor_name=actor_name,
+        stage_name=stage_name,
+        runtime_meta=runtime_meta,
+        started_at=started_at,
+    )
     session.update(
         {
             **_runtime_meta_payload(runtime_meta),
+            "run_id": run["run_id"],
             "actor": actor_name,
             "stage": stage_name,
             "attempt": int(lane.get("attempt") or 0),
             "status": "running",
-            "started_at": _now_iso(),
-            "updated_at": _now_iso(),
+            "started_at": started_at,
+            "updated_at": started_at,
         }
     )
     _apply_runtime_session_ids(lane=lane, session=session)
@@ -853,18 +970,67 @@ def record_actor_runtime_result(
     runtime_meta: dict[str, Any],
     status: str,
 ) -> None:
+    updated_at = _now_iso()
     session = lane_mapping(lane, "runtime_session")
     session.update(_runtime_meta_payload(runtime_meta))
-    session["status"] = status
-    session["updated_at"] = _now_iso()
+    session["status"] = _normalize_runtime_session_status(status)
+    session["updated_at"] = updated_at
     _apply_runtime_session_ids(lane=lane, session=session)
     _upsert_engine_runtime_session(config=config, lane=lane)
-    lane["last_progress_at"] = _now_iso()
+    _finish_engine_actor_run(
+        config=config,
+        lane=lane,
+        status=session["status"],
+        error=str(runtime_meta.get("last_message") or "") or None,
+        metadata=_runtime_meta_payload(runtime_meta),
+        completed_at=updated_at,
+    )
+    lane["last_progress_at"] = updated_at
     _append_engine_event(
         config=config,
         lane=lane,
         event_type=f"{config.workflow_name}.lane.runtime_{status}",
         payload={"runtime_session": session},
+    )
+
+
+def record_actor_runtime_interrupted(
+    *,
+    config: WorkflowConfig,
+    lane: dict[str, Any],
+    reason: str,
+    message: str,
+    age_seconds: int,
+) -> None:
+    interrupted_at = _now_iso()
+    session = lane_mapping(lane, "runtime_session")
+    session.update(
+        {
+            "status": "interrupted",
+            "interrupted_at": interrupted_at,
+            "updated_at": interrupted_at,
+            "last_event": reason,
+            "last_message": message,
+            "age_seconds": age_seconds,
+        }
+    )
+    _apply_runtime_session_ids(lane=lane, session=session)
+    _upsert_engine_runtime_session(config=config, lane=lane)
+    _finish_engine_actor_run(
+        config=config,
+        lane=lane,
+        status="interrupted",
+        error=message,
+        metadata={"reason": reason, "age_seconds": age_seconds},
+        completed_at=interrupted_at,
+    )
+    lane["last_progress_at"] = interrupted_at
+    _append_engine_event(
+        config=config,
+        lane=lane,
+        event_type=f"{config.workflow_name}.lane.runtime_interrupted",
+        payload={"runtime_session": session, "reason": reason},
+        severity="warning",
     )
 
 
@@ -916,7 +1082,7 @@ def save_scheduler_snapshot(*, config: WorkflowConfig, state: Any) -> None:
         elif status == "retry_queued":
             retry_entries[lane_id] = _retry_scheduler_entry(lane)
         session = lane.get("runtime_session")
-        if isinstance(session, dict) and str(session.get("thread_id") or "").strip():
+        if isinstance(session, dict) and _runtime_session_has_identity(session):
             runtime_sessions[lane_id] = entry
             tokens = (
                 session.get("tokens") if isinstance(session.get("tokens"), dict) else {}
@@ -1006,6 +1172,7 @@ def apply_actor_output_status(
                 artifacts={"actor": actor_name, "output": output},
             )
             return
+        _notify_review_changes_requested(config=config, lane=lane, output=output)
     if status in {"blocked", "failed"} or blockers:
         set_lane_operator_attention(
             config=config,
@@ -1075,6 +1242,27 @@ def _contract_artifacts(lane: dict[str, Any]) -> dict[str, Any]:
         "pull_request": lane.get("pull_request"),
         "branch": lane.get("branch"),
     }
+
+
+def lane_recovery_artifacts(
+    lane: dict[str, Any], extra: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    session = (
+        lane.get("runtime_session")
+        if isinstance(lane.get("runtime_session"), dict)
+        else {}
+    )
+    artifacts = {
+        "run_id": _lane_run_id(lane),
+        "runtime_session": session or None,
+        "thread_id": lane.get("thread_id") or session.get("thread_id"),
+        "turn_id": lane.get("turn_id") or session.get("turn_id"),
+        "branch": lane.get("branch"),
+        "pull_request": lane.get("pull_request"),
+        "last_actor_output": lane.get("last_actor_output"),
+    }
+    artifacts.update(dict(extra or {}))
+    return {key: value for key, value in artifacts.items() if value not in (None, "")}
 
 
 def lane_mapping(lane: dict[str, Any], key: str) -> dict[str, Any]:
@@ -1225,7 +1413,7 @@ def set_lane_operator_attention(
     lane["operator_attention"] = {
         "reason": reason,
         "message": message,
-        "artifacts": dict(artifacts or {}),
+        "artifacts": lane_recovery_artifacts(lane, artifacts),
     }
     set_lane_status(
         config=config,
@@ -1333,11 +1521,14 @@ def _retry_config(config: WorkflowConfig) -> dict[str, Any]:
     }
 
 
-def _retry_delay_seconds(*, config: WorkflowConfig, next_attempt: int) -> int:
+def _retry_policy(config: WorkflowConfig) -> RetryPolicy:
     cfg = _retry_config(config)
-    retry_index = max(next_attempt - 2, 0)
-    delay = cfg["initial_delay_seconds"] * (cfg["backoff_multiplier"] ** retry_index)
-    return int(min(delay, cfg["max_delay_seconds"]))
+    return RetryPolicy(
+        max_attempts=cfg["max_attempts"],
+        initial_delay_seconds=cfg["initial_delay_seconds"],
+        backoff_multiplier=cfg["backoff_multiplier"],
+        max_delay_seconds=cfg["max_delay_seconds"],
+    )
 
 
 def _retry_record(
@@ -1381,6 +1572,231 @@ def _completion_labels(config: WorkflowConfig) -> dict[str, list[str]]:
     }
 
 
+def _review_notification_config(config: WorkflowConfig) -> dict[str, bool]:
+    raw = config.raw.get("notifications")
+    root = raw if isinstance(raw, dict) else {}
+    review = root.get("review-changes-requested") or root.get(
+        "review_changes_requested"
+    )
+    cfg = review if isinstance(review, dict) else {}
+    return {
+        "pull_request_review": _configured_bool(
+            cfg, "pull-request-review", "pull_request_review", default=False
+        ),
+        "pull_request_comment": _configured_bool(
+            cfg, "pull-request-comment", "pull_request_comment", default=False
+        ),
+        "issue_comment": _configured_bool(
+            cfg, "issue-comment", "issue_comment", default=False
+        ),
+    }
+
+
+def _notify_review_changes_requested(
+    *, config: WorkflowConfig, lane: dict[str, Any], output: dict[str, Any]
+) -> dict[str, Any]:
+    notification_cfg = _review_notification_config(config)
+    fingerprint = _review_changes_requested_fingerprint(lane=lane, output=output)
+    existing = _existing_review_notification(lane=lane, fingerprint=fingerprint)
+    if existing:
+        return existing
+    if not any(notification_cfg.values()):
+        return _record_lane_notification(
+            config=config,
+            lane=lane,
+            payload={
+                "event": "review_changes_requested",
+                "status": "skipped",
+                "fingerprint": fingerprint,
+                "reason": "notifications disabled",
+            },
+        )
+    code_host_cfg = _code_host_config(config)
+    if not code_host_cfg:
+        return _record_lane_notification(
+            config=config,
+            lane=lane,
+            payload={
+                "event": "review_changes_requested",
+                "status": "skipped",
+                "fingerprint": fingerprint,
+                "reason": "no code-host config",
+            },
+        )
+    body = _review_changes_requested_body(lane=lane, output=output)
+    result: dict[str, Any] = {
+        "event": "review_changes_requested",
+        "status": "ok",
+        "fingerprint": fingerprint,
+        "targets": {},
+    }
+    try:
+        client = build_code_host_client(
+            workflow_root=config.workflow_root,
+            code_host_cfg=code_host_cfg,
+            repo_path=_repository_path(config),
+        )
+        if notification_cfg["pull_request_comment"]:
+            pr_number = _pull_request_number(lane)
+            result["targets"]["pull_request"] = (
+                client.comment_on_pull_request(pr_number, body=body)
+                if pr_number
+                else {"ok": False, "error": "pull request number missing"}
+            )
+        if notification_cfg["pull_request_review"]:
+            pr_number = _pull_request_number(lane)
+            result["targets"]["pull_request_review"] = (
+                client.request_changes_on_pull_request(pr_number, body=body)
+                if pr_number
+                else {"ok": False, "error": "pull request number missing"}
+            )
+        if notification_cfg["issue_comment"]:
+            issue_number = _issue_number(lane)
+            result["targets"]["issue"] = (
+                client.comment_on_issue(issue_number, body=body)
+                if issue_number
+                else {"ok": False, "error": "issue number missing"}
+            )
+    except Exception as exc:
+        result["status"] = "error"
+        result["error"] = str(exc)
+    if any(
+        isinstance(target, dict) and target.get("ok") is False
+        for target in dict(result.get("targets") or {}).values()
+    ) and result.get("status") == "ok":
+        result["status"] = "partial"
+    return _record_lane_notification(config=config, lane=lane, payload=result)
+
+
+def _existing_review_notification(
+    *, lane: dict[str, Any], fingerprint: str
+) -> dict[str, Any] | None:
+    for record in reversed(lane_list(lane, "notifications")):
+        if not isinstance(record, dict):
+            continue
+        if record.get("event") != "review_changes_requested":
+            continue
+        if record.get("fingerprint") != fingerprint:
+            continue
+        if record.get("status") in {"ok", "partial"}:
+            return record
+    return None
+
+
+def _review_changes_requested_fingerprint(
+    *, lane: dict[str, Any], output: dict[str, Any]
+) -> str:
+    payload = {
+        "lane_id": lane.get("lane_id"),
+        "pull_request": _pull_request_number(lane),
+        "issue": _issue_number(lane),
+        "status": output.get("status"),
+        "summary": output.get("summary"),
+        "required_fixes": output.get("required_fixes"),
+        "findings": output.get("findings"),
+        "verification_gaps": output.get("verification_gaps"),
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _record_lane_notification(
+    *, config: WorkflowConfig, lane: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    record = {"created_at": _now_iso(), **payload}
+    lane_list(lane, "notifications").append(record)
+    _append_engine_event(
+        config=config,
+        lane=lane,
+        event_type=f"{config.workflow_name}.lane.notification",
+        payload=record,
+        severity="warning" if record.get("status") in {"error", "partial"} else "info",
+    )
+    return record
+
+
+def _review_changes_requested_body(
+    *, lane: dict[str, Any], output: dict[str, Any]
+) -> str:
+    issue = lane.get("issue") if isinstance(lane.get("issue"), dict) else {}
+    lines = [
+        "### Sprints review requested changes",
+        "",
+        f"Lane: {lane.get('lane_id')}",
+    ]
+    issue_label = " ".join(
+        part
+        for part in [
+            str(issue.get("identifier") or issue.get("id") or "").strip(),
+            str(issue.get("title") or "").strip(),
+        ]
+        if part
+    )
+    if issue_label:
+        lines.append(f"Issue: {issue_label}")
+    summary = str(output.get("summary") or "").strip()
+    if summary:
+        lines.extend(["", "Summary:", summary])
+    _append_markdown_items(lines, "Required fixes", output.get("required_fixes"))
+    _append_markdown_items(lines, "Findings", output.get("findings"))
+    _append_markdown_items(lines, "Verification gaps", output.get("verification_gaps"))
+    lines.extend(["", "Generated by Sprints."])
+    return "\n".join(lines).strip()
+
+
+def _append_markdown_items(lines: list[str], title: str, value: Any) -> None:
+    if not isinstance(value, list) or not value:
+        return
+    lines.extend(["", f"{title}:"])
+    for index, item in enumerate(value, start=1):
+        lines.append(f"{index}. {_markdown_item_text(item)}")
+
+
+def _markdown_item_text(item: Any) -> str:
+    if isinstance(item, dict):
+        parts = [
+            f"{key}: {item[key]}"
+            for key in sorted(item)
+            if item.get(key) not in (None, "", [], {})
+        ]
+        return "; ".join(parts) or "{}"
+    return str(item)
+
+
+def _pull_request_number(lane: dict[str, Any]) -> str:
+    pull_request = lane.get("pull_request")
+    if not isinstance(pull_request, dict):
+        return ""
+    for key in ("number", "pr_number"):
+        value = pull_request.get(key)
+        if value not in (None, ""):
+            number = _trailing_number(value)
+            if number:
+                return number
+    url = str(pull_request.get("url") or "").strip()
+    match = re.search(r"/pull/([0-9]+)(?:$|[/?#])", url)
+    if match:
+        return match.group(1)
+    return _trailing_number(pull_request.get("id"))
+
+
+def _issue_number(lane: dict[str, Any]) -> str:
+    issue = lane.get("issue") if isinstance(lane.get("issue"), dict) else {}
+    for key in ("number", "id", "identifier"):
+        value = issue.get(key)
+        if value not in (None, ""):
+            number = _trailing_number(value)
+            if number:
+                return number
+    return ""
+
+
+def _trailing_number(value: Any) -> str:
+    text = str(value or "").strip().lstrip("#")
+    match = re.search(r"([0-9]+)$", text)
+    return match.group(1) if match else ""
+
+
 def _positive_int(config: dict[str, Any], *keys: str, default: int) -> int:
     for key in keys:
         value = config.get(key)
@@ -1411,6 +1827,21 @@ def _positive_float(config: dict[str, Any], *keys: str, default: float) -> float
                 return max(float(value), 1.0)
             except (TypeError, ValueError):
                 return default
+    return default
+
+
+def _configured_bool(config: dict[str, Any], *keys: str, default: bool) -> bool:
+    for key in keys:
+        value = config.get(key)
+        if value in (None, ""):
+            continue
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
     return default
 
 
@@ -1479,15 +1910,17 @@ def _engine_lane_entry(lane: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _upsert_engine_retry(*, config: WorkflowConfig, lane: dict[str, Any]) -> None:
-    pending = lane.get("pending_retry")
-    if not isinstance(pending, dict):
-        return
-    _engine_store(config).upsert_retry(
-        work_id=str(lane.get("lane_id") or ""),
-        entry=_retry_scheduler_entry(lane),
-        now_iso=_now_iso(),
-    )
+def _retry_engine_entry(lane: dict[str, Any]) -> dict[str, Any]:
+    issue = lane.get("issue") if isinstance(lane.get("issue"), dict) else {}
+    return {
+        **_scheduler_entry(lane),
+        "issue_id": lane.get("lane_id"),
+        "identifier": issue.get("identifier") or lane.get("lane_id"),
+        "error": "retry queued",
+        "current_attempt": int(lane.get("attempt") or 0),
+        "delay_type": "workflow-retry",
+        "run_id": _lane_run_id(lane),
+    }
 
 
 def _upsert_engine_runtime_session(
@@ -1538,6 +1971,192 @@ def _runtime_session_entry(lane: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _runtime_session_has_identity(session: dict[str, Any]) -> bool:
+    return bool(
+        str(
+            session.get("run_id")
+            or session.get("thread_id")
+            or session.get("session_id")
+            or ""
+        ).strip()
+    )
+
+
+def _actor_dispatch_conflicts(
+    *,
+    config: WorkflowConfig,
+    lane: dict[str, Any],
+    lane_id: str,
+    actor_name: str,
+    stage_name: str,
+) -> list[dict[str, Any]]:
+    conflicts: list[dict[str, Any]] = []
+    if not lane_id:
+        return [{"source": "lane", "status": "missing_lane_id"}]
+    lane_status = str(lane.get("status") or "").strip()
+    if lane_status == "running":
+        conflicts.append({"source": "lane", "status": lane_status})
+    session = (
+        lane.get("runtime_session")
+        if isinstance(lane.get("runtime_session"), dict)
+        else {}
+    )
+    if _runtime_session_is_running(session):
+        conflicts.append(
+            {
+                "source": "lane_runtime_session",
+                "run_id": session.get("run_id"),
+                "thread_id": session.get("thread_id"),
+                "turn_id": session.get("turn_id"),
+                "status": session.get("status"),
+            }
+        )
+    for engine_session in _engine_store(config).runtime_sessions(
+        work_id=lane_id, limit=5
+    ):
+        if _runtime_session_is_running(engine_session):
+            conflicts.append(
+                {
+                    "source": "engine_runtime_session",
+                    "run_id": engine_session.get("run_id"),
+                    "thread_id": engine_session.get("thread_id"),
+                    "turn_id": engine_session.get("turn_id"),
+                    "status": engine_session.get("status"),
+                    "updated_at": engine_session.get("updated_at"),
+                }
+            )
+    for run in _engine_store(config).running_runs(mode="actor", limit=200):
+        metadata = run.get("metadata") if isinstance(run.get("metadata"), dict) else {}
+        if str(metadata.get("lane_id") or "").strip() != lane_id:
+            continue
+        if str(metadata.get("actor") or "").strip() != actor_name:
+            continue
+        if str(metadata.get("stage") or "").strip() != stage_name:
+            continue
+        conflicts.append(
+            {
+                "source": "engine_run",
+                "run_id": run.get("run_id"),
+                "status": run.get("status"),
+                "started_at": run.get("started_at"),
+            }
+        )
+    return _dedupe_conflicts(conflicts)
+
+
+def _dedupe_conflicts(conflicts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str, str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+    for conflict in conflicts:
+        key = (
+            str(conflict.get("source") or ""),
+            str(conflict.get("run_id") or ""),
+            str(conflict.get("thread_id") or ""),
+            str(conflict.get("status") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(conflict)
+    return deduped
+
+
+def _runtime_session_is_running(session: dict[str, Any]) -> bool:
+    return _normalize_runtime_session_status(
+        str(session.get("status") or "")
+    ) in _RUNTIME_RUNNING_STATUSES
+
+
+def _normalize_runtime_session_status(status: str) -> str:
+    text = str(status or "").strip().lower()
+    if text in _RUNTIME_RUNNING_STATUSES:
+        return "running"
+    if text in _RUNTIME_FINAL_STATUSES:
+        return text
+    return "failed" if text else ""
+
+
+def _start_engine_actor_run(
+    *,
+    config: WorkflowConfig,
+    lane: dict[str, Any],
+    actor_name: str,
+    stage_name: str,
+    runtime_meta: dict[str, Any],
+    started_at: str,
+) -> dict[str, Any]:
+    return _engine_store(config).start_run(
+        mode="actor",
+        selected_count=1,
+        metadata={
+            **_runtime_run_metadata(lane=lane, runtime_meta=runtime_meta),
+            "actor": actor_name,
+            "stage": stage_name,
+            "attempt": int(lane.get("attempt") or 0),
+            "started_at": started_at,
+        },
+        now_iso=started_at,
+    )
+
+
+def _finish_engine_actor_run(
+    *,
+    config: WorkflowConfig,
+    lane: dict[str, Any],
+    status: str,
+    error: str | None,
+    metadata: dict[str, Any],
+    completed_at: str,
+) -> None:
+    run_id = _lane_run_id(lane)
+    if not run_id:
+        return
+    final_status = _normalize_runtime_session_status(status) or "failed"
+    completed_count = 1 if final_status == "completed" else 0
+    try:
+        _engine_store(config).finish_run(
+            run_id,
+            status=final_status,
+            selected_count=1,
+            completed_count=completed_count,
+            error=error,
+            metadata={
+                **_runtime_run_metadata(lane=lane, runtime_meta=metadata),
+                "final_status": final_status,
+            },
+            now_iso=completed_at,
+        )
+    except KeyError:
+        _engine_store(config).append_event(
+            event_type=f"{config.workflow_name}.runtime_run_missing",
+            payload={"run_id": run_id, "status": final_status},
+            work_id=str(lane.get("lane_id") or ""),
+            severity="warning",
+        )
+
+
+def _runtime_run_metadata(
+    *, lane: dict[str, Any], runtime_meta: dict[str, Any]
+) -> dict[str, Any]:
+    issue = lane.get("issue") if isinstance(lane.get("issue"), dict) else {}
+    session = (
+        lane.get("runtime_session")
+        if isinstance(lane.get("runtime_session"), dict)
+        else {}
+    )
+    return {
+        **_runtime_meta_payload(runtime_meta),
+        "lane_id": lane.get("lane_id"),
+        "issue_identifier": issue.get("identifier") or lane.get("lane_id"),
+        "actor": session.get("actor") or lane.get("actor"),
+        "stage": session.get("stage") or lane.get("stage"),
+        "branch": lane.get("branch"),
+        "pull_request": lane.get("pull_request"),
+        "thread_id": lane.get("thread_id") or session.get("thread_id"),
+        "turn_id": lane.get("turn_id") or session.get("turn_id"),
+    }
+
+
 def _clear_engine_retry(*, config: WorkflowConfig, lane: dict[str, Any]) -> None:
     lane_id = str(lane.get("lane_id") or "").strip()
     if lane_id:
@@ -1561,17 +2180,31 @@ def _retry_scheduler_entry(lane: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _lane_run_id(lane: dict[str, Any]) -> str | None:
+    session = (
+        lane.get("runtime_session")
+        if isinstance(lane.get("runtime_session"), dict)
+        else {}
+    )
+    value = session.get("run_id")
+    text = str(value or "").strip()
+    return text or None
+
+
 def _append_engine_event(
     *,
     config: WorkflowConfig,
     lane: dict[str, Any],
     event_type: str,
     payload: dict[str, Any],
+    severity: str = "info",
 ) -> None:
     _engine_store(config).append_event(
         event_type=event_type,
         payload=payload,
         work_id=str(lane.get("lane_id") or ""),
+        run_id=_lane_run_id(lane),
+        severity=severity,
     )
 
 

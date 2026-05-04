@@ -590,6 +590,54 @@ class GithubCodeHostClient:
         )
         return (getattr(completed, "stdout", "") or "").strip()
 
+    def comment_on_pull_request(
+        self, pr_number: int | str | None, *, body: str
+    ) -> dict[str, Any]:
+        number = _coerce_number(pr_number, field_name="pr_number")
+        completed = self._run(
+            self._with_repo(["gh", "pr", "comment", number, "--body", body]),
+            cwd=self._repo_path,
+        )
+        return {
+            "ok": True,
+            "kind": "pull_request",
+            "pr_number": number,
+            "stdout": (getattr(completed, "stdout", "") or "").strip(),
+        }
+
+    def request_changes_on_pull_request(
+        self, pr_number: int | str | None, *, body: str
+    ) -> dict[str, Any]:
+        number = _coerce_number(pr_number, field_name="pr_number")
+        completed = self._run(
+            self._with_repo(
+                ["gh", "pr", "review", number, "--request-changes", "--body", body]
+            ),
+            cwd=self._repo_path,
+        )
+        return {
+            "ok": True,
+            "kind": "pull_request_review",
+            "pr_number": number,
+            "state": "changes_requested",
+            "stdout": (getattr(completed, "stdout", "") or "").strip(),
+        }
+
+    def comment_on_issue(
+        self, issue_number: int | str | None, *, body: str
+    ) -> dict[str, Any]:
+        number = _coerce_number(issue_number, field_name="issue_number")
+        completed = self._run(
+            self._with_repo(["gh", "issue", "comment", number, "--body", body]),
+            cwd=self._repo_path,
+        )
+        return {
+            "ok": True,
+            "kind": "issue",
+            "issue_number": number,
+            "stdout": (getattr(completed, "stdout", "") or "").strip(),
+        }
+
     def mark_pull_request_ready(self, pr_number: int | str | None) -> bool:
         if pr_number is None:
             return False

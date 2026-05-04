@@ -36,9 +36,12 @@ from workflows.lanes import (
     build_workflow_facts,
     claim_new_lanes,
     complete_lane,
+    consume_lane_retry,
+    guard_actor_dispatch,
     lane_by_id,
     lane_for_decision,
     lane_mapping,
+    lane_recovery_artifacts,
     lane_retry_inputs,
     lane_summary,
     lane_stage,
@@ -222,6 +225,7 @@ def actor_variables(
         "issue": lane.get("issue") or {},
         "implementation": actor_outputs.get("implementer") or {},
         "review": actor_outputs.get("reviewer") or {},
+        "review_feedback": _review_feedback(lane=lane, inputs=inputs),
         "pull_request": lane.get("pull_request") or {},
         "retry": lane.get("pending_retry") or inputs.get("retry") or {},
     }
@@ -247,8 +251,36 @@ def action_variables(
         "action_results": lane_mapping(lane, "action_results"),
         "implementation": actor_outputs.get("implementer") or {},
         "review": actor_outputs.get("reviewer") or {},
+        "review_feedback": _review_feedback(lane=lane, inputs=inputs),
         "pull_request": lane.get("pull_request") or {},
         "retry": lane.get("pending_retry") or inputs.get("retry") or {},
+    }
+
+
+def _review_feedback(*, lane: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
+    actor_outputs = lane_mapping(lane, "actor_outputs")
+    review = inputs.get("review")
+    if not isinstance(review, dict):
+        stored_review = actor_outputs.get("reviewer")
+        review = stored_review if isinstance(stored_review, dict) else {}
+    retry = inputs.get("retry") if isinstance(inputs.get("retry"), dict) else {}
+    feedback = {
+        "review": review,
+        "required_fixes": inputs.get("required_fixes")
+        or review.get("required_fixes")
+        or retry.get("required_fixes"),
+        "findings": inputs.get("findings")
+        or review.get("findings")
+        or retry.get("findings"),
+        "verification_gaps": inputs.get("verification_gaps")
+        or review.get("verification_gaps")
+        or retry.get("verification_gaps"),
+        "feedback": inputs.get("feedback") or retry.get("reason"),
+    }
+    return {
+        key: value
+        for key, value in feedback.items()
+        if value not in (None, "", [], {})
     }
 
 
@@ -261,13 +293,22 @@ def run_stage_actor(
     actor_name: str,
     inputs: dict[str, Any],
 ) -> dict[str, Any]:
-    inputs = lane_retry_inputs(lane=lane, inputs=inputs)
     stage_name = lane_stage(lane)
     actor = config.actors[actor_name]
     actor_policy = policy.actors.get(actor_name)
     if actor_policy is None:
         raise RuntimeError(f"missing actor policy section for {actor_name}")
     lane_id = str(lane.get("lane_id") or "")
+    guard = guard_actor_dispatch(
+        config=config,
+        lane=lane,
+        actor_name=actor_name,
+        stage_name=stage_name,
+    )
+    if not guard.get("allowed"):
+        _persist_runtime_state(config=config, state=state)
+        return guard
+    inputs = lane_retry_inputs(lane=lane, inputs=inputs)
     worktree = ensure_lane_worktree(config=config, lane=lane)
     runtime_plan = actor_runtime_plan(
         config=config,
@@ -288,6 +329,7 @@ def run_stage_actor(
         stage_name=stage_name,
         runtime_meta=_runtime_plan_meta(runtime_plan),
     )
+    consume_lane_retry(config=config, lane=lane)
     set_lane_status(
         config=config,
         lane=lane,
@@ -362,43 +404,85 @@ def run_stage_actor(
             lane=lane,
             reason="actor_runtime_failed",
             message=str(exc),
-            artifacts={"actor": actor_name, "stage": stage_name},
+            artifacts=lane_recovery_artifacts(
+                lane,
+                {
+                    "actor": actor_name,
+                    "stage": stage_name,
+                    "error": str(exc),
+                },
+            ),
         )
         _persist_runtime_state(config=config, state=state)
         raise
-    record_actor_runtime_result(
-        config=config,
-        lane=lane,
-        runtime_meta={
-            **_runtime_plan_meta(runtime_plan),
-            **_runtime_result_meta(runtime_result),
-        },
-        status="completed",
-    )
+    runtime_meta = {
+        **_runtime_plan_meta(runtime_plan),
+        **_runtime_result_meta(runtime_result),
+    }
     raw_output = runtime_result.output
     try:
         parsed = parse_actor_output(raw_output)
     except json.JSONDecodeError as exc:
-        set_lane_status(
+        record_actor_runtime_result(
             config=config,
             lane=lane,
-            status="operator_attention",
-            reason=f"actor {actor_name} returned invalid JSON: {exc}",
+            runtime_meta={**runtime_meta, "last_message": str(exc)},
+            status="failed",
+        )
+        set_lane_operator_attention(
+            config=config,
+            lane=lane,
+            reason="actor_output_invalid_json",
+            message=f"actor {actor_name} returned invalid JSON: {exc}",
+            artifacts=lane_recovery_artifacts(
+                lane,
+                {
+                    "actor": actor_name,
+                    "stage": stage_name,
+                    "error": str(exc),
+                    "raw_output": raw_output,
+                },
+            ),
         )
         _persist_runtime_state(config=config, state=state)
         raise RuntimeError(f"actor {actor_name} returned invalid JSON: {exc}") from exc
     except TypeError as exc:
-        set_lane_status(
+        record_actor_runtime_result(
             config=config,
             lane=lane,
-            status="operator_attention",
-            reason=f"actor {actor_name} output was not an object",
+            runtime_meta={**runtime_meta, "last_message": str(exc)},
+            status="failed",
+        )
+        set_lane_operator_attention(
+            config=config,
+            lane=lane,
+            reason="actor_output_contract_failed",
+            message=f"actor {actor_name} output was not an object",
+            artifacts=lane_recovery_artifacts(
+                lane,
+                {
+                    "actor": actor_name,
+                    "stage": stage_name,
+                    "error": str(exc),
+                    "raw_output": raw_output,
+                },
+            ),
         )
         _persist_runtime_state(config=config, state=state)
         raise RuntimeError(str(exc)) from exc
     record_actor_output(config=config, lane=lane, actor_name=actor_name, output=parsed)
     apply_actor_output_status(
         config=config, lane=lane, actor_name=actor_name, output=parsed
+    )
+    record_actor_runtime_result(
+        config=config,
+        lane=lane,
+        runtime_meta=runtime_meta,
+        status=_actor_output_runtime_status(
+            actor_name=actor_name,
+            output=parsed,
+            lane=lane,
+        ),
     )
     _persist_runtime_state(config=config, state=state)
     return parsed
@@ -463,6 +547,30 @@ def _runtime_result_meta(result: Any) -> dict[str, Any]:
         if value not in (None, "", [], {}):
             meta[key] = value
     return meta
+
+
+def _actor_output_runtime_status(
+    *, actor_name: str, output: dict[str, Any], lane: dict[str, Any]
+) -> str:
+    status = str(output.get("status") or "").strip().lower()
+    blockers = output.get("blockers") if isinstance(output.get("blockers"), list) else []
+    if status == "failed":
+        return "failed"
+    if (
+        status == "blocked"
+        or blockers
+        or str(lane.get("status") or "").strip() == "operator_attention"
+    ):
+        return "blocked"
+    if actor_name == "implementer" and status == "done":
+        return "completed"
+    if actor_name == "reviewer" and status in {
+        "approved",
+        "changes_requested",
+        "needs_changes",
+    }:
+        return "completed"
+    return "failed" if not status else "completed"
 
 
 def apply_action_result(

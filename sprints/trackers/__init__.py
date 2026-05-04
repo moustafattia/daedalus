@@ -51,6 +51,18 @@ class CodeHostClient(Protocol):
 
     def create_pull_request(self, *, head: str, title: str, body: str) -> str: ...
 
+    def comment_on_pull_request(
+        self, pr_number: int | str | None, *, body: str
+    ) -> dict[str, Any]: ...
+
+    def request_changes_on_pull_request(
+        self, pr_number: int | str | None, *, body: str
+    ) -> dict[str, Any]: ...
+
+    def comment_on_issue(
+        self, issue_number: int | str | None, *, body: str
+    ) -> dict[str, Any]: ...
+
     def mark_pull_request_ready(self, pr_number: int | str | None) -> bool: ...
 
     def merge_pull_request(

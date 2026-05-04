@@ -19,6 +19,7 @@ from .db import (
     init_engine_state,
 )
 from .retention import normalize_event_retention
+from .retries import RetryPolicy, plan_retry
 from .state import (
     append_engine_event_to_connection,
     clear_engine_retry_to_connection,
@@ -34,6 +35,7 @@ from .state import (
     load_engine_scheduler_state_from_connection,
     prune_engine_events_to_connection,
     read_engine_scheduler_state,
+    running_engine_runs_from_connection,
     save_engine_scheduler_state_to_connection,
     start_engine_run_to_connection,
     upsert_engine_retry_to_connection,
@@ -184,6 +186,46 @@ class EngineStore:
                 now_iso=now_iso or self._now_iso(),
                 now_epoch=self._now_epoch() if now_epoch is None else now_epoch,
             )
+
+    def schedule_retry(
+        self,
+        *,
+        work_id: str,
+        entry: dict[str, Any],
+        policy: RetryPolicy,
+        current_attempt: int,
+        error: str,
+        delay_type: str = "workflow-retry",
+        run_id: str | None = None,
+        now_iso: str | None = None,
+        now_epoch: float | None = None,
+    ) -> dict[str, Any]:
+        epoch = self._now_epoch() if now_epoch is None else now_epoch
+        iso = now_iso or self._now_iso()
+        schedule = plan_retry(
+            policy=policy,
+            current_attempt=current_attempt,
+            now_epoch=epoch,
+        )
+        if schedule.status == "limit_exceeded":
+            return schedule.to_dict()
+        retry_entry = {
+            **dict(entry),
+            "issue_id": entry.get("issue_id") or work_id,
+            "attempt": schedule.next_attempt,
+            "due_at_epoch": schedule.due_at_epoch,
+            "error": error,
+            "current_attempt": schedule.current_attempt,
+            "delay_type": delay_type,
+            "run_id": run_id or entry.get("run_id"),
+        }
+        persisted = self.upsert_retry(
+            work_id=work_id,
+            entry=retry_entry,
+            now_iso=iso,
+            now_epoch=epoch,
+        )
+        return {**schedule.to_dict(), "engine_retry": persisted}
 
     def clear_retry(self, *, work_id: str) -> dict[str, Any]:
         with self.transaction() as conn:
@@ -408,6 +450,20 @@ class EngineStore:
         try:
             return latest_engine_runs_from_connection(
                 conn, workflow=self.workflow, limit=limit
+            )
+        finally:
+            conn.close()
+
+    def running_runs(
+        self, *, mode: str | None = None, limit: int = 200
+    ) -> list[dict[str, Any]]:
+        conn = self.connect()
+        try:
+            return running_engine_runs_from_connection(
+                conn,
+                workflow=self.workflow,
+                mode=mode,
+                limit=limit,
             )
         finally:
             conn.close()

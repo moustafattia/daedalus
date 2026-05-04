@@ -46,6 +46,12 @@ retry:
   backoff-multiplier: 2
   max-delay-seconds: 300
 
+notifications:
+  review-changes-requested:
+    pull-request-review: true
+    pull-request-comment: false
+    issue-comment: true
+
 completion:
   remove_labels: [active]
   add_labels: [done]
@@ -67,6 +73,9 @@ actors:
   implementer:
     runtime: codex
     skills: [pull, debug, commit, push]
+  reviewer:
+    runtime: codex
+    skills: [review]
 
 stages:
   deliver:
@@ -201,8 +210,15 @@ during progress callbacks:
 
 If a later tick finds a lane still marked `running` beyond
 `running-stale-seconds`, it moves the lane to `operator_attention` with the
-runtime session artifacts attached. This keeps interrupted work recoverable
-instead of silently dispatching duplicate actor work.
+runtime session artifacts attached. The runtime session row and actor run are
+marked `interrupted` before the lane is handed to the operator. This keeps
+interrupted work recoverable instead of silently dispatching duplicate actor
+work.
+
+Before dispatching an actor, the runner also checks for an already-running lane,
+runtime session, or actor run for the same lane/actor/stage. A conflict moves
+the lane to `operator_attention` with the active run/session artifacts instead
+of starting duplicate work.
 
 ### `retry`
 
@@ -216,11 +232,33 @@ retry:
   max-delay-seconds: 300
 ```
 
-When the orchestrator returns `retry`, the runner stores `pending_retry` on the
-lane with target stage, target actor, feedback inputs, attempt, due time, and a
-retry history entry. The next actor dispatch receives that state as `retry`.
-The runner rejects dispatch before `pending_retry.due_at` and moves the lane to
-`operator_attention` when `max-attempts` is exhausted.
+When the orchestrator returns `retry`, the engine computes the next attempt,
+checks `max-attempts`, applies backoff, and persists the due retry row. The lane
+keeps `pending_retry` as the actor handoff projection with target stage, target
+actor, feedback inputs, attempt, due time, and retry history. The next actor
+dispatch receives that state as `retry`. The runner rejects dispatch before
+`pending_retry.due_at` and moves the lane to `operator_attention` when the engine
+reports that the retry limit is exhausted.
+
+### `notifications`
+
+Notifications are deterministic code-host side effects.
+
+```yaml
+notifications:
+  review-changes-requested:
+    pull-request-review: true
+    pull-request-comment: false
+    issue-comment: true
+```
+
+When the reviewer returns `changes_requested` or `needs_changes`, the runner can
+post the reviewer summary, findings, required fixes, and verification gaps to
+the pull request as a formal change request, optionally as a PR comment, and to
+the source issue. Notifications are fingerprinted by lane, issue, PR, and review
+content, so repeated ticks do not repost the same review side effect.
+Notification failures are recorded on the lane and engine event stream; they do
+not start duplicate actor work.
 
 ### `completion`
 

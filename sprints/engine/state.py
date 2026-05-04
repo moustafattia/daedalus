@@ -1066,6 +1066,35 @@ def latest_engine_runs_from_connection(
     return [_run_row_to_dict(row) for row in rows]
 
 
+def running_engine_runs_from_connection(
+    conn: sqlite3.Connection,
+    *,
+    workflow: str,
+    mode: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    init_engine_state(conn)
+    conditions = ["workflow=?", "status='running'", "completed_at IS NULL"]
+    params: list[Any] = [workflow]
+    if mode:
+        conditions.append("mode=?")
+        params.append(mode)
+    params.append(max(int(limit or 200), 1))
+    rows = conn.execute(
+        f"""
+        SELECT workflow, run_id, mode, status, started_at, started_at_epoch,
+               completed_at, completed_at_epoch, selected_count, completed_count,
+               error, metadata_json
+        FROM engine_runs
+        WHERE {" AND ".join(conditions)}
+        ORDER BY started_at_epoch DESC, run_id DESC
+        LIMIT ?
+        """,
+        params,
+    ).fetchall()
+    return [_run_row_to_dict(row) for row in rows]
+
+
 def engine_run_from_connection(
     conn: sqlite3.Connection,
     *,
