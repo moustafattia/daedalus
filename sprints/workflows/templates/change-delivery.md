@@ -9,6 +9,12 @@ tracker:
   terminal_states: [closed]
   required_labels: [active]
   exclude_labels: [blocked, needs-human, done]
+intake:
+  auto-activate:
+    enabled: true
+    add_label: active
+    exclude_labels: [blocked, needs-human, done]
+    max-per-tick: 1
 code-host:
   kind: github
   github_slug: owner/repo
@@ -109,9 +115,12 @@ The runner reconciles existing lanes with tracker and pull request state before
 each dispatch. It also records runtime session, thread, turn, token, and latest
 event metadata on the lane so interrupted actors can be recovered. It exposes
 `facts.tracker.candidates`, `facts.tracker.terminal`, `facts.engine.lanes`,
-`facts.concurrency`, `facts.recovery`, and `facts.retry`. The runner claims
-eligible lanes up to configured capacity before it asks you to dispatch work.
-Default capacity is one active lane until runtime sessions are stronger.
+`facts.concurrency`, `facts.intake`, `facts.recovery`, and `facts.retry`. The
+runner claims eligible lanes up to configured capacity before it asks you to
+dispatch work. If capacity is available and no eligible issue exists,
+`intake.auto-activate` may add the configured active label to the next eligible
+open issue before claiming it. Default capacity is one active lane until runtime
+sessions are stronger.
 
 Only dispatch actors for lanes that need work. Never dispatch duplicate work for
 the same lane. Return at most one decision for a lane in a tick; use an empty

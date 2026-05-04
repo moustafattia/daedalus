@@ -43,6 +43,25 @@ properties:
         items:
           type: string
     additionalProperties: true
+  intake:
+    type: object
+    properties:
+      auto-activate:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+          add_label:
+            type: string
+          exclude_labels:
+            type: array
+            items:
+              type: string
+          max-per-tick:
+            type: integer
+            minimum: 1
+        additionalProperties: true
+    additionalProperties: true
   code-host:
     type: object
     properties:

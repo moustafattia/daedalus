@@ -49,6 +49,7 @@ def build_workflow_facts(config: WorkflowConfig, state: Any) -> dict[str, Any]:
             },
         },
         "concurrency": concurrency,
+        "intake": {"auto_activate": _intake_auto_activate_config(config)},
         "recovery": _recovery_config(config),
         "retry": _retry_config(config),
     }
@@ -110,12 +111,39 @@ def claim_new_lanes(*, config: WorkflowConfig, state: Any) -> dict[str, Any]:
         return {"status": "full", "reason": "lane capacity reached"}
 
     facts = _tracker_facts(config=config, state=state)
+    auto_activate = {"status": "skipped", "reason": "eligible candidates found"}
     candidates = facts.get("candidates") if isinstance(facts, dict) else []
+    if isinstance(candidates, list) and not candidates and not facts.get("error"):
+        auto_activate = _auto_activate_tracker_candidates(
+            config=config,
+            state=state,
+            available=available,
+        )
+        if auto_activate.get("activated"):
+            facts = _tracker_facts(config=config, state=state)
+            candidates = facts.get("candidates") if isinstance(facts, dict) else []
+            if not isinstance(candidates, list) or not candidates:
+                candidates = _eligible_candidates(
+                    config=config,
+                    tracker_cfg=tracker_cfg,
+                    issues=[
+                        issue
+                        for issue in auto_activate.get("activated_issues", [])
+                        if isinstance(issue, dict)
+                    ],
+                    state=state,
+                )
+                facts = {
+                    **facts,
+                    "candidates": candidates,
+                    "candidate_count": len(candidates),
+                }
     if not isinstance(candidates, list) or not candidates:
         return {
             "status": "idle",
             "reason": str(facts.get("error") or "no eligible tracker candidates"),
             "facts": facts,
+            "auto_activate": auto_activate,
         }
 
     claimed: list[dict[str, Any]] = []
@@ -149,11 +177,13 @@ def claim_new_lanes(*, config: WorkflowConfig, state: Any) -> dict[str, Any]:
             "status": "claimed",
             "claimed": [lane["lane_id"] for lane in claimed],
             "facts": facts,
+            "auto_activate": auto_activate,
         }
     return {
         "status": "idle",
         "reason": "all eligible tracker candidates are already claimed",
         "facts": facts,
+        "auto_activate": auto_activate,
     }
 
 
@@ -387,6 +417,131 @@ def _tracker_facts(*, config: WorkflowConfig, state: Any) -> dict[str, Any]:
         "terminal": terminal,
         "terminal_count": len(terminal),
     }
+
+
+def _auto_activate_tracker_candidates(
+    *, config: WorkflowConfig, state: Any, available: int
+) -> dict[str, Any]:
+    auto_cfg = _intake_auto_activate_config(config)
+    if not auto_cfg["enabled"]:
+        return {"status": "skipped", "reason": "intake auto-activate disabled"}
+    tracker_cfg = _tracker_config(config)
+    if not tracker_cfg:
+        return {"status": "skipped", "reason": "no tracker config"}
+    limit = min(auto_cfg["max_per_tick"], max(int(available or 0), 0))
+    if limit <= 0:
+        return {"status": "skipped", "reason": "lane capacity reached"}
+    try:
+        client = build_tracker_client(
+            workflow_root=config.workflow_root,
+            tracker_cfg=tracker_cfg,
+            repo_path=_repository_path(config),
+        )
+        issues = client.list_candidates()
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+    candidates = _auto_activation_candidates(
+        config=config,
+        tracker_cfg=tracker_cfg,
+        issues=issues,
+        state=state,
+        add_label=auto_cfg["add_label"],
+        exclude_labels=auto_cfg["exclude_labels"],
+    )
+    activated: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for issue in candidates[:limit]:
+        issue_id = issue.get("id")
+        lane_id = _lane_id(config=config, issue=issue)
+        try:
+            added = client.add_labels(issue_id, [auto_cfg["add_label"]])
+        except Exception as exc:
+            failed.append(
+                {
+                    "lane_id": lane_id,
+                    "issue_id": issue_id,
+                    "error": str(exc),
+                }
+            )
+            _append_engine_event(
+                config=config,
+                lane={"lane_id": lane_id, "issue": issue},
+                event_type=f"{config.workflow_name}.lane.auto_activate_failed",
+                payload={"issue": issue, "error": str(exc), "config": auto_cfg},
+                severity="warning",
+            )
+            continue
+        if not added:
+            failed.append(
+                {
+                    "lane_id": lane_id,
+                    "issue_id": issue_id,
+                    "error": "tracker did not add label",
+                }
+            )
+            continue
+        activated_issue = {
+            **issue,
+            "labels": sorted({*_issue_labels(issue), auto_cfg["add_label"].lower()}),
+        }
+        activated.append(activated_issue)
+        _append_engine_event(
+            config=config,
+            lane={"lane_id": lane_id, "issue": activated_issue},
+            event_type=f"{config.workflow_name}.lane.auto_activated",
+            payload={
+                "issue": activated_issue,
+                "add_label": auto_cfg["add_label"],
+                "config": auto_cfg,
+            },
+        )
+
+    status = "activated" if activated else "idle"
+    return {
+        "status": status,
+        "activated": [_lane_id(config=config, issue=issue) for issue in activated],
+        "activated_issues": activated,
+        "failed": failed,
+        "candidate_count": len(candidates),
+    }
+
+
+def _auto_activation_candidates(
+    *,
+    config: WorkflowConfig,
+    tracker_cfg: dict[str, Any],
+    issues: list[dict[str, Any]],
+    state: Any,
+    add_label: str,
+    exclude_labels: list[str],
+) -> list[dict[str, Any]]:
+    active_states = set(
+        _configured_texts(tracker_cfg, "active_states", "active-states")
+    )
+    terminal_states = set(
+        _configured_texts(tracker_cfg, "terminal_states", "terminal-states")
+    )
+    excluded = {label.lower() for label in exclude_labels}
+    activation_label = add_label.lower()
+    known_lane_ids = set(state.lanes)
+    candidates: list[dict[str, Any]] = []
+    for issue in issues:
+        lane_id = _lane_id(config=config, issue=issue)
+        if lane_id in known_lane_ids:
+            continue
+        issue_state = str(issue.get("state") or "").strip().lower()
+        if active_states and issue_state not in active_states:
+            continue
+        labels = _issue_labels(issue)
+        if activation_label in labels:
+            continue
+        if excluded.intersection(labels):
+            continue
+        if _has_open_blockers(issue, terminal_states=terminal_states):
+            continue
+        candidates.append(issue)
+    return sorted(candidates, key=issue_priority_sort_key)
 
 
 def _eligible_candidates(
@@ -1751,6 +1906,32 @@ def _concurrency_config(config: WorkflowConfig) -> dict[str, Any]:
             cfg, "max-reviewers", "max_reviewers", default=1
         ),
         "per_lane_lock": bool(cfg.get("per-lane-lock", cfg.get("per_lane_lock", True))),
+    }
+
+
+def _intake_auto_activate_config(config: WorkflowConfig) -> dict[str, Any]:
+    raw = config.raw.get("intake")
+    intake = raw if isinstance(raw, dict) else {}
+    auto_raw = intake.get("auto-activate") or intake.get("auto_activate")
+    cfg = auto_raw if isinstance(auto_raw, dict) else {}
+    tracker_cfg = _tracker_config(config)
+    required_labels = _configured_texts(
+        tracker_cfg, "required_labels", "required-labels"
+    )
+    default_add_label = required_labels[0] if required_labels else "active"
+    add_label = str(
+        cfg.get("add_label") or cfg.get("add-label") or default_add_label
+    ).strip()
+    exclude_labels = _configured_texts(cfg, "exclude_labels", "exclude-labels")
+    if not exclude_labels:
+        exclude_labels = _configured_texts(
+            tracker_cfg, "exclude_labels", "exclude-labels"
+        )
+    return {
+        "enabled": _configured_bool(cfg, "enabled", default=False),
+        "add_label": add_label or default_add_label,
+        "exclude_labels": exclude_labels,
+        "max_per_tick": _positive_int(cfg, "max-per-tick", "max_per_tick", default=1),
     }
 
 

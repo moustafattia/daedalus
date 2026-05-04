@@ -229,6 +229,7 @@ engine database, lane ledger, audit artifacts, and lane worktrees.
 ---
 workflow: change-delivery
 tracker: ...
+intake: ...
 code-host: ...
 concurrency: ...
 retry: ...
@@ -281,6 +282,11 @@ sequenceDiagram
     R->>H: reconcile open PRs by branch
     R->>E: record projections and read due retries
     R->>T: list eligible candidates
+    opt capacity available and no eligible candidate
+        R->>T: add configured active label to next issue
+        R->>E: audit auto-activation
+        R->>T: list eligible candidates again
+    end
     R->>E: acquire lane leases
     R->>L: add claimed lanes
     alt no active lanes
@@ -318,6 +324,12 @@ Runner entry points live in `sprints/workflows/runner.py`:
 - `_run_orchestrator()` builds the orchestrator prompt.
 - `_apply_decisions()` plans and applies decisions.
 - `run_stage_actor()` renders actor prompts and dispatches runtimes.
+
+Backlog promotion is runner-owned. If `intake.auto-activate.enabled` is true,
+capacity is available, and no issue currently satisfies tracker eligibility,
+the runner adds the configured active label to the next open issue that does
+not have excluded labels. That mutation is audited in the engine event stream
+before the issue is claimed as a lane.
 
 ## Lane Ledger
 

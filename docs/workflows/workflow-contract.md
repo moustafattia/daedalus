@@ -27,6 +27,13 @@ tracker:
   required_labels: [active]
   exclude_labels: [blocked, needs-human, done]
 
+intake:
+  auto-activate:
+    enabled: true
+    add_label: active
+    exclude_labels: [blocked, needs-human, done]
+    max-per-tick: 1
+
 code-host:
   kind: github
   github_slug: owner/repo
@@ -118,7 +125,8 @@ as the worktree.
 
 Tracker config defines the external work-item source and the mechanical
 eligibility filter. For GitHub, `required_labels: [active]` means an issue
-may be considered by the orchestrator only after the operator labels it.
+may be considered by the orchestrator only after the operator or runner labels
+it.
 
 Tracker state is not engine ownership state.
 
@@ -133,6 +141,25 @@ The orchestrator receives the filtered list under `facts.tracker.candidates`.
 The runner claims eligible candidates into durable lanes before dispatch.
 On each tick, the runner refreshes active lane issues and releases lanes that
 are no longer tracker-eligible.
+
+### `intake`
+
+Intake config controls deterministic backlog promotion before a lane exists.
+
+```yaml
+intake:
+  auto-activate:
+    enabled: true
+    add_label: active
+    exclude_labels: [blocked, needs-human, done]
+    max-per-tick: 1
+```
+
+When capacity is available and there are no eligible tracker candidates, the
+runner can scan open tracker issues, skip issues that already have the active
+label or any excluded label, add `add_label`, audit the mutation, then claim the
+issue as a normal lane. This keeps backlog selection mechanical and observable.
+The orchestrator still decides what to run after the lane is claimed.
 
 ### `code-host`
 
