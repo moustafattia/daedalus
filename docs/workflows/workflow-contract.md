@@ -38,10 +38,14 @@ code-host:
   kind: github
   github_slug: owner/repo
 
+execution:
+  actor-dispatch: auto
+
 concurrency:
-  max-active-lanes: 1
-  max-implementers: 1
-  max-reviewers: 1
+  max-lanes: 1
+  actors:
+    implementer: 1
+    reviewer: 1
   per-lane-lock: true
 
 recovery:
@@ -219,15 +223,47 @@ advancing.
 Concurrency is explicit and enforced by the runner:
 
 ```yaml
+execution:
+  actor-dispatch: auto
+
 concurrency:
-  max-active-lanes: 1
-  max-implementers: 1
-  max-reviewers: 1
+  max-lanes: 1
+  actors:
+    implementer: 1
+    reviewer: 1
   per-lane-lock: true
 ```
 
-The default is intentionally one active lane until runtime sessions can dispatch
-multiple non-blocking actor turns safely.
+`max-lanes` is the top-level control. It limits non-terminal lanes across
+`claimed`, `running`, `waiting`, `retry_queued`, and `operator_attention`.
+Actor limits are optional caps inside lane capacity. If an actor limit is not
+set, it derives from `max-lanes`; if it is higher than `max-lanes`, the runner
+caps it to `max-lanes`.
+
+Actor capacity is global for the workflow, not just per orchestrator response.
+Before any actor is dispatched, the runner counts already-running lane status,
+lane runtime sessions, engine runtime sessions, engine actor runs, and the
+planned decisions in the current tick. If `actors.implementer: 1`, a second
+implementer will not start while any other implementer run is still active,
+even on a different lane.
+
+`execution.actor-dispatch` controls how actor work leaves the tick loop:
+
+| Value | Meaning |
+| --- | --- |
+| `auto` | Inline when `max-lanes: 1`; background subprocess workers when `max-lanes` is higher. |
+| `inline` | The tick waits for the actor turn to finish. This is the default single-lane behavior. |
+| `background` | The tick marks the lane `running`, starts an actor worker subprocess, saves state, and returns. |
+
+Background workers merge their final result through the same workflow state lock
+used by the tick. That keeps lane state serialized while allowing another tick
+to inspect capacity and dispatch other lanes.
+
+The runner calls the orchestrator only when at least one lane is
+decision-ready: `claimed`, `waiting`, or `retry_queued` with a due retry. If all
+active lanes are `running`, waiting for retry time, or blocked on
+`operator_attention`, the tick saves a `no_decision_ready` event and returns
+without spending an orchestrator turn.
 
 ### `recovery`
 
@@ -239,11 +275,18 @@ during progress callbacks:
 - session/thread/turn IDs when the runtime exposes them
 - latest runtime event and message
 - token and rate-limit snapshots
+- background worker process ID, log path, dispatch file, and heartbeat path
+
+Background actor workers refresh a heartbeat artifact while the runtime turn is
+alive. Reconciliation uses that heartbeat as the latest running timestamp, so a
+long actor turn is not treated as interrupted just because the lane JSON has not
+changed yet.
 
 If a later tick finds a lane still marked `running` beyond
-`running-stale-seconds`, the runtime session row and actor run are marked
-`interrupted`. When `auto-retry-interrupted` is true, the runner queues a
-durable retry to the same stage and actor with the runtime session artifacts in
+`running-stale-seconds` and the heartbeat has also gone stale, the runtime
+session row and actor run are marked `interrupted`. When
+`auto-retry-interrupted` is true, the runner queues a durable retry to the same
+stage and actor with the runtime session artifacts in
 `pending_retry.inputs.recovery`. The next dispatch resumes the same actor/stage
 session when the runtime exposes a session ID. If recovery is disabled, missing
 actor/stage context, or retry limits are exhausted, the lane moves to
@@ -377,8 +420,9 @@ Allowed decisions:
 - `operator_attention`
 
 Return at most one decision per lane in one tick. The runner validates the full
-decision batch before applying it, so duplicate lane decisions or actor
-concurrency violations fail before actors are dispatched.
+decision batch before applying it, so duplicate lane decisions, non-due retry
+targets, duplicate dispatch, and actor concurrency violations fail before actors
+are dispatched.
 
 For `retry`, `stage` names the stage to retry and `target` names the actor or
 action to run again. The runner stores the retry request in workflow state and

@@ -231,6 +231,7 @@ workflow: change-delivery
 tracker: ...
 intake: ...
 code-host: ...
+execution: ...
 concurrency: ...
 retry: ...
 completion: ...
@@ -292,6 +293,9 @@ sequenceDiagram
     alt no active lanes
         R->>L: save idle state
         R-->>D: idle
+    else no decision-ready lanes
+        R->>L: save no_decision_ready tick
+        R-->>D: wait
     else active lanes exist
         R->>O: orchestrator prompt with state + facts
         O-->>R: JSON decisions
@@ -468,6 +472,7 @@ The orchestrator receives:
 - typed workflow config
 - full workflow state
 - lane ledger
+- decision-ready lane summaries
 - tracker candidates and terminal issues
 - engine work item projections
 - runtime session projections
@@ -488,11 +493,14 @@ It returns JSON. The parser supports:
 Planning rules enforced by the runner:
 
 - one decision per lane per tick
+- no orchestrator turn when all active lanes are running, blocked for operator
+  attention, or waiting for retry time
 - no dispatch for terminal lanes
 - no duplicate dispatch for `running` lanes
 - no dispatch when an active runtime session or actor run already exists for the lane
 - retry lanes can only dispatch their due retry target
-- actor concurrency is checked before dispatch
+- actor concurrency is checked against existing running work and the planned
+  decision batch before dispatch
 - lane stage must match the decision unless it is a valid next-stage handoff
 
 ## Actor Runtime Path
@@ -512,17 +520,30 @@ runner.run_stage_actor
   -> engine.finish_run
 ```
 
+`execution.actor-dispatch` defines whether this path blocks the tick:
+
+| Mode | Behavior |
+| --- | --- |
+| `auto` | Inline at `max-lanes: 1`; background workers when lane concurrency is raised. |
+| `inline` | The tick owns the full actor turn and saves the final lane state before returning. |
+| `background` | The tick records the lane as `running`, starts an `actor-run` subprocess, saves state, and returns. The worker later reacquires the workflow state lock to merge output. |
+
 `runtimes/turns.py` normalizes one Sprints turn. A backend may internally have
 its own protocol turns, sessions, or event stream, but workflow code sees one
 prompt/result exchange plus metadata.
 
 Every actor dispatch gets a durable `engine_runs` row with `mode=actor`.
 Runtime session rows, lane runtime metadata, and runtime events all carry the
-same `run_id`. When a running lane is stale, reconciliation marks that runtime
-session and actor run `interrupted`. With `auto-retry-interrupted` enabled, it
-then queues a durable retry to the same stage and actor with the recorded
-runtime session as recovery context. If recovery cannot be targeted safely, the
-lane moves to operator attention.
+same `run_id`. Background actor workers also write a small heartbeat artifact
+beside the dispatch file. Reconciliation treats that heartbeat as the latest
+runtime timestamp, so a healthy long-running worker does not look stale just
+because lane JSON is waiting for the final output.
+
+When a running lane and its heartbeat are stale, reconciliation marks that
+runtime session and actor run `interrupted`. With `auto-retry-interrupted`
+enabled, it then queues a durable retry to the same stage and actor with the
+recorded runtime session as recovery context. If recovery cannot be targeted
+safely, the lane moves to operator attention.
 
 Runtime session status is normalized to:
 
@@ -680,7 +701,7 @@ Before each dispatch, the runner reconciles three external realities:
 
 | Reconcile Path | What It Checks | Result |
 | --- | --- | --- |
-| Runtime reconciliation | Running lanes whose runtime session has not progressed within `recovery.running-stale-seconds`. | Marks the runtime session and actor run `interrupted`, then queues a recovery retry to the same actor/stage or moves the lane to `operator_attention` if recovery is unsafe. |
+| Runtime reconciliation | Running lanes whose runtime session or background heartbeat has not progressed within `recovery.running-stale-seconds`. | Marks the runtime session and actor run `interrupted`, then queues a recovery retry to the same actor/stage or moves the lane to `operator_attention` if recovery is unsafe. |
 | Tracker reconciliation | Active lane issue still exists and remains eligible. | Updates issue payload or releases lane. |
 | Pull request reconciliation | Open PRs matching lane branch. | Updates `lane.pull_request`. |
 
@@ -789,9 +810,14 @@ These rules protect the mental model:
 - One lane maps to one active issue/PR/task.
 - One actor turn works on exactly one lane.
 - One tick may return many decisions, but at most one decision per lane.
+- The orchestrator only runs when at least one lane is decision-ready:
+  `claimed`, `waiting`, or `retry_queued` with a due retry.
 - No duplicate work is dispatched for a running lane.
 - No duplicate actor turn is dispatched while an active runtime session or actor
   run already exists for the lane.
+- Actor limits are workflow-global. Existing running lane status, runtime
+  sessions, engine actor runs, and current tick reservations all consume
+  actor capacity inside the lane limit.
 - Tracker state is eligibility, not orchestration ownership.
 - Engine leases protect ownership; lane JSON keeps rich context.
 - Runtime adapters return normalized results; workflows do not know backend
@@ -867,8 +893,8 @@ design pressure:
   actual retry dispatch.
 - `run_action` exists for deterministic mechanics, but the default delivery
   workflow gives PR creation to the implementer actor through skills.
-- Runtime session persistence is good enough for recovery, but stronger
-  multi-lane runtime dispatch will be needed before increasing default
-  concurrency.
+- Runtime session persistence now feeds actor capacity, but the default remains
+  conservative because runtime backends still execute actor turns synchronously
+  from the runner's point of view.
 - GitHub currently holds tracker and code-host behavior in one file; the
   boundary is logical even when implementation is colocated.

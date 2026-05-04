@@ -70,9 +70,19 @@ properties:
       github_slug:
         type: string
     additionalProperties: true
+  execution:
+    type: object
+    properties:
+      actor-dispatch:
+        type: string
+        enum: [auto, inline, background]
+    additionalProperties: true
   concurrency:
     type: object
     properties:
+      max-lanes:
+        type: integer
+        minimum: 1
       max-active-lanes:
         type: integer
         minimum: 1
@@ -82,6 +92,21 @@ properties:
       max-reviewers:
         type: integer
         minimum: 1
+      actors:
+        type: object
+        additionalProperties:
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: object
+              properties:
+                max-running:
+                  type: integer
+                  minimum: 1
+                limit:
+                  type: integer
+                  minimum: 1
+              additionalProperties: true
       per-lane-lock:
         type: boolean
     additionalProperties: true

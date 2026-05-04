@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
+import sys
+import threading
 import time
+import uuid
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Literal, Mapping, Protocol
+from typing import Any, Callable, Literal, Mapping, Protocol
 
+from engine import EngineStore
 from workflows.actions import run_action
 from workflows.actors import (
     actor_runtime_plan,
@@ -27,16 +33,19 @@ from workflows.orchestrator import (
     build_orchestrator_prompt,
     parse_orchestrator_decisions,
 )
+from workflows.paths import plugin_entrypoint_path, runtime_paths
 from workflows.worktrees import ensure_lane_worktree
 from workflows.lanes import (
     active_lanes,
     advance_lane,
     apply_actor_output_status,
+    actor_concurrency_usage,
     build_lane_status,
     build_workflow_facts,
     claim_new_lanes,
     complete_lane,
     consume_lane_retry,
+    decision_ready_lanes,
     guard_actor_dispatch,
     lane_actor_runtime_session,
     lane_by_id,
@@ -65,6 +74,10 @@ from workflows.lanes import (
 SPRINTS_STALL_DETECTED = "sprints.stall.detected"
 SPRINTS_STALL_TERMINATED = "sprints.stall.terminated"
 _DEFAULT_TIMEOUT_MS = 300_000
+_STATE_LOCK_SCOPE = "workflow-state"
+_STATE_LOCK_TTL_SECONDS = 120
+_STATE_LOCK_RENEW_INTERVAL_SECONDS = 30.0
+_ACTOR_HEARTBEAT_INTERVAL_SECONDS = 5.0
 
 
 def parse_actor_output(raw_output: str) -> dict[str, Any]:
@@ -122,6 +135,21 @@ class StallVerdict:
     action: Literal["terminate", "warn", "noop"]
 
 
+class _ActorOutputError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        reason: str,
+        message: str,
+        runtime_meta: dict[str, Any],
+        artifacts: dict[str, Any],
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.runtime_meta = runtime_meta
+        self.artifacts = artifacts
+
+
 class _RunningEntry(Protocol):
     started_at_monotonic: float
 
@@ -158,6 +186,11 @@ def main(workspace: object, argv: list[str]) -> int:
     complete_parser.add_argument("--reason", default="operator completed lane")
     tick_parser = subcommands.add_parser("tick")
     tick_parser.add_argument("--orchestrator-output", default="")
+    actor_run_parser = subcommands.add_parser("actor-run")
+    actor_run_parser.add_argument("lane_id")
+    actor_run_parser.add_argument("--actor", required=True)
+    actor_run_parser.add_argument("--stage", required=True)
+    actor_run_parser.add_argument("--inputs-file", required=True)
     args = parser.parse_args(argv)
 
     if args.command == "validate":
@@ -183,6 +216,14 @@ def main(workspace: object, argv: list[str]) -> int:
         return _operator_complete(workspace, lane_id=args.lane_id, reason=args.reason)
     if args.command == "tick":
         return _tick(workspace, orchestrator_output=args.orchestrator_output)
+    if args.command == "actor-run":
+        return _actor_run_worker(
+            workspace,
+            lane_id=args.lane_id,
+            actor_name=args.actor,
+            stage_name=args.stage,
+            inputs_file=Path(args.inputs_file),
+        )
     raise RuntimeError(f"unhandled command {args.command}")
 
 
@@ -491,9 +532,490 @@ def run_stage_actor(
     return parsed
 
 
+def dispatch_stage_actor_background(
+    *,
+    config: WorkflowConfig,
+    policy: WorkflowPolicy,
+    state: WorkflowState,
+    lane: dict[str, Any],
+    actor_name: str,
+    inputs: dict[str, Any],
+) -> dict[str, Any]:
+    stage_name = lane_stage(lane)
+    actor = config.actors[actor_name]
+    if policy.actors.get(actor_name) is None:
+        raise RuntimeError(f"missing actor policy section for {actor_name}")
+    lane_id = str(lane.get("lane_id") or "")
+    guard = guard_actor_dispatch(
+        config=config,
+        lane=lane,
+        actor_name=actor_name,
+        stage_name=stage_name,
+    )
+    if not guard.get("allowed"):
+        _persist_runtime_state(config=config, state=state)
+        return guard
+
+    actor_inputs = lane_retry_inputs(lane=lane, inputs=inputs)
+    ensure_lane_worktree(config=config, lane=lane)
+    runtime_plan = actor_runtime_plan(
+        config=config,
+        actor=actor,
+        stage_name=stage_name,
+        lane_id=lane_id,
+        resume_session_id=_resume_session_id(
+            lane, actor_name=actor_name, stage_name=stage_name
+        ),
+    )
+    record_actor_runtime_start(
+        config=config,
+        lane=lane,
+        actor_name=actor_name,
+        stage_name=stage_name,
+        runtime_meta={
+            **_runtime_plan_meta(runtime_plan),
+            "last_event": "actor/background-dispatching",
+        },
+    )
+    consume_lane_retry(config=config, lane=lane)
+    set_lane_status(
+        config=config,
+        lane=lane,
+        status="running",
+        actor=actor_name,
+        reason=f"{actor_name} dispatched",
+    )
+    dispatch_file = _write_actor_dispatch_file(
+        config=config,
+        lane=lane,
+        actor_name=actor_name,
+        stage_name=stage_name,
+        inputs=actor_inputs,
+    )
+    heartbeat_file = _actor_heartbeat_file(dispatch_file)
+    record_actor_runtime_progress(
+        config=config,
+        lane=lane,
+        runtime_meta={
+            **_runtime_plan_meta(runtime_plan),
+            "last_event": "actor/background-prepared",
+            "dispatch_mode": "background",
+            "inputs_file": str(dispatch_file),
+            "heartbeat_path": str(heartbeat_file),
+            "log_path": str(_actor_log_file(dispatch_file)),
+        },
+    )
+    _persist_runtime_state(config=config, state=state)
+    try:
+        process = _spawn_actor_worker(
+            config=config,
+            lane_id=lane_id,
+            actor_name=actor_name,
+            stage_name=stage_name,
+            inputs_file=dispatch_file,
+        )
+    except Exception as exc:
+        record_actor_runtime_result(
+            config=config,
+            lane=lane,
+            runtime_meta={
+                **_runtime_plan_meta(runtime_plan),
+                "last_message": str(exc),
+                "inputs_file": str(dispatch_file),
+            },
+            status="failed",
+        )
+        set_lane_operator_attention(
+            config=config,
+            lane=lane,
+            reason="actor_dispatch_failed",
+            message=str(exc),
+            artifacts={"actor": actor_name, "stage": stage_name},
+        )
+        _persist_runtime_state(config=config, state=state)
+        raise
+    record_actor_runtime_progress(
+        config=config,
+        lane=lane,
+        runtime_meta={
+            **_runtime_plan_meta(runtime_plan),
+            "last_event": "actor/background-dispatched",
+            "dispatch_mode": "background",
+            "process_id": process.pid,
+            "inputs_file": str(dispatch_file),
+            "heartbeat_path": str(heartbeat_file),
+            "log_path": str(_actor_log_file(dispatch_file)),
+        },
+    )
+    _persist_runtime_state(config=config, state=state)
+    return {
+        "status": "dispatched",
+        "mode": "background",
+        "process_id": process.pid,
+        "inputs_file": str(dispatch_file),
+        "heartbeat_path": str(heartbeat_file),
+    }
+
+
 def _persist_runtime_state(*, config: WorkflowConfig, state: WorkflowState) -> None:
     save_state(config.storage.state_path, state)
     save_scheduler_snapshot(config=config, state=state)
+
+
+def _save_state_event(
+    *,
+    config: WorkflowConfig,
+    state: WorkflowState,
+    event: str,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    save_state(config.storage.state_path, state)
+    save_scheduler_snapshot(config=config, state=state)
+    append_audit(
+        config.storage.audit_log_path,
+        {
+            "event": f"{config.workflow_name}.{event}",
+            "state": state.to_dict(),
+            **dict(extra or {}),
+        },
+    )
+
+
+def _with_state_lock(
+    *,
+    config: WorkflowConfig,
+    owner_role: str,
+    callback: Callable[[], int | None],
+    timeout_seconds: float = 60.0,
+) -> int:
+    store = _runner_engine_store(config)
+    lease_key = str(config.workflow_root)
+    owner_instance_id = f"{owner_role}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
+    deadline = time.monotonic() + timeout_seconds
+    acquired = False
+    stop_renewing: Callable[[], None] | None = None
+    try:
+        while True:
+            lease = store.acquire_lease(
+                lease_scope=_STATE_LOCK_SCOPE,
+                lease_key=lease_key,
+                owner_instance_id=owner_instance_id,
+                owner_role=owner_role,
+                ttl_seconds=_STATE_LOCK_TTL_SECONDS,
+                metadata={"workflow_root": str(config.workflow_root)},
+            )
+            acquired = bool(lease.get("acquired"))
+            if acquired:
+                break
+            if time.monotonic() >= deadline:
+                current_owner = lease.get("owner_instance_id") or "unknown"
+                raise TimeoutError(
+                    f"timed out waiting for workflow state lock held by {current_owner}"
+                )
+            time.sleep(0.2)
+        stop_renewing = _start_state_lock_renewer(
+            store=store,
+            config=config,
+            lease_key=lease_key,
+            owner_instance_id=owner_instance_id,
+            owner_role=owner_role,
+        )
+        result = callback()
+        return int(result or 0)
+    finally:
+        if stop_renewing is not None:
+            stop_renewing()
+        if acquired:
+            store.release_lease(
+                lease_scope=_STATE_LOCK_SCOPE,
+                lease_key=lease_key,
+                owner_instance_id=owner_instance_id,
+                release_reason="complete",
+            )
+
+
+def _start_state_lock_renewer(
+    *,
+    store: EngineStore,
+    config: WorkflowConfig,
+    lease_key: str,
+    owner_instance_id: str,
+    owner_role: str,
+) -> Callable[[], None]:
+    stop = threading.Event()
+
+    def renew() -> None:
+        while not stop.wait(_STATE_LOCK_RENEW_INTERVAL_SECONDS):
+            try:
+                store.acquire_lease(
+                    lease_scope=_STATE_LOCK_SCOPE,
+                    lease_key=lease_key,
+                    owner_instance_id=owner_instance_id,
+                    owner_role=owner_role,
+                    ttl_seconds=_STATE_LOCK_TTL_SECONDS,
+                    metadata={"workflow_root": str(config.workflow_root)},
+                )
+            except Exception:
+                return
+
+    thread = threading.Thread(
+        target=renew,
+        name=f"sprints-state-lock-{_safe_dispatch_segment(owner_role)}",
+        daemon=True,
+    )
+    thread.start()
+
+    def stop_thread() -> None:
+        stop.set()
+        thread.join(timeout=0.2)
+
+    return stop_thread
+
+
+def _update_state_locked(
+    *,
+    config: WorkflowConfig,
+    event: str,
+    extra: dict[str, Any],
+    update: Callable[[WorkflowState], None],
+) -> None:
+    def callback() -> int:
+        state = load_state(
+            config.storage.state_path,
+            workflow=config.workflow_name,
+            first_stage=config.first_stage,
+        )
+        validate_state(config, state)
+        update(state)
+        _refresh_state_status(state, idle_reason="no active lanes")
+        _save_state_event(config=config, state=state, event=event, extra=extra)
+        return 0
+
+    _with_state_lock(
+        config=config,
+        owner_role="actor-worker",
+        callback=callback,
+    )
+
+
+def _runner_engine_store(config: WorkflowConfig) -> EngineStore:
+    return EngineStore(
+        db_path=runtime_paths(config.workflow_root)["db_path"],
+        workflow=config.workflow_name,
+    )
+
+
+def _actor_dispatch_mode(config: WorkflowConfig) -> Literal["inline", "background"]:
+    raw = config.raw
+    execution = raw.get("execution") if isinstance(raw.get("execution"), dict) else {}
+    concurrency = (
+        raw.get("concurrency") if isinstance(raw.get("concurrency"), dict) else {}
+    )
+    configured = str(
+        execution.get("actor-dispatch")
+        or execution.get("actor_dispatch")
+        or concurrency.get("actor-dispatch")
+        or concurrency.get("actor_dispatch")
+        or "auto"
+    ).strip().lower()
+    if configured in {"inline", "sync", "foreground"}:
+        return "inline"
+    if configured in {"background", "async", "subprocess"}:
+        return "background"
+    if configured not in {"", "auto"}:
+        raise WorkflowConfigError(
+            "execution.actor-dispatch must be one of: auto, inline, background"
+        )
+    return "background" if _configured_lane_limit(config) > 1 else "inline"
+
+
+def _configured_lane_limit(config: WorkflowConfig) -> int:
+    raw = config.raw.get("concurrency")
+    cfg = raw if isinstance(raw, dict) else {}
+    for key in ("max-lanes", "max_lanes", "max-active-lanes", "max_active_lanes"):
+        value = cfg.get(key)
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            return parsed
+    return 1
+
+
+def _dispatch_dir(config: WorkflowConfig) -> Path:
+    return runtime_paths(config.workflow_root)["db_path"].parent / "actor-dispatch"
+
+
+def _write_actor_dispatch_file(
+    *,
+    config: WorkflowConfig,
+    lane: dict[str, Any],
+    actor_name: str,
+    stage_name: str,
+    inputs: dict[str, Any],
+) -> Path:
+    root = _dispatch_dir(config)
+    root.mkdir(parents=True, exist_ok=True)
+    lane_id = str(lane.get("lane_id") or "lane")
+    filename = (
+        f"{_safe_dispatch_segment(lane_id)}."
+        f"{_safe_dispatch_segment(stage_name)}."
+        f"{_safe_dispatch_segment(actor_name)}."
+        f"{uuid.uuid4().hex}.json"
+    )
+    path = root / filename
+    payload = {
+        "lane_id": lane_id,
+        "stage": stage_name,
+        "actor": actor_name,
+        "inputs": inputs,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def _read_actor_dispatch_file(path: Path) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("actor dispatch file must contain a JSON object")
+    inputs = payload.get("inputs")
+    if not isinstance(inputs, dict):
+        raise RuntimeError("actor dispatch file is missing object field `inputs`")
+    return inputs
+
+
+def _actor_heartbeat_file(inputs_file: Path) -> Path:
+    return Path(inputs_file).with_suffix(".heartbeat.json")
+
+
+def _actor_log_file(inputs_file: Path) -> Path:
+    return Path(inputs_file).with_suffix(".log")
+
+
+def _start_actor_heartbeat(
+    *,
+    lane_id: str,
+    actor_name: str,
+    stage_name: str,
+    inputs_file: Path,
+    interval_seconds: float = _ACTOR_HEARTBEAT_INTERVAL_SECONDS,
+) -> Callable[[str], None]:
+    path = _actor_heartbeat_file(inputs_file)
+    stop = threading.Event()
+
+    def beat(status: str) -> None:
+        _write_actor_heartbeat(
+            path=path,
+            lane_id=lane_id,
+            actor_name=actor_name,
+            stage_name=stage_name,
+            inputs_file=inputs_file,
+            status=status,
+        )
+
+    def loop() -> None:
+        while not stop.wait(interval_seconds):
+            beat("running")
+
+    beat("running")
+    thread = threading.Thread(
+        target=loop,
+        name=f"sprints-heartbeat-{_safe_dispatch_segment(lane_id)}",
+        daemon=True,
+    )
+    thread.start()
+
+    def finish(status: str) -> None:
+        stop.set()
+        beat(status)
+        thread.join(timeout=0.2)
+
+    return finish
+
+
+def _write_actor_heartbeat(
+    *,
+    path: Path,
+    lane_id: str,
+    actor_name: str,
+    stage_name: str,
+    inputs_file: Path,
+    status: str,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    now_epoch = time.time()
+    payload = {
+        "status": status,
+        "updated_at": _utc_now_iso(now_epoch),
+        "updated_at_epoch": now_epoch,
+        "process_id": os.getpid(),
+        "lane_id": lane_id,
+        "actor": actor_name,
+        "stage": stage_name,
+        "inputs_file": str(inputs_file),
+    }
+    temp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        temp.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+        temp.replace(path)
+    except OSError:
+        # Heartbeat loss should not kill useful actor work; reconciliation will
+        # treat the missing heartbeat as stale if the worker disappears.
+        return
+
+
+def _utc_now_iso(epoch: float | None = None) -> str:
+    value = time.time() if epoch is None else epoch
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(value))
+
+
+def _safe_dispatch_segment(value: str) -> str:
+    cleaned = "".join(
+        char if char.isalnum() or char in {"-", "_", "."} else "-"
+        for char in str(value or "").strip()
+    ).strip(".-")
+    return cleaned[:80] or "item"
+
+
+def _spawn_actor_worker(
+    *,
+    config: WorkflowConfig,
+    lane_id: str,
+    actor_name: str,
+    stage_name: str,
+    inputs_file: Path,
+) -> subprocess.Popen:
+    log_path = _actor_log_file(inputs_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    argv = [
+        sys.executable,
+        str(plugin_entrypoint_path(config.workflow_root)),
+        "--workflow-root",
+        str(config.workflow_root),
+        "actor-run",
+        lane_id,
+        "--actor",
+        actor_name,
+        "--stage",
+        stage_name,
+        "--inputs-file",
+        str(inputs_file),
+    ]
+    stdout = log_path.open("ab")
+    kwargs: dict[str, Any] = {
+        "cwd": str(config.workflow_root),
+        "stdin": subprocess.DEVNULL,
+        "stdout": stdout,
+        "stderr": subprocess.STDOUT,
+        "close_fds": os.name != "nt",
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    try:
+        return subprocess.Popen(argv, **kwargs)
+    finally:
+        stdout.close()
 
 
 def _resume_session_id(
@@ -548,6 +1070,286 @@ def _runtime_result_meta(result: Any) -> dict[str, Any]:
         if value not in (None, "", [], {}):
             meta[key] = value
     return meta
+
+
+def _actor_run_worker(
+    config: WorkflowConfig,
+    *,
+    lane_id: str,
+    actor_name: str,
+    stage_name: str,
+    inputs_file: Path,
+) -> int:
+    policy = _load_policy(config)
+    inputs = _read_actor_dispatch_file(inputs_file)
+    state, lane = _load_background_actor_snapshot(
+        config=config,
+        lane_id=lane_id,
+        actor_name=actor_name,
+        stage_name=stage_name,
+    )
+    finish_heartbeat = _start_actor_heartbeat(
+        lane_id=lane_id,
+        actor_name=actor_name,
+        stage_name=stage_name,
+        inputs_file=inputs_file,
+    )
+    heartbeat_status = "failed"
+    try:
+        try:
+            parsed, runtime_meta, _raw_output = _run_actor_runtime_for_worker(
+                config=config,
+                policy=policy,
+                state=state,
+                lane=lane,
+                actor_name=actor_name,
+                inputs=inputs,
+            )
+        except _ActorOutputError as exc:
+            _finalize_background_actor_failure(
+                config=config,
+                lane_id=lane_id,
+                actor_name=actor_name,
+                stage_name=stage_name,
+                runtime_meta=exc.runtime_meta,
+                reason=exc.reason,
+                message=str(exc),
+                artifacts=exc.artifacts,
+            )
+            return 1
+        except Exception as exc:
+            _finalize_background_actor_failure(
+                config=config,
+                lane_id=lane_id,
+                actor_name=actor_name,
+                stage_name=stage_name,
+                runtime_meta={
+                    "last_message": str(exc),
+                    **_runtime_result_meta(getattr(exc, "result", None)),
+                },
+                reason="actor_runtime_failed",
+                message=str(exc),
+                artifacts={"error": str(exc)},
+            )
+            return 1
+
+        _finalize_background_actor_success(
+            config=config,
+            lane_id=lane_id,
+            actor_name=actor_name,
+            stage_name=stage_name,
+            output=parsed,
+            runtime_meta=runtime_meta,
+        )
+        heartbeat_status = "completed"
+        return 0
+    finally:
+        finish_heartbeat(heartbeat_status)
+
+
+def _load_background_actor_snapshot(
+    *,
+    config: WorkflowConfig,
+    lane_id: str,
+    actor_name: str,
+    stage_name: str,
+) -> tuple[WorkflowState, dict[str, Any]]:
+    snapshot: dict[str, Any] = {}
+
+    def callback() -> int:
+        state = load_state(
+            config.storage.state_path,
+            workflow=config.workflow_name,
+            first_stage=config.first_stage,
+        )
+        validate_state(config, state)
+        lane = lane_by_id(state, lane_id)
+        _validate_background_lane(lane, actor_name=actor_name, stage_name=stage_name)
+        snapshot["state"] = state
+        snapshot["lane"] = lane
+        return 0
+
+    _with_state_lock(
+        config=config,
+        owner_role="actor-worker-read",
+        callback=callback,
+    )
+    return snapshot["state"], snapshot["lane"]
+
+
+def _run_actor_runtime_for_worker(
+    *,
+    config: WorkflowConfig,
+    policy: WorkflowPolicy,
+    state: WorkflowState,
+    lane: dict[str, Any],
+    actor_name: str,
+    inputs: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    actor = config.actors[actor_name]
+    actor_policy = policy.actors.get(actor_name)
+    if actor_policy is None:
+        raise RuntimeError(f"missing actor policy section for {actor_name}")
+    stage_name = lane_stage(lane)
+    lane_id = str(lane.get("lane_id") or "")
+    worktree = ensure_lane_worktree(config=config, lane=lane)
+    runtime_plan = actor_runtime_plan(
+        config=config,
+        actor=actor,
+        stage_name=stage_name,
+        lane_id=lane_id,
+        resume_session_id=_resume_session_id(
+            lane, actor_name=actor_name, stage_name=stage_name
+        ),
+    )
+    prompt = build_actor_prompt(
+        actor_policy=actor_policy,
+        variables=actor_variables(config=config, state=state, lane=lane, inputs=inputs),
+    )
+    prompt = append_actor_skill_docs(config=config, actor=actor, prompt=prompt)
+    runtime_result = build_actor_runtime(config=config, actor=actor).run(
+        actor=actor,
+        prompt=prompt,
+        stage_name=stage_name,
+        worktree=worktree,
+        lane_id=lane_id,
+        resume_session_id=runtime_plan.resume_session_id,
+    )
+    runtime_meta = {
+        **_runtime_plan_meta(runtime_plan),
+        **_runtime_result_meta(runtime_result),
+    }
+    raw_output = runtime_result.output
+    try:
+        return parse_actor_output(raw_output), runtime_meta, raw_output
+    except json.JSONDecodeError as exc:
+        raise _ActorOutputError(
+            reason="actor_output_invalid_json",
+            message=f"actor {actor_name} returned invalid JSON: {exc}",
+            runtime_meta={
+                **runtime_meta,
+                "last_message": str(exc),
+                "raw_output": raw_output,
+            },
+            artifacts={
+                "actor": actor_name,
+                "stage": stage_name,
+                "error": str(exc),
+                "raw_output": raw_output,
+            },
+        ) from exc
+    except TypeError as exc:
+        raise _ActorOutputError(
+            reason="actor_output_contract_failed",
+            message=f"actor {actor_name} output was not an object",
+            runtime_meta={
+                **runtime_meta,
+                "last_message": str(exc),
+                "raw_output": raw_output,
+            },
+            artifacts={
+                "actor": actor_name,
+                "stage": stage_name,
+                "error": str(exc),
+                "raw_output": raw_output,
+            },
+        ) from exc
+
+
+def _finalize_background_actor_success(
+    *,
+    config: WorkflowConfig,
+    lane_id: str,
+    actor_name: str,
+    stage_name: str,
+    output: dict[str, Any],
+    runtime_meta: dict[str, Any],
+) -> None:
+    def update(state: WorkflowState) -> None:
+        lane = lane_by_id(state, lane_id)
+        _validate_background_lane(lane, actor_name=actor_name, stage_name=stage_name)
+        record_actor_output(config=config, lane=lane, actor_name=actor_name, output=output)
+        apply_actor_output_status(
+            config=config, lane=lane, actor_name=actor_name, output=output
+        )
+        record_actor_runtime_result(
+            config=config,
+            lane=lane,
+            runtime_meta=runtime_meta,
+            status=_actor_output_runtime_status(
+                actor_name=actor_name,
+                output=output,
+                lane=lane,
+            ),
+        )
+
+    _update_state_locked(
+        config=config,
+        event="actor.completed",
+        extra={"lane_id": lane_id, "actor": actor_name, "stage": stage_name},
+        update=update,
+    )
+
+
+def _finalize_background_actor_failure(
+    *,
+    config: WorkflowConfig,
+    lane_id: str,
+    actor_name: str,
+    stage_name: str,
+    runtime_meta: dict[str, Any],
+    reason: str,
+    message: str,
+    artifacts: dict[str, Any],
+) -> None:
+    def update(state: WorkflowState) -> None:
+        lane = lane_by_id(state, lane_id)
+        _validate_background_lane(lane, actor_name=actor_name, stage_name=stage_name)
+        record_actor_runtime_result(
+            config=config,
+            lane=lane,
+            runtime_meta=runtime_meta,
+            status="failed",
+        )
+        set_lane_operator_attention(
+            config=config,
+            lane=lane,
+            reason=reason,
+            message=message,
+            artifacts={"actor": actor_name, "stage": stage_name, **artifacts},
+        )
+
+    _update_state_locked(
+        config=config,
+        event="actor.failed",
+        extra={
+            "lane_id": lane_id,
+            "actor": actor_name,
+            "stage": stage_name,
+            "reason": reason,
+            "message": message,
+        },
+        update=update,
+    )
+
+
+def _validate_background_lane(
+    lane: dict[str, Any], *, actor_name: str, stage_name: str
+) -> None:
+    if lane_stage(lane) != stage_name:
+        raise RuntimeError(
+            f"background actor result targets stage {stage_name!r}, "
+            f"but lane is at {lane_stage(lane)!r}"
+        )
+    if str(lane.get("status") or "") != "running":
+        raise RuntimeError(
+            f"background actor result targets a non-running lane: {lane.get('status')!r}"
+        )
+    if str(lane.get("actor") or "") != actor_name:
+        raise RuntimeError(
+            f"background actor result targets actor {actor_name!r}, "
+            f"but lane actor is {lane.get('actor')!r}"
+        )
 
 
 def _actor_output_runtime_status(
@@ -770,6 +1572,18 @@ def _lanes(config: WorkflowConfig, *, lane_id: str | None, attention_only: bool)
 def _operator_retry(
     config: WorkflowConfig, *, lane_id: str, reason: str, target: str | None
 ) -> int:
+    return _with_state_lock(
+        config=config,
+        owner_role="operator-retry",
+        callback=lambda: _operator_retry_locked(
+            config, lane_id=lane_id, reason=reason, target=target
+        ),
+    )
+
+
+def _operator_retry_locked(
+    config: WorkflowConfig, *, lane_id: str, reason: str, target: str | None
+) -> int:
     state = load_state(
         config.storage.state_path,
         workflow=config.workflow_name,
@@ -803,6 +1617,18 @@ def _operator_retry(
 
 
 def _operator_release(config: WorkflowConfig, *, lane_id: str, reason: str) -> int:
+    return _with_state_lock(
+        config=config,
+        owner_role="operator-release",
+        callback=lambda: _operator_release_locked(
+            config, lane_id=lane_id, reason=reason
+        ),
+    )
+
+
+def _operator_release_locked(
+    config: WorkflowConfig, *, lane_id: str, reason: str
+) -> int:
     state = load_state(
         config.storage.state_path,
         workflow=config.workflow_name,
@@ -825,6 +1651,18 @@ def _operator_release(config: WorkflowConfig, *, lane_id: str, reason: str) -> i
 
 
 def _operator_complete(config: WorkflowConfig, *, lane_id: str, reason: str) -> int:
+    return _with_state_lock(
+        config=config,
+        owner_role="operator-complete",
+        callback=lambda: _operator_complete_locked(
+            config, lane_id=lane_id, reason=reason
+        ),
+    )
+
+
+def _operator_complete_locked(
+    config: WorkflowConfig, *, lane_id: str, reason: str
+) -> int:
     state = load_state(
         config.storage.state_path,
         workflow=config.workflow_name,
@@ -853,6 +1691,14 @@ def _operator_complete(config: WorkflowConfig, *, lane_id: str, reason: str) -> 
 
 
 def _tick(config: WorkflowConfig, *, orchestrator_output: str) -> int:
+    return _with_state_lock(
+        config=config,
+        owner_role="workflow-tick",
+        callback=lambda: _tick_locked(config, orchestrator_output=orchestrator_output),
+    )
+
+
+def _tick_locked(config: WorkflowConfig, *, orchestrator_output: str) -> int:
     policy = _load_policy(config)
     state = load_state(
         config.storage.state_path,
@@ -876,8 +1722,23 @@ def _tick(config: WorkflowConfig, *, orchestrator_output: str) -> int:
     state.status = "running"
     state.idle_reason = None
     _persist_runtime_state(config=config, state=state)
+    output_override = _read_output_arg(orchestrator_output)
+    ready_lanes = decision_ready_lanes(state)
+    if not ready_lanes and not output_override:
+        _save_tick(
+            config=config,
+            state=state,
+            event="no_decision_ready",
+            extra={
+                "intake": intake,
+                "reconcile": reconcile,
+                "active_lane_count": len(active_lanes(state)),
+                "reason": "active lanes are running, blocked, or waiting for retry time",
+            },
+        )
+        return 0
     try:
-        output = _read_output_arg(orchestrator_output) or _run_orchestrator(
+        output = output_override or _run_orchestrator(
             config=config,
             policy=policy,
             state=state,
@@ -948,16 +1809,7 @@ def _save_tick(
     event: str,
     extra: dict[str, Any] | None = None,
 ) -> None:
-    save_state(config.storage.state_path, state)
-    save_scheduler_snapshot(config=config, state=state)
-    append_audit(
-        config.storage.audit_log_path,
-        {
-            "event": f"{config.workflow_name}.{event}",
-            "state": state.to_dict(),
-            **dict(extra or {}),
-        },
-    )
+    _save_state_event(config=config, state=state, event=event, extra=extra)
     print(json.dumps(state.to_dict(), indent=2, sort_keys=True))
 
 
@@ -993,8 +1845,14 @@ def _apply_decisions(
     state: WorkflowState,
     decisions: list[OrchestratorDecision],
 ) -> list[dict[str, Any]]:
-    planned = _plan_decisions(config=config, state=state, decisions=decisions)
-    dispatch_counts = {"implementer": 0, "reviewer": 0}
+    actor_usage = actor_concurrency_usage(config=config, state=state)
+    planned = _plan_decisions(
+        config=config,
+        state=state,
+        decisions=decisions,
+        actor_usage=actor_usage,
+    )
+    dispatch_counts = dict(actor_usage)
     results: list[dict[str, Any]] = []
     for decision, lane in planned:
         state.orchestrator_decisions.append(decision.to_dict())
@@ -1015,10 +1873,11 @@ def _plan_decisions(
     config: WorkflowConfig,
     state: WorkflowState,
     decisions: list[OrchestratorDecision],
+    actor_usage: dict[str, int] | None = None,
 ) -> list[tuple[OrchestratorDecision, dict[str, Any]]]:
     planned: list[tuple[OrchestratorDecision, dict[str, Any]]] = []
     seen_lanes: set[str] = set()
-    dispatch_counts: dict[str, int] = {}
+    dispatch_counts: dict[str, int] = dict(actor_usage or {})
     for decision in decisions:
         lane = lane_for_decision(state=state, decision=decision)
         lane_id = str(lane.get("lane_id") or "").strip()
@@ -1089,14 +1948,24 @@ def _apply_decision(
             config=config, actor_name=actor_name, dispatch_counts=dispatch_counts
         )
         dispatch_counts[actor_name] = dispatch_counts.get(actor_name, 0) + 1
-        result = run_stage_actor(
-            config=config,
-            policy=policy,
-            state=state,
-            lane=lane,
-            actor_name=actor_name,
-            inputs=decision.inputs,
-        )
+        if _actor_dispatch_mode(config) == "background":
+            result = dispatch_stage_actor_background(
+                config=config,
+                policy=policy,
+                state=state,
+                lane=lane,
+                actor_name=actor_name,
+                inputs=decision.inputs,
+            )
+        else:
+            result = run_stage_actor(
+                config=config,
+                policy=policy,
+                state=state,
+                lane=lane,
+                actor_name=actor_name,
+                inputs=decision.inputs,
+            )
         return {
             "lane_id": lane["lane_id"],
             "decision": "run_actor",

@@ -31,24 +31,42 @@ _RUNTIME_FINAL_STATUSES = {"completed", "failed", "interrupted", "blocked"}
 def build_workflow_facts(config: WorkflowConfig, state: Any) -> dict[str, Any]:
     tracker_facts = _tracker_facts(config=config, state=state)
     concurrency = _concurrency_config(config)
+    actor_usage = actor_concurrency_usage(config=config, state=state)
     current_active_lanes = active_lanes(state)
+    current_decision_ready_lanes = decision_ready_lanes(state)
+    lane_limit = concurrency["max_lanes"]
+    available_lanes = max(lane_limit - len(current_active_lanes), 0)
     return {
         "tracker": tracker_facts,
         "engine": {
             "lanes": state.lanes,
+            "decision_ready_lanes": [
+                lane_summary(lane) for lane in current_decision_ready_lanes
+            ],
             "work_items": _engine_store(config).work_items(limit=200),
             "runtime_sessions": _engine_store(config).runtime_sessions(limit=200),
             "active_lane_count": len(current_active_lanes),
+            "decision_ready_lane_count": len(current_decision_ready_lanes),
             "idle_reason": state.idle_reason,
             "due_retries": _engine_store(config).due_retries(limit=50),
             "capacity": {
-                "max_active_lanes": concurrency["max_active_lanes"],
-                "available_lanes": max(
-                    concurrency["max_active_lanes"] - len(current_active_lanes), 0
-                ),
+                "max_lanes": lane_limit,
+                "max_active_lanes": lane_limit,
+                "available_lanes": available_lanes,
             },
         },
-        "concurrency": concurrency,
+        "concurrency": {
+            **concurrency,
+            "lanes": {
+                "limit": lane_limit,
+                "active": len(current_active_lanes),
+                "available": available_lanes,
+            },
+            "actor_usage": actor_usage,
+            "actor_capacity": _actor_capacity_snapshot(
+                concurrency=concurrency, actor_usage=actor_usage
+            ),
+        },
         "intake": {"auto_activate": _intake_auto_activate_config(config)},
         "recovery": _recovery_config(config),
         "retry": _retry_config(config),
@@ -76,6 +94,13 @@ def build_lane_status(
         "idle_reason": state.get("idle_reason"),
         "lane_count": len(lanes),
         "active_lane_count": len(active),
+        "decision_ready_count": len(
+            [
+                lane
+                for lane in active
+                if isinstance(lane, dict) and lane_needs_orchestrator_decision(lane)
+            ]
+        ),
         "running_count": _count_lanes_with_status(active, "running"),
         "retry_count": _count_lanes_with_status(active, "retry_queued"),
         "operator_attention_count": _count_lanes_with_status(
@@ -238,6 +263,7 @@ def reconcile_runtime_lanes(
     for lane in lanes:
         if str(lane.get("status") or "") != "running":
             continue
+        heartbeat = _runtime_heartbeat(lane)
         timestamp = _runtime_updated_at(lane) or str(lane.get("last_progress_at") or "")
         age = now - _iso_to_epoch(timestamp, default=now)
         if age < stale_seconds:
@@ -261,6 +287,7 @@ def reconcile_runtime_lanes(
                 "actor was still marked running from an earlier tick; "
                 f"last update was {int(age)}s ago"
             ),
+            heartbeat=heartbeat,
         )
         lane["runtime_recovery"] = recovery
         queued = _queue_interrupted_actor_recovery(
@@ -749,14 +776,114 @@ def validate_actor_capacity(
     dispatch_counts: dict[str, int],
 ) -> None:
     concurrency = _concurrency_config(config)
-    if actor_name == "implementer":
-        limit = concurrency["max_implementers"]
-    elif actor_name == "reviewer":
-        limit = concurrency["max_reviewers"]
-    else:
-        limit = concurrency["max_active_lanes"]
+    actor_limits = (
+        concurrency.get("actor_limits")
+        if isinstance(concurrency.get("actor_limits"), dict)
+        else {}
+    )
+    limit = int(actor_limits.get(actor_name) or concurrency["max_lanes"])
     if dispatch_counts.get(actor_name, 0) >= limit:
         raise RuntimeError(f"concurrency limit reached for actor {actor_name}")
+
+
+def actor_concurrency_usage(*, config: WorkflowConfig, state: Any) -> dict[str, int]:
+    usage: dict[str, int] = {}
+    seen: set[tuple[str, str]] = set()
+
+    def add(
+        *,
+        actor_name: Any,
+        lane_id: Any,
+        stage_name: Any,
+        run_id: Any = "",
+        source: str,
+    ) -> None:
+        actor = str(actor_name or "").strip()
+        if not actor:
+            return
+        lane_key = str(lane_id or "").strip()
+        stage_key = str(stage_name or "").strip()
+        run_key = str(run_id or "").strip()
+        identity = (
+            f"lane:{lane_key}:{stage_key}:{actor}"
+            if lane_key
+            else f"run:{run_key or source}:{actor}"
+        )
+        key = (actor, identity)
+        if key in seen:
+            return
+        seen.add(key)
+        usage[actor] = usage.get(actor, 0) + 1
+
+    for lane in active_lanes(state):
+        lane_id = lane.get("lane_id")
+        stage_name = lane_stage(lane)
+        if str(lane.get("status") or "").strip() == "running":
+            add(
+                actor_name=lane.get("actor"),
+                lane_id=lane_id,
+                stage_name=stage_name,
+                source="lane",
+            )
+        session = (
+            lane.get("runtime_session")
+            if isinstance(lane.get("runtime_session"), dict)
+            else {}
+        )
+        if _runtime_session_is_running(session):
+            add(
+                actor_name=session.get("actor") or lane.get("actor"),
+                lane_id=lane_id,
+                stage_name=session.get("stage") or stage_name,
+                run_id=session.get("run_id"),
+                source="lane_runtime_session",
+            )
+
+    for engine_session in _engine_store(config).runtime_sessions(limit=500):
+        if not _runtime_session_is_running(engine_session):
+            continue
+        metadata = (
+            engine_session.get("metadata")
+            if isinstance(engine_session.get("metadata"), dict)
+            else {}
+        )
+        add(
+            actor_name=engine_session.get("actor") or metadata.get("actor"),
+            lane_id=engine_session.get("work_id"),
+            stage_name=engine_session.get("stage") or metadata.get("stage"),
+            run_id=engine_session.get("run_id"),
+            source="engine_runtime_session",
+        )
+
+    for run in _engine_store(config).running_runs(mode="actor", limit=500):
+        metadata = run.get("metadata") if isinstance(run.get("metadata"), dict) else {}
+        add(
+            actor_name=metadata.get("actor"),
+            lane_id=metadata.get("lane_id"),
+            stage_name=metadata.get("stage"),
+            run_id=run.get("run_id"),
+            source="engine_run",
+        )
+
+    return usage
+
+
+def _actor_capacity_snapshot(
+    *, concurrency: dict[str, Any], actor_usage: dict[str, int]
+) -> dict[str, dict[str, int]]:
+    capacities = (
+        concurrency.get("actor_limits")
+        if isinstance(concurrency.get("actor_limits"), dict)
+        else {}
+    )
+    return {
+        actor_name: {
+            "limit": int(limit),
+            "running": int(actor_usage.get(actor_name, 0)),
+            "available": max(int(limit) - int(actor_usage.get(actor_name, 0)), 0),
+        }
+        for actor_name, limit in sorted(capacities.items())
+    }
 
 
 def guard_actor_dispatch(
@@ -901,7 +1028,12 @@ def queue_lane_retry(
 
 
 def _runtime_recovery_record(
-    *, lane: dict[str, Any], session: dict[str, Any], age_seconds: int, message: str
+    *,
+    lane: dict[str, Any],
+    session: dict[str, Any],
+    age_seconds: int,
+    message: str,
+    heartbeat: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     actor_name = str(session.get("actor") or lane.get("actor") or "").strip()
     stage_name = str(session.get("stage") or lane.get("stage") or "").strip()
@@ -917,6 +1049,8 @@ def _runtime_recovery_record(
         "actor": actor_name,
         "resume_session_id": resume_session_id or None,
         "runtime_session": dict(session),
+        "heartbeat": heartbeat or None,
+        "process_id": session.get("process_id"),
         "age_seconds": age_seconds,
         "branch": lane.get("branch"),
         "pull_request": lane.get("pull_request"),
@@ -1005,6 +1139,23 @@ def lane_retry_is_due(lane: dict[str, Any], *, now_epoch: float | None = None) -
     )
     due_at_epoch = _retry_due_at_epoch(pending)
     return (time.time() if now_epoch is None else now_epoch) >= due_at_epoch
+
+
+def decision_ready_lanes(state: Any) -> list[dict[str, Any]]:
+    return [
+        lane
+        for lane in active_lanes(state)
+        if lane_needs_orchestrator_decision(lane)
+    ]
+
+
+def lane_needs_orchestrator_decision(lane: dict[str, Any]) -> bool:
+    status = str(lane.get("status") or "").strip().lower()
+    if status in {"claimed", "waiting"}:
+        return True
+    if status == "retry_queued":
+        return lane_retry_is_due(lane)
+    return False
 
 
 def complete_lane(*, config: WorkflowConfig, lane: dict[str, Any], reason: str) -> None:
@@ -1941,18 +2092,66 @@ def _configured_texts(config: dict[str, Any], *keys: str) -> list[str]:
 def _concurrency_config(config: WorkflowConfig) -> dict[str, Any]:
     raw = config.raw.get("concurrency")
     cfg = raw if isinstance(raw, dict) else {}
+    max_lanes = _positive_int(
+        cfg,
+        "max-lanes",
+        "max_lanes",
+        "max-active-lanes",
+        "max_active_lanes",
+        default=1,
+    )
+    actor_limits = _actor_limit_config(config=config, cfg=cfg, max_lanes=max_lanes)
     return {
-        "max_active_lanes": _positive_int(
-            cfg, "max-active-lanes", "max_active_lanes", default=1
-        ),
-        "max_implementers": _positive_int(
-            cfg, "max-implementers", "max_implementers", default=1
-        ),
-        "max_reviewers": _positive_int(
-            cfg, "max-reviewers", "max_reviewers", default=1
-        ),
+        "max_lanes": max_lanes,
+        "max_active_lanes": max_lanes,
+        "actor_limits": actor_limits,
+        "max_implementers": actor_limits.get("implementer", max_lanes),
+        "max_reviewers": actor_limits.get("reviewer", max_lanes),
         "per_lane_lock": bool(cfg.get("per-lane-lock", cfg.get("per_lane_lock", True))),
     }
+
+
+def _actor_limit_config(
+    *, config: WorkflowConfig, cfg: dict[str, Any], max_lanes: int
+) -> dict[str, int]:
+    actors_cfg = cfg.get("actors") if isinstance(cfg.get("actors"), dict) else {}
+    limits: dict[str, int] = {}
+    stage_actors = {
+        actor_name
+        for stage in config.stages.values()
+        for actor_name in stage.actors
+        if actor_name and actor_name != config.orchestrator_actor
+    }
+    configured_names = {
+        str(name).strip()
+        for name in actors_cfg
+        if str(name).strip() and str(name).strip() != config.orchestrator_actor
+    }
+    for actor_name in sorted(stage_actors | configured_names):
+        raw_limit = _actor_limit_value(
+            actors_cfg=actors_cfg, cfg=cfg, actor_name=actor_name
+        )
+        limits[actor_name] = min(raw_limit or max_lanes, max_lanes)
+    return limits
+
+
+def _actor_limit_value(
+    *, actors_cfg: dict[str, Any], cfg: dict[str, Any], actor_name: str
+) -> int | None:
+    raw = actors_cfg.get(actor_name)
+    if isinstance(raw, dict):
+        actor_limit = _configured_positive_int(
+            raw, "max-running", "max_running", "limit"
+        )
+    else:
+        actor_limit = _positive_int_value(raw)
+    if actor_limit is not None:
+        return actor_limit
+    if actor_name == "implementer":
+        return _configured_positive_int(cfg, "max-implementers", "max_implementers")
+    if actor_name == "reviewer":
+        return _configured_positive_int(cfg, "max-reviewers", "max_reviewers")
+    return None
 
 
 def _intake_auto_activate_config(config: WorkflowConfig) -> dict[str, Any]:
@@ -2371,13 +2570,27 @@ def _trailing_number(value: Any) -> str:
 
 def _positive_int(config: dict[str, Any], *keys: str, default: int) -> int:
     for key in keys:
-        value = config.get(key)
-        if value not in (None, ""):
-            try:
-                return max(int(value), 1)
-            except (TypeError, ValueError):
-                return default
+        parsed = _positive_int_value(config.get(key))
+        if parsed is not None:
+            return parsed
     return default
+
+
+def _configured_positive_int(config: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        parsed = _positive_int_value(config.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _positive_int_value(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return max(int(value), 1)
+    except (TypeError, ValueError):
+        return None
 
 
 def _nonnegative_int(config: dict[str, Any], *keys: str, default: int) -> int:
@@ -2516,6 +2729,7 @@ def _runtime_session_entry(lane: dict[str, Any]) -> dict[str, Any]:
         else {}
     )
     issue = lane.get("issue") if isinstance(lane.get("issue"), dict) else {}
+    heartbeat = _runtime_heartbeat(lane)
     return {
         **_scheduler_entry(lane),
         "issue_id": lane.get("lane_id"),
@@ -2540,6 +2754,13 @@ def _runtime_session_entry(lane: dict[str, Any]) -> dict[str, Any]:
         "prompt_path": session.get("prompt_path"),
         "result_path": session.get("result_path"),
         "command_argv": session.get("command_argv"),
+        "dispatch_mode": session.get("dispatch_mode"),
+        "process_id": session.get("process_id"),
+        "inputs_file": session.get("inputs_file"),
+        "heartbeat_path": session.get("heartbeat_path"),
+        "heartbeat_status": heartbeat.get("status"),
+        "heartbeat_updated_at": heartbeat.get("updated_at"),
+        "log_path": session.get("log_path"),
     }
 
 
@@ -2912,7 +3133,49 @@ def _apply_runtime_session_ids(
         lane["turn_id"] = turn_id
 
 
+def _runtime_heartbeat(lane: dict[str, Any]) -> dict[str, Any]:
+    session = (
+        lane.get("runtime_session")
+        if isinstance(lane.get("runtime_session"), dict)
+        else {}
+    )
+    path_text = str(session.get("heartbeat_path") or "").strip()
+    if not path_text:
+        return {}
+    path = Path(path_text)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        try:
+            stat = path.stat()
+        except OSError:
+            return {"path": path_text, "status": "missing"}
+        return {
+            "path": path_text,
+            "status": "unreadable",
+            "updated_at": _epoch_to_iso(stat.st_mtime),
+            "updated_at_epoch": stat.st_mtime,
+        }
+    if not isinstance(payload, dict):
+        return {"path": path_text, "status": "invalid"}
+    updated_at = str(payload.get("updated_at") or "").strip()
+    if not updated_at:
+        try:
+            stat = path.stat()
+        except OSError:
+            stat = None
+        if stat is not None:
+            payload["updated_at"] = _epoch_to_iso(stat.st_mtime)
+            payload["updated_at_epoch"] = stat.st_mtime
+    payload["path"] = path_text
+    return payload
+
+
 def _runtime_updated_at(lane: dict[str, Any]) -> str:
+    heartbeat = _runtime_heartbeat(lane)
+    heartbeat_updated_at = str(heartbeat.get("updated_at") or "").strip()
+    if heartbeat_updated_at:
+        return heartbeat_updated_at
     session = lane.get("runtime_session")
     if isinstance(session, dict):
         return str(session.get("updated_at") or session.get("started_at") or "")
@@ -2926,6 +3189,7 @@ def _scheduler_entry(lane: dict[str, Any]) -> dict[str, Any]:
         if isinstance(lane.get("runtime_session"), dict)
         else {}
     )
+    runtime_updated_at = _runtime_updated_at(lane)
     return {
         "issue_id": lane.get("lane_id"),
         "identifier": issue.get("identifier") or lane.get("lane_id"),
@@ -2940,7 +3204,7 @@ def _scheduler_entry(lane: dict[str, Any]) -> dict[str, Any]:
             default=time.time(),
         ),
         "heartbeat_at_epoch": _iso_to_epoch(
-            str(session.get("updated_at") or lane.get("last_progress_at") or ""),
+            str(runtime_updated_at or lane.get("last_progress_at") or ""),
             default=time.time(),
         ),
         "thread_id": lane.get("thread_id") or session.get("thread_id"),
@@ -2960,6 +3224,8 @@ def _scheduler_entry(lane: dict[str, Any]) -> dict[str, Any]:
         "tokens": session.get("tokens"),
         "rate_limits": session.get("rate_limits"),
         "turn_count": session.get("turn_count"),
+        "process_id": session.get("process_id"),
+        "heartbeat_path": session.get("heartbeat_path"),
     }
 
 

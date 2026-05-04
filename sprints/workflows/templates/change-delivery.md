@@ -18,10 +18,13 @@ intake:
 code-host:
   kind: github
   github_slug: owner/repo
+execution:
+  actor-dispatch: auto
 concurrency:
-  max-active-lanes: 1
-  max-implementers: 1
-  max-reviewers: 1
+  max-lanes: 1
+  actors:
+    implementer: 1
+    reviewer: 1
   per-lane-lock: true
 recovery:
   running-stale-seconds: 1800
@@ -112,8 +115,9 @@ Engine lane states are authoritative for ownership:
   missing, or retry completed without redispatch.
 
 The runner reconciles existing lanes with tracker and pull request state before
-each dispatch. It also records runtime session, thread, turn, token, and latest
-event metadata on the lane so interrupted actors can be recovered. It exposes
+each dispatch. It also records runtime session, thread, turn, token, background
+worker heartbeat, and latest event metadata on the lane so interrupted actors
+can be recovered. It exposes
 `facts.tracker.candidates`, `facts.tracker.terminal`, `facts.engine.lanes`,
 `facts.concurrency`, `facts.intake`, `facts.recovery`, and `facts.retry`. The
 runner claims eligible lanes up to configured capacity before it asks you to
@@ -122,11 +126,18 @@ dispatch work. If capacity is available and no eligible issue exists,
 open issue before claiming it. Default capacity is one active lane until runtime
 sessions are stronger.
 
-Only dispatch actors for lanes that need work. Never dispatch duplicate work for
-the same lane. Return at most one decision for a lane in a tick; use an empty
-`decisions` list when no lane is due. Prefer clear acceptance criteria and low
-blast radius. Raise `operator_attention` for ambiguous, unsafe, or
-permission-blocked work.
+Actor capacity is workflow-global. Existing running lane status, active runtime
+sessions, active engine actor runs, and the current tick's planned dispatches
+all count against `concurrency.actors`.
+
+The runner only asks you for decisions when at least one lane is decision-ready:
+`claimed`, `waiting`, or `retry_queued` with a due retry. Pure `running`,
+not-yet-due retry, and `operator_attention` states are held mechanically without
+spending an orchestrator turn. Only dispatch actors for lanes that need work.
+Never dispatch duplicate work for the same lane. Return at most one decision for
+a lane in a tick; use an empty `decisions` list when no lane is due. Prefer
+clear acceptance criteria and low blast radius. Raise `operator_attention` for
+ambiguous, unsafe, or permission-blocked work.
 
 When the workflow completes successfully, the runner applies completion cleanup
 from front matter before releasing ownership:

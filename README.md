@@ -101,11 +101,21 @@ selected again.
 Default concurrency is one active lane:
 
 ```yaml
+execution:
+  actor-dispatch: auto
+
 concurrency:
-  max-active-lanes: 1
-  max-implementers: 1
-  max-reviewers: 1
+  max-lanes: 1
+  actors:
+    implementer: 1
+    reviewer: 1
 ```
+
+With `actor-dispatch: auto`, Sprints keeps the single-lane default inline. If
+you raise `max-lanes`, actor turns are dispatched as background workers so the
+daemon can keep ticking and supervise other lanes. Ticks that only see running
+lanes, blocked lanes, or retries that are not due yet return without calling the
+orchestrator.
 
 Lane states are internal orchestration state, not tracker status:
 
