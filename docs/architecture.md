@@ -338,10 +338,10 @@ before the issue is claimed as a lane.
 ## Lane Ledger
 
 The lane ledger is the rich workflow state owned by `workflows/lanes.py` and
-stored through `WorkflowState` in the workflow storage path. Completion
-side-effects for merge, tracker cleanup, and cleanup retry live in
-`workflows/teardown.py` so lane transition logic stays separate from teardown
-mechanics.
+stored through `WorkflowState` in the workflow storage path. Runtime session
+mechanics live in `workflows/sessions.py`. Completion side-effects for
+merge, tracker cleanup, and cleanup retry live in `workflows/teardown.py` so
+lane transition logic stays separate from runtime and teardown mechanics.
 
 New lanes are shaped like this:
 
@@ -691,6 +691,7 @@ The current state split is intentional but transitional:
 | State | Current Owner |
 | --- | --- |
 | Rich lane JSON | `workflows/lanes.py` and workflow storage file |
+| Runtime sessions and heartbeats | `workflows/sessions.py` plus engine runtime rows |
 | Teardown side-effects | `workflows/teardown.py` plus engine retry rows |
 | Durable projections | `engine/` SQLite tables |
 | Policy context | `WORKFLOW.md` and lane JSON |
@@ -846,7 +847,8 @@ sprints/
 |   |-- config.py         # typed front matter config
 |   |-- registry.py       # workflow object registry and CLI dispatch
 |   |-- runner.py         # tick, status, lane commands, actor/action dispatch
-|   |-- lanes.py          # lane ledger, reconciliation, transitions, projections
+|   |-- lanes.py          # lane ledger, reconciliation, transitions
+|   |-- sessions.py       # actor sessions, heartbeats, scheduler projections
 |   |-- teardown.py       # merge, tracker cleanup, cleanup retry mechanics
 |   |-- daemon.py         # daemon loop and systemd controls
 |   |-- orchestrator.py   # prompt rendering and decision parsing

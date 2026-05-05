@@ -23,7 +23,8 @@ workflows/
 |-- daemon.py                # workflow tick loop and service controls
 |-- orchestrator.py          # orchestrator prompt + decision schema
 |-- runner.py                # CLI tick loop and actor/action dispatch
-|-- lanes.py                 # lane ledger, reconciliation, runtime/session state
+|-- lanes.py                 # lane ledger, reconciliation, and transitions
+|-- sessions.py              # actor sessions, heartbeats, and scheduler projections
 |-- teardown.py              # merge, tracker cleanup, and cleanup retry mechanics
 |-- actors.py                # actor runtime dispatch
 |-- actions.py               # deterministic action execution
