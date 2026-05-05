@@ -18,6 +18,7 @@ from trackers import (
     build_tracker_client,
     issue_priority_sort_key,
 )
+from workflows import teardown as teardown_flow
 from workflows.config import WorkflowConfig
 from workflows.orchestrator import OrchestratorDecision
 from workflows.paths import runtime_paths
@@ -239,11 +240,13 @@ def reconcile_lanes(*, config: WorkflowConfig, state: Any) -> dict[str, Any]:
     if not active:
         return {"status": "skipped", "reason": "no active lanes"}
     runtime_result = reconcile_runtime_lanes(config=config, lanes=active)
+    cleanup_result = _reconcile_completion_cleanup(config=config, lanes=active)
     tracker_result = _reconcile_tracker_lanes(config=config, lanes=active)
     pr_result = _reconcile_pull_requests(config=config, lanes=active)
     return {
         "status": "ok",
         "runtime": runtime_result,
+        "completion_cleanup": cleanup_result,
         "tracker": tracker_result,
         "pull_requests": pr_result,
     }
@@ -341,6 +344,10 @@ def _reconcile_tracker_lanes(
     updated: list[str] = []
     released: list[str] = []
     for lane in lanes:
+        if lane_is_terminal(lane):
+            continue
+        if _completion_cleanup_retry_pending(lane):
+            continue
         issue = lane.get("issue") if isinstance(lane.get("issue"), dict) else {}
         issue_id = str(issue.get("id") or "").strip()
         fresh = refreshed.get(issue_id)
@@ -360,6 +367,16 @@ def _reconcile_tracker_lanes(
             )
             released.append(str(lane.get("lane_id") or ""))
     return {"status": "ok", "updated": updated, "released": released}
+
+
+def _reconcile_completion_cleanup(
+    *, config: WorkflowConfig, lanes: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return teardown_flow.reconcile_completion_cleanup(
+        config=config,
+        lanes=lanes,
+        ops=_teardown_ops(),
+    )
 
 
 def _reconcile_pull_requests(
@@ -661,6 +678,10 @@ def validate_decision_for_lane(
 def _validate_retry_dispatch(
     *, lane: dict[str, Any], decision: OrchestratorDecision
 ) -> None:
+    if _completion_cleanup_retry_pending(lane):
+        raise RuntimeError(
+            f"lane {lane.get('lane_id')} retry is runner-owned completion cleanup"
+        )
     if decision.decision not in {"run_actor", "run_action"}:
         raise RuntimeError(
             f"lane {lane.get('lane_id')} is retry queued; dispatch the retry target"
@@ -1127,6 +1148,8 @@ def lane_retry_inputs(
 ) -> dict[str, Any]:
     if str(lane.get("status") or "").strip() != "retry_queued":
         return inputs
+    if _completion_cleanup_retry_pending(lane):
+        return inputs
     pending = (
         lane.get("pending_retry") if isinstance(lane.get("pending_retry"), dict) else {}
     )
@@ -1157,209 +1180,33 @@ def lane_needs_orchestrator_decision(lane: dict[str, Any]) -> bool:
     if status in {"claimed", "waiting"}:
         return True
     if status == "retry_queued":
+        if _completion_cleanup_retry_pending(lane):
+            return False
         return lane_retry_is_due(lane)
     return False
 
 
 def complete_lane(*, config: WorkflowConfig, lane: dict[str, Any], reason: str) -> None:
-    failure = _completion_contract_failure(lane)
-    if failure:
-        set_lane_operator_attention(
-            config=config,
-            lane=lane,
-            reason="completion_contract_failed",
-            message=failure,
-            artifacts=_contract_artifacts(lane),
-        )
-        return
-    auto_merge = _auto_merge_completed_pull_request(config=config, lane=lane)
-    if auto_merge.get("status") == "waiting":
-        lane["completion_auto_merge"] = auto_merge
-        set_lane_status(
-            config=config,
-            lane=lane,
-            status="waiting",
-            actor=None,
-            reason=str(auto_merge.get("reason") or "auto-merge is waiting"),
-        )
-        return
-    if auto_merge.get("status") == "error":
-        set_lane_operator_attention(
-            config=config,
-            lane=lane,
-            reason="auto_merge_failed",
-            message=str(auto_merge.get("error") or "auto-merge failed"),
-            artifacts={"auto_merge": auto_merge, "pull_request": lane.get("pull_request")},
-        )
-        return
-    lane["completion_auto_merge"] = auto_merge
-    cleanup = _cleanup_completed_lane(config=config, lane=lane)
-    if cleanup.get("status") == "error":
-        set_lane_operator_attention(
-            config=config,
-            lane=lane,
-            reason="tracker_cleanup_failed",
-            message=str(cleanup.get("error") or "tracker cleanup failed"),
-            artifacts={"cleanup": cleanup},
-        )
-        return
-    lane["completion_cleanup"] = cleanup
-    lane["pending_retry"] = None
-    _clear_engine_retry(config=config, lane=lane)
-    set_lane_status(config=config, lane=lane, status="complete", reason=reason)
-    _release_lane_lease(config=config, lane=lane, reason=reason)
-
-
-def _auto_merge_completed_pull_request(
-    *, config: WorkflowConfig, lane: dict[str, Any]
-) -> dict[str, Any]:
-    cfg = _completion_auto_merge_config(config)
-    if not cfg["enabled"]:
-        return {"status": "skipped", "reason": "auto-merge disabled"}
-    existing = lane.get("completion_auto_merge")
-    if isinstance(existing, dict) and existing.get("status") == "ok":
-        return existing
-    method = str(cfg["method"] or "").strip().lower()
-    if method not in {"squash", "merge", "rebase"}:
-        return {
-            "status": "error",
-            "error": f"unsupported auto-merge method {method!r}",
-        }
-    pr_number = _pull_request_number(lane)
-    if not pr_number:
-        return {"status": "error", "error": "pull request number missing"}
-    if _pull_request_is_merged(lane):
-        return {
-            "status": "ok",
-            "method": method,
-            "delete_branch": cfg["delete_branch"],
-            "pull_request": {"number": pr_number, "already_merged": True},
-        }
-    code_host_cfg = _code_host_config(config)
-    if not code_host_cfg:
-        return {
-            "status": "error",
-            "error": "auto-merge requires code-host config",
-        }
-    try:
-        client = build_code_host_client(
-            workflow_root=config.workflow_root,
-            code_host_cfg=code_host_cfg,
-            repo_path=_repository_path(config),
-        )
-        readiness = _pull_request_merge_readiness(client=client, pr_number=pr_number)
-        if readiness.get("already_merged"):
-            pull_request = lane_mapping(lane, "pull_request")
-            pull_request["state"] = "merged"
-            pull_request["merged"] = True
-            return {
-                "status": "ok",
-                "method": method,
-                "delete_branch": cfg["delete_branch"],
-                "readiness": readiness,
-                "pull_request": {"number": pr_number, "already_merged": True},
-            }
-        if not readiness.get("ready"):
-            if _merge_readiness_is_transient(readiness):
-                return {
-                    "status": "waiting",
-                    "reason": _merge_readiness_error(readiness),
-                    "readiness": readiness,
-                }
-            return {
-                "status": "error",
-                "error": _merge_readiness_error(readiness),
-                "readiness": readiness,
-            }
-        result = client.merge_pull_request(
-            pr_number,
-            method=method,
-            squash=method == "squash",
-            delete_branch=cfg["delete_branch"],
-        )
-    except Exception as exc:
-        result = {"ok": False, "error": str(exc)}
-    payload = {
-        "status": "ok" if result.get("ok") is not False else "error",
-        "method": method,
-        "delete_branch": cfg["delete_branch"],
-        "pull_request": result,
-    }
-    if payload["status"] == "error":
-        payload["error"] = str(result.get("error") or "pull request merge failed")
-        _append_engine_event(
-            config=config,
-            lane=lane,
-            event_type=f"{config.workflow_name}.lane.auto_merge_failed",
-            payload=payload,
-            severity="error",
-        )
-        return payload
-    pull_request = lane_mapping(lane, "pull_request")
-    pull_request["state"] = "merged"
-    pull_request["merged"] = True
-    pull_request["merged_at"] = _now_iso()
-    _append_engine_event(
+    teardown_flow.complete_lane(
         config=config,
         lane=lane,
-        event_type=f"{config.workflow_name}.lane.auto_merged",
-        payload=payload,
+        reason=reason,
+        ops=_teardown_ops(),
     )
-    return payload
 
 
-def _pull_request_merge_readiness(client: Any, pr_number: str) -> dict[str, Any]:
-    checker = getattr(client, "pull_request_merge_status", None)
-    if not callable(checker):
-        return {
-            "ready": True,
-            "status": "skipped",
-            "reason": "code host does not expose merge readiness",
-            "blockers": [],
-        }
-    readiness = checker(pr_number)
-    if not isinstance(readiness, dict):
-        return {
-            "ready": False,
-            "status": "blocked",
-            "blockers": [
-                {
-                    "kind": "invalid_merge_readiness",
-                    "message": "code host returned invalid merge readiness payload",
-                }
-            ],
-        }
-    return readiness
-
-
-def _merge_readiness_error(readiness: dict[str, Any]) -> str:
-    blockers = readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []
-    if not blockers:
-        return "pull request is not ready to merge"
-    first = blockers[0] if isinstance(blockers[0], dict) else {}
-    message = str(first.get("message") or first.get("kind") or "").strip()
-    if len(blockers) == 1:
-        return message or "pull request is not ready to merge"
-    return f"{message or 'pull request is not ready to merge'} (+{len(blockers) - 1} more)"
+def _teardown_ops() -> teardown_flow.TeardownOps:
+    return teardown_flow.TeardownOps(
+        set_lane_status=set_lane_status,
+        set_lane_operator_attention=set_lane_operator_attention,
+        clear_engine_retry=_clear_engine_retry,
+        release_lane_lease=_release_lane_lease,
+        append_engine_event=_append_engine_event,
+    )
 
 
 def _merge_readiness_is_transient(readiness: dict[str, Any]) -> bool:
-    blockers = (
-        readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []
-    )
-    if not blockers:
-        return False
-    for blocker in blockers:
-        if not isinstance(blocker, dict):
-            return False
-        kind = str(blocker.get("kind") or "").strip()
-        state = str(blocker.get("state") or "").strip().upper()
-        if kind in {"mergeability_unknown", "check_pending"}:
-            continue
-        if kind == "merge_state_blocked" and state in {"UNKNOWN", "BLOCKED"}:
-            continue
-        return False
-    return True
+    return teardown_flow.merge_readiness_is_transient(readiness)
 
 
 def release_lane(*, config: WorkflowConfig, lane: dict[str, Any], reason: str) -> None:
@@ -1375,33 +1222,8 @@ def release_lane(*, config: WorkflowConfig, lane: dict[str, Any], reason: str) -
     _release_lane_lease(config=config, lane=lane, reason=reason)
 
 
-def _cleanup_completed_lane(
-    *, config: WorkflowConfig, lane: dict[str, Any]
-) -> dict[str, Any]:
-    tracker_cfg = _tracker_config(config)
-    if not tracker_cfg:
-        return {"status": "skipped", "reason": "no tracker config"}
-    issue = lane.get("issue") if isinstance(lane.get("issue"), dict) else {}
-    issue_id = str(issue.get("id") or "").strip()
-    if not issue_id:
-        return {"status": "skipped", "reason": "lane issue is missing id"}
-    completion = _completion_labels(config)
-    try:
-        client = build_tracker_client(
-            workflow_root=config.workflow_root,
-            tracker_cfg=tracker_cfg,
-            repo_path=_repository_path(config),
-        )
-        removed = client.remove_labels(issue_id, completion["remove"])
-        added = client.add_labels(issue_id, completion["add"])
-    except Exception as exc:
-        return {"status": "error", "error": str(exc)}
-    return {
-        "status": "ok",
-        "issue_id": issue_id,
-        "removed": completion["remove"] if removed else [],
-        "added": completion["add"] if added else [],
-    }
+def _completion_cleanup_retry_pending(lane: dict[str, Any]) -> bool:
+    return teardown_flow.cleanup_retry_pending(lane)
 
 
 def target_or_single(*, target: str | None, values: tuple[str, ...], kind: str) -> str:
@@ -1807,32 +1629,11 @@ def _delivery_contract_failure(lane: dict[str, Any]) -> str:
     return ""
 
 
-def _completion_contract_failure(lane: dict[str, Any]) -> str:
-    if lane_stage(lane) != "review":
-        return ""
-    review = lane_mapping(lane, "actor_outputs").get("reviewer")
-    if not isinstance(review, dict):
-        return "completion requires reviewer output"
-    if str(review.get("status") or "").strip().lower() != "approved":
-        return "completion requires reviewer status `approved`"
-    if not _pull_request_url(lane):
-        return "completion requires pull_request.url"
-    return ""
-
-
 def _pull_request_url(lane: dict[str, Any]) -> str:
     pull_request = lane.get("pull_request")
     if isinstance(pull_request, dict):
         return str(pull_request.get("url") or "").strip()
     return ""
-
-
-def _pull_request_is_merged(lane: dict[str, Any]) -> bool:
-    pull_request = lane.get("pull_request")
-    if not isinstance(pull_request, dict):
-        return False
-    state = str(pull_request.get("state") or "").strip().lower()
-    return state == "merged" or bool(pull_request.get("merged"))
 
 
 def _contract_artifacts(lane: dict[str, Any]) -> dict[str, Any]:
@@ -2099,13 +1900,19 @@ def _issue_is_still_active(
     active_states = set(
         _configured_texts(tracker_cfg, "active_states", "active-states")
     )
+    required_labels = set(
+        _configured_texts(tracker_cfg, "required_labels", "required-labels")
+    )
     exclude_labels = set(
         _configured_texts(tracker_cfg, "exclude_labels", "exclude-labels")
     )
     state = str(issue.get("state") or "").strip().lower()
     if active_states and state not in active_states:
         return False
-    if exclude_labels.intersection(_issue_labels(issue)):
+    labels = _issue_labels(issue)
+    if required_labels and not required_labels.issubset(labels):
+        return False
+    if exclude_labels.intersection(labels):
         return False
     return True
 
@@ -2348,37 +2155,6 @@ def _retry_due_at_epoch(pending_retry: dict[str, Any]) -> float:
         except (TypeError, ValueError):
             pass
     return _iso_to_epoch(str(pending_retry.get("due_at") or ""), default=time.time())
-
-
-def _completion_labels(config: WorkflowConfig) -> dict[str, list[str]]:
-    raw = config.raw.get("completion")
-    cfg = raw if isinstance(raw, dict) else {}
-    return {
-        "remove": _configured_texts(cfg, "remove_labels", "remove-labels")
-        or ["active"],
-        "add": _configured_texts(cfg, "add_labels", "add-labels") or ["done"],
-    }
-
-
-def _completion_auto_merge_config(config: WorkflowConfig) -> dict[str, Any]:
-    raw = config.raw.get("completion")
-    completion = raw if isinstance(raw, dict) else {}
-    raw_auto_merge = (
-        completion.get("auto-merge")
-        or completion.get("auto_merge")
-        or completion.get("automerge")
-    )
-    cfg = raw_auto_merge if isinstance(raw_auto_merge, dict) else {}
-    method = str(
-        cfg.get("method") or cfg.get("merge-method") or cfg.get("merge_method") or "squash"
-    ).strip().lower()
-    return {
-        "enabled": _configured_bool(cfg, "enabled", default=False),
-        "method": method or "squash",
-        "delete_branch": _configured_bool(
-            cfg, "delete-branch", "delete_branch", default=True
-        ),
-    }
 
 
 def _review_notification_config(config: WorkflowConfig) -> dict[str, bool]:
@@ -3217,6 +2993,17 @@ def _runtime_process_is_missing(session: dict[str, Any]) -> bool:
         return False
     if process_id <= 0:
         return False
+    if os.name == "nt":
+        try:
+            import ctypes
+        except ImportError:
+            return False
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, process_id)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return False
+        return kernel32.GetLastError() == 87
     try:
         os.kill(process_id, 0)
     except ProcessLookupError:

@@ -363,8 +363,14 @@ When enabled, the runner merges after review approval and before tracker label
 cleanup. Before calling merge, the GitHub code-host checks PR state,
 draft/mergeability, merge state, review decision, status checks, and unresolved
 review threads. Supported methods are `squash`, `merge`, and `rebase`. If merge
-readiness, merge, or cleanup fails, the lane moves to `operator_attention`
-instead of being released silently.
+readiness or merge fails, the lane moves to `operator_attention` instead of
+being released silently.
+
+Tracker cleanup is idempotent and runner-owned. If one cleanup step succeeds and
+another fails, for example `active` was removed but `done` was not added, the
+lane stays claimed and the engine schedules a `completion-cleanup` retry. Actors
+are not rerun for that failure. The lane moves to `operator_attention` only
+after the retry limit is exhausted.
 
 ### `gates`
 

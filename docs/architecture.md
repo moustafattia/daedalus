@@ -338,7 +338,10 @@ before the issue is claimed as a lane.
 ## Lane Ledger
 
 The lane ledger is the rich workflow state owned by `workflows/lanes.py` and
-stored through `WorkflowState` in the workflow storage path.
+stored through `WorkflowState` in the workflow storage path. Completion
+side-effects for merge, tracker cleanup, and cleanup retry live in
+`workflows/teardown.py` so lane transition logic stays separate from teardown
+mechanics.
 
 New lanes are shaped like this:
 
@@ -460,10 +463,12 @@ are fingerprinted so repeated ticks do not repost the same review side effect.
 
 On successful completion, the bundled change-delivery template runs runner-owned
 auto-merge first, then configured cleanup removes `active`, adds `done`, and
-releases the lane lease. If merge, checks, permissions, or cleanup block
-completion, the lane moves to `operator_attention`. GitHub auto-merge readiness
-checks PR state, draft status, mergeability, merge state, review decision,
-status checks, and unresolved review threads before calling `gh pr merge`.
+releases the lane lease. If merge, checks, or permissions block completion, the
+lane moves to `operator_attention`. If tracker cleanup fails after merge, the
+runner keeps the lane claimed and queues a mechanical `completion-cleanup`
+retry; actors are not rerun for label cleanup. GitHub auto-merge readiness checks
+PR state, draft status, mergeability, merge state, review decision, status
+checks, and unresolved review threads before calling `gh pr merge`.
 
 ## Orchestrator Decisions
 
@@ -686,6 +691,7 @@ The current state split is intentional but transitional:
 | State | Current Owner |
 | --- | --- |
 | Rich lane JSON | `workflows/lanes.py` and workflow storage file |
+| Teardown side-effects | `workflows/teardown.py` plus engine retry rows |
 | Durable projections | `engine/` SQLite tables |
 | Policy context | `WORKFLOW.md` and lane JSON |
 | Operator inspection | engine reports plus workflow status |
@@ -702,6 +708,7 @@ Before each dispatch, the runner reconciles three external realities:
 | Reconcile Path | What It Checks | Result |
 | --- | --- | --- |
 | Runtime reconciliation | Running lanes whose runtime session or background heartbeat has not progressed within `recovery.running-stale-seconds`. | Marks the runtime session and actor run `interrupted`, then queues a recovery retry to the same actor/stage or moves the lane to `operator_attention` if recovery is unsafe. |
+| Completion cleanup reconciliation | Lanes waiting on runner-owned `completion-cleanup` retry. | Re-applies idempotent tracker cleanup, completes and releases the lane on success, or keeps retrying until the retry limit moves it to `operator_attention`. |
 | Tracker reconciliation | Active lane issue still exists and remains eligible. | Updates issue payload or releases lane. |
 | Pull request reconciliation | Open PRs matching lane branch. | Updates `lane.pull_request`. |
 
@@ -763,7 +770,7 @@ the engine queue row before marking the lane running.
 | Duplicate dispatch guard trips | Lane becomes `operator_attention`; active session/run conflicts are recorded. |
 | Running lane goes stale | Reconciliation marks the actor run `interrupted` and queues a same actor/stage recovery retry; unsafe recovery moves to `operator_attention`. |
 | Retry limit exceeded | Lane becomes `operator_attention`. |
-| Tracker cleanup fails | Completion is stopped and artifacts are recorded. |
+| Tracker cleanup fails after merge | Runner queues `completion-cleanup` retry; retry-limit exhaustion becomes `operator_attention`. |
 | Issue loses eligibility | Lane is released. |
 
 Operator commands can retry, release, or complete lanes. The runner refuses
@@ -840,6 +847,7 @@ sprints/
 |   |-- registry.py       # workflow object registry and CLI dispatch
 |   |-- runner.py         # tick, status, lane commands, actor/action dispatch
 |   |-- lanes.py          # lane ledger, reconciliation, transitions, projections
+|   |-- teardown.py       # merge, tracker cleanup, cleanup retry mechanics
 |   |-- daemon.py         # daemon loop and systemd controls
 |   |-- orchestrator.py   # prompt rendering and decision parsing
 |   |-- actors.py         # actor runtime planning and skill injection

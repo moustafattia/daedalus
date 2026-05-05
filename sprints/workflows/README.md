@@ -24,6 +24,7 @@ workflows/
 |-- orchestrator.py          # orchestrator prompt + decision schema
 |-- runner.py                # CLI tick loop and actor/action dispatch
 |-- lanes.py                 # lane ledger, reconciliation, runtime/session state
+|-- teardown.py              # merge, tracker cleanup, and cleanup retry mechanics
 |-- actors.py                # actor runtime dispatch
 |-- actions.py               # deterministic action execution
 |-- paths.py                 # workflow root and runtime path helpers

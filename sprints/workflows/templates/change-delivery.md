@@ -151,7 +151,10 @@ from front matter before releasing ownership:
 
 If auto-merge is enabled and merge is blocked by checks, permissions, conflicts,
 or unresolved review state, raise `operator_attention` instead of completing the
-lane.
+lane. If tracker label cleanup fails after merge, do not rerun actors and do not
+ask the orchestrator to decide. The runner owns that recovery: keep the lane
+claimed, queue a durable completion-cleanup retry, and only raise
+`operator_attention` when the retry limit is exhausted.
 
 Move from `deliver` to `review` only when the implementer returned
 `status: done`, a concrete `pull_request.url`, and non-empty verification
