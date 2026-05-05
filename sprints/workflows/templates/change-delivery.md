@@ -151,10 +151,14 @@ from front matter before releasing ownership:
 
 If auto-merge is enabled and merge is blocked by checks, permissions, conflicts,
 or unresolved review state, raise `operator_attention` instead of completing the
-lane. If tracker label cleanup fails after merge, do not rerun actors and do not
-ask the orchestrator to decide. The runner owns that recovery: keep the lane
-claimed, queue a durable completion-cleanup retry, and only raise
-`operator_attention` when the retry limit is exhausted.
+lane. Treat transient merge readiness as an exception: when lane state includes
+`completion_auto_merge.status: waiting` because GitHub mergeability, merge state,
+or checks are still pending, return an empty `decisions` list for that lane and
+let the runner retry completion on a later tick. If tracker label cleanup fails
+after merge, do not rerun actors and do not ask the orchestrator to decide. The
+runner owns that recovery: keep the lane claimed, queue a durable
+completion-cleanup retry, and only raise `operator_attention` when the retry
+limit is exhausted.
 
 Runner-owned side effects use idempotency keys. Do not ask actors to repeat
 merge, label cleanup, action, or notification mechanics when the lane already
