@@ -44,8 +44,8 @@ HINT_ARROW = "→"
 
 
 # When loaded via importlib.util.spec_from_file_location with a custom module
-# name (test pattern in tests/test_formatters.py), the module isn't auto-
-# registered in sys.modules. The @dataclass decorator below introspects
+# name, the module isn't auto-registered in sys.modules. The @dataclass decorator
+# below introspects
 # sys.modules[cls.__module__] for type resolution, which crashes if the module
 # isn't there. Self-register the in-flight module so both direct execution and
 # spec-loaded test modules work.
