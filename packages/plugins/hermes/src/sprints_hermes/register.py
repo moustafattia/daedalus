@@ -5,17 +5,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import sprints
-from sprints_cli.commands import (
-    configure_subcommands,
-    execute_raw_args,
-    execute_workflow_command,
-)
-
 from .install_checks import check_install_readiness, register_install_help
 
 
 def setup_cli(subparser):
+    from sprints_cli.commands import configure_subcommands
+
     return configure_subcommands(subparser)
 
 
@@ -27,6 +22,9 @@ def register(ctx):
     if not report.ok:
         register_install_help(ctx, report)
         return
+
+    import sprints
+    from sprints_cli.commands import execute_raw_args, execute_workflow_command
 
     ctx.register_command(
         "sprints",

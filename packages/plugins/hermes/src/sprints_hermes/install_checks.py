@@ -184,7 +184,11 @@ def register_install_help(ctx: Any, report: InstallReport) -> None:
 def _missing_python_packages() -> list[str]:
     missing: list[str] = []
     for spec in REQUIRED_PYTHON_PACKAGES:
-        if importlib.util.find_spec(spec.import_name) is None:
+        try:
+            found = importlib.util.find_spec(spec.import_name)
+        except ModuleNotFoundError:
+            found = None
+        if found is None:
             missing.append(spec.package_name)
     return missing
 
