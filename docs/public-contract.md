@@ -6,10 +6,12 @@ Compatibility-sensitive surfaces for the current Sprints release.
 
 - `hermes plugins install attmous/sprints --enable`
 - plugin entry point: `sprints`
+- `hermes sprints init`
 - `hermes sprints bootstrap`
 - `hermes sprints scaffold-workflow`
 - `hermes sprints validate`
 - `hermes sprints doctor`
+- `hermes sprints doctor --fix`
 - `hermes sprints configure-runtime`
 - `hermes sprints runtime-matrix`
 - `hermes sprints daemon ...`

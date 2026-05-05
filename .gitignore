@@ -1,4 +1,5 @@
 __pycache__/
+.venv/
 *.pyc
 *.pyo
 *.pyd
@@ -10,7 +11,7 @@ build/
 dist/
 *.egg-info/
 content/*
-sprints/projects/*/runtime/*
-!sprints/projects/*/runtime/README.md
-sprints/projects/*/workspace/*
-!sprints/projects/*/workspace/README.md
+packages/core/src/sprints/projects/*/runtime/*
+!packages/core/src/sprints/projects/*/runtime/README.md
+packages/core/src/sprints/projects/*/workspace/*
+!packages/core/src/sprints/projects/*/workspace/README.md

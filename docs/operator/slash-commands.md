@@ -8,10 +8,12 @@ Sprints exposes two Hermes command roots.
 | --- | --- |
 | `/sprints status` | Show workflow state and important paths. |
 | `/sprints doctor` | Run config, state, runtime, and integration checks. |
+| `/sprints doctor --fix` | Apply conservative local repairs and report each change. |
 | `/sprints validate` | Validate the active `WORKFLOW.md`. |
 | `/sprints runs` | Inspect durable engine runs. |
 | `/sprints events` | Inspect durable engine events. |
 | `/sprints watch` | Render the operator watch view. |
+| `/sprints init` | Run the first-time setup wizard and write `WORKFLOW.md`. |
 | `/sprints bootstrap` | Create workflow root and repo contract. |
 | `/sprints scaffold-workflow` | Scaffold with explicit paths. |
 | `/sprints configure-runtime` | Bind actors to runtime presets. |

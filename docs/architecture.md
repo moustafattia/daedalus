@@ -22,7 +22,6 @@ trackers and pull requests, and exposing operator commands.
 - [Package Boundaries](#package-boundaries)
 - [Workflow Contract](#workflow-contract)
 - [Tick Lifecycle](#tick-lifecycle)
-- [Prompt Context](#prompt-context)
 - [Lane Ledger](#lane-ledger)
 - [Lane State Machine](#lane-state-machine)
 - [Default Change Delivery Flow](#default-change-delivery-flow)
@@ -34,7 +33,6 @@ trackers and pull requests, and exposing operator commands.
 - [Engine Design](#engine-design)
 - [Reconciliation](#reconciliation)
 - [Retry Model](#retry-model)
-- [Side Effects](#side-effects)
 - [Failure And Recovery](#failure-and-recovery)
 - [Daemon Design](#daemon-design)
 - [Invariants](#invariants)
@@ -107,7 +105,7 @@ flowchart LR
     end
 
     subgraph Plugin["Hermes plugin install: Hermes-managed"]
-        PluginPkg["plugin.yaml + sprints/"]
+        PluginPkg["plugin.yaml + packages/"]
         PluginTemplates["workflow templates"]
         PluginSkills["actor skills"]
     end
@@ -156,20 +154,33 @@ directory is owned by Hermes, but the shape is the same package shape from this
 repo.
 
 ```text
-<hermes plugin install>/
+sprints/
 |-- plugin.yaml
-`-- sprints/
+|-- __init__.py
+`-- packages/
+    |-- core/
+    |   `-- src/sprints/
+    |       |-- app/
+    |       |-- core/
+    |       |-- workflows/
+    |       |   `-- templates/
+    |       |-- engine/
+    |       |-- runtimes/
+    |       |-- trackers/
+    |       |-- services/
+    |       |-- observe/
+    |       `-- skills/
     |-- cli/
-    |-- workflows/
-    |   `-- templates/
-    |-- engine/
-    |-- runtimes/
-    |-- trackers/
-    `-- skills/
+    |   `-- src/sprints_cli/
+    `-- plugins/
+        `-- hermes/
+            `-- src/sprints_hermes/
 ```
 
-Bundled templates and skills live with the plugin. They are defaults and
-runtime instructions, not per-repo mutable state.
+Root `plugin.yaml` and `__init__.py` are the Hermes directory-plugin recognition
+surface. Product behavior lives in packages. Bundled templates and skills live
+with the core package. They are defaults and runtime instructions, not per-repo
+mutable state.
 
 ### Workflow Root
 
@@ -212,13 +223,17 @@ engine database, lane ledger, audit artifacts, and lane worktrees.
 
 | Package | Owns | Does Not Own |
 | --- | --- | --- |
-| `cli/` | Hermes command parsing and output rendering. | Workflow policy or state transitions. |
-| `workflows/` | Contract loading, typed config, lane reconciliation, runner ticks, daemon loop, prompt rendering, decision application. | Runtime protocol details, tracker implementations, SQL schema. |
-| `engine/` | SQLite schema, `EngineStore`, leases, events, runs, retries, runtime session projections, work item projections, reports. | Workflow stages, gates, actor policy, tracker labels. |
-| `runtimes/` | Runtime adapter protocol and backend-specific turn execution. | Lane transitions or orchestrator decisions. |
-| `trackers/` | Tracker and code-host client protocols plus GitHub/Linear implementations. | Lane state ownership. |
-| `skills/` | Actor skill documentation injected into actor prompts. | Runner state mutation. |
-| `observe/` | Read-only operator views over status and state. | Mutations. |
+| `packages/core/src/sprints/app/` | Shared application API used by CLI, UIs, and plugins. | Terminal rendering or host-specific registration. |
+| `packages/core/src/sprints/core/` | Contract loading, typed config, paths, validation, bootstrap, init, doctor. | UI rendering or host plugin metadata. |
+| `packages/core/src/sprints/workflows/` | Lane reconciliation, runner ticks, prompt rendering, decision application. | Runtime protocol details, tracker implementations, SQL schema. |
+| `packages/core/src/sprints/engine/` | SQLite schema, `EngineStore`, leases, events, runs, retries, runtime session projections, work item projections, reports. | Workflow stages, gates, actor policy, tracker labels. |
+| `packages/core/src/sprints/runtimes/` | Runtime adapter protocol and backend-specific turn execution. | Lane transitions or orchestrator decisions. |
+| `packages/core/src/sprints/trackers/` | Tracker and code-host client protocols plus GitHub/Linear implementations. | Lane state ownership. |
+| `packages/core/src/sprints/services/` | Daemon and listener service control. | Workflow policy. |
+| `packages/core/src/sprints/skills/` | Actor skill documentation injected into actor prompts. | Runner state mutation. |
+| `packages/core/src/sprints/observe/` | Read-only operator views over status and state. | Mutations. |
+| `packages/cli/` | Standalone command parsing and output rendering. | Product behavior. |
+| `packages/plugins/hermes/` | Hermes plugin registration and install checks. | Product behavior. |
 
 ## Workflow Contract
 
@@ -279,15 +294,11 @@ sequenceDiagram
     participant A as Actor runtime
 
     D->>R: tick
-    R->>E: start engine run mode=tick
     R->>C: load policy and typed config
-    R->>E: append workflow.tick.policy_loaded
     R->>L: load WorkflowState
-    R->>E: append workflow.tick.state_loaded
     R->>T: refresh active lane issues
     R->>H: reconcile open PRs by branch
     R->>E: record projections and read due retries
-    R->>E: append workflow.tick.reconciled
     R->>T: list eligible candidates
     opt capacity available and no eligible candidate
         R->>T: add configured active label to next issue
@@ -296,22 +307,16 @@ sequenceDiagram
     end
     R->>E: acquire lane leases
     R->>L: add claimed lanes
-    R->>E: append workflow.tick.intake_completed
     alt no active lanes
         R->>L: save idle state
-        R->>E: finish tick run as completed
         R-->>D: idle
     else no decision-ready lanes
         R->>L: save no_decision_ready tick
-        R->>E: finish tick run as completed
         R-->>D: wait
     else active lanes exist
-        R->>E: append workflow.tick.orchestrator_started
         R->>O: orchestrator prompt with state + facts
         O-->>R: JSON decisions
-        R->>E: append workflow.tick.orchestrator_completed
         R->>R: validate one decision per lane
-        R->>E: append workflow.tick.decisions_parsed
         alt run_actor
             R->>A: actor prompt for one lane
             A-->>R: actor JSON output
@@ -329,84 +334,31 @@ sequenceDiagram
         end
         R->>L: save state
         R->>E: save scheduler snapshot
-        R->>E: append workflow.tick.completed and finish tick run
         R-->>D: tick result
     end
 ```
 
-Workflow execution entry points are split by boundary:
+Runner entry points live in `packages/core/src/sprints/workflows/runner.py`:
 
-- `runner.py` defines workflow subcommands and routes them.
-- `ticks.py` runs the full tick cycle and applies orchestrator decisions.
-- `tick_journal.py` records `workflow.tick.*` engine run/event timelines.
-- `dispatch.py` renders actor prompts and dispatches runtimes.
-- `operator.py` owns manual retry/release/complete commands.
-- `state_io.py` owns `WorkflowState`, file IO, audit writes, and state locks.
+- `main()` defines workflow subcommands.
+- `_tick()` runs the full cycle.
+- `_run_orchestrator()` builds the orchestrator prompt.
+- `_apply_decisions()` plans and applies decisions.
+- `run_stage_actor()` renders actor prompts and dispatches runtimes.
 
-Every tick has an explicit engine journal. `ticks.py` creates an
-`engine_runs` row with `mode=tick`, then appends ordered `workflow.tick.*`
-events as the tick moves through policy load, state load, reconcile, intake,
-readiness evaluation, orchestrator execution, decision parsing, decision
-application, and the terminal `completed`, `idle`, `no_decision_ready`, or
-`failed` event. The JSON audit file still stores rich state snapshots, but the
-engine journal is the durable operational timeline for reconstructing what a
-tick reached before it exited.
-
-Backlog promotion is tick-owned. If `intake.auto-activate.enabled` is true,
+Backlog promotion is runner-owned. If `intake.auto-activate.enabled` is true,
 capacity is available, and no issue currently satisfies tracker eligibility,
 the runner adds the configured active label to the next open issue that does
 not have excluded labels. That mutation is audited in the engine event stream
 before the issue is claimed as a lane.
 
-## Prompt Context
-
-The runner never sends raw workflow state to the orchestrator runtime. Raw lane
-JSON is recovery state; prompt context is decision state.
-
-`workflows/prompt_context.py` compacts the hot prompt boundary before runtime
-dispatch:
-
-- active and decision-ready lanes keep the fields needed for gate validation,
-  retry decisions, actor handoff, branch and pull request checks
-- terminal lanes are reduced to counts and a small recent summary
-- issue descriptions, actor outputs, blockers, findings, and verification are
-  bounded by configurable string/list limits
-- runtime session maps, dispatch journals, transition history, side-effect
-  payloads, and audit detail stay in workflow state, audit JSONL, and engine
-  tables
-
-The default change-delivery template sets:
-
-```yaml
-orchestrator:
-  context:
-    max-input-chars: 900000
-    warn-input-chars: 750000
-    max-string-chars: 2000
-    max-list-items: 20
-    max-terminal-lanes: 5
-```
-
-If the compact prompt still reaches the configured limit, the runner rebuilds
-it in aggressive mode. If it is still too large, the runner fails before calling
-the app-server instead of letting the runtime reject the turn.
-
 ## Lane Ledger
 
-The lane ledger is the rich workflow state stored through `WorkflowState` in
-the workflow storage path. `workflows/lanes.py` is only the facade used by the
-runner. The mechanics are split by responsibility:
-
-| Module | Responsibility |
-| --- | --- |
-| `workflows/lane_state.py` | Lane shape, status updates, config parsing, engine projections. |
-| `workflows/intake.py` | Tracker intake, auto-activation, and lane claiming. |
-| `workflows/reconcile.py` | Runtime, tracker, and pull request reconciliation. |
-| `workflows/transitions.py` | Orchestrator decision validation, actor outputs, and lane transitions. |
-| `workflows/retries.py` | Workflow adapter for engine-owned retry mechanics. |
-| `workflows/notifications.py` | Review feedback notification payloads. |
-| `workflows/sessions.py` | Actor sessions, heartbeats, and scheduler projections. |
-| `workflows/teardown.py` | Merge, tracker cleanup, and cleanup retry mechanics. |
+The lane ledger is the rich workflow state owned by `workflows/lanes.py` and
+stored through `WorkflowState` in the workflow storage path. Runtime session
+mechanics live in `workflows/sessions.py`. Completion side-effects for
+merge, tracker cleanup, and cleanup retry live in `workflows/teardown.py` so
+lane transition logic stays separate from runtime and teardown mechanics.
 
 New lanes are shaped like this:
 
@@ -609,28 +561,11 @@ beside the dispatch file. Reconciliation treats that heartbeat as the latest
 runtime timestamp, so a healthy long-running worker does not look stale just
 because lane JSON is waiting for the final output.
 
-The lane also keeps an actor dispatch journal:
-
-```text
-planned -> started -> running -> completed | failed | interrupted | blocked
-```
-
-`planned` is persisted before launching the runtime. `started` attaches the
-engine actor run and runtime session. `running` records progress metadata.
-Terminal states preserve the final runtime result. While a dispatch journal
-entry is active, the lane is locked against duplicate actor dispatch even if the
-lane has not reached `running` yet.
-
 When a running lane and its heartbeat are stale, reconciliation marks that
 runtime session and actor run `interrupted`. With `auto-retry-interrupted`
 enabled, it then queues a durable retry to the same stage and actor with the
 recorded runtime session as recovery context. If recovery cannot be targeted
 safely, the lane moves to operator attention.
-
-If a tick dies after saving `planned` but before a runtime session becomes
-active, reconciliation treats the stale dispatch journal entry the same way:
-mark it `interrupted`, keep the dispatch artifacts, and queue a retry to the
-same actor/stage when configured.
 
 Runtime session status is normalized to:
 
@@ -658,9 +593,9 @@ The workflow daemon is runtime-independent. It only triggers ticks. The
 
 ## Skills
 
-Skills are prompt-time actor mechanics. `workflows.actors.append_actor_skill_docs`
-reads `sprints/skills/<name>/SKILL.md` and appends the selected docs to the
-actor prompt.
+Skills are prompt-time actor mechanics. `sprints.workflows.actors.append_actor_skill_docs`
+reads `packages/core/src/sprints/skills/<name>/SKILL.md` and appends the
+selected docs to the actor prompt.
 
 The default implementer uses:
 
@@ -772,32 +707,17 @@ The current state split is intentional but transitional:
 
 | State | Current Owner |
 | --- | --- |
-| Rich lane JSON | `WorkflowState`, workflow storage file, and `workflows/lane_state.py` |
+| Rich lane JSON | `workflows/lanes.py` and workflow storage file |
 | Runtime sessions and heartbeats | `workflows/sessions.py` plus engine runtime rows |
 | Teardown side-effects | `workflows/teardown.py` plus engine retry rows |
 | Durable projections | `engine/` SQLite tables |
 | Policy context | `WORKFLOW.md` and lane JSON |
 | Operator inspection | engine reports plus workflow status |
 
-Operator reads are engine-first. `/sprints status` and `/sprints watch` build
-lane status, active counts, running counts, and retry/attention summaries from
-`engine_work_items` first, then enrich with lane JSON when it is present. This
-keeps inspection useful if the JSON state file is stale, missing, or only
-partially written. The runner still uses lane JSON for rich policy context until
-lane lifecycle ownership moves fully into the engine.
-
-Lane status transitions use a single workflow helper. The helper records
-previous/current lane state, updates the lane JSON, then writes the
-`engine_work_items` projection and matching `engine_events` row in one SQLite
-transaction. The lane also keeps `last_transition` and bounded
-`transition_history` for local recovery context.
-
-Retry attempt limits, backoff, due-time planning, due-time parsing, retry
-history shape, and retry queue persistence are engine-owned. Workflow code keeps
-the lane-facing `pending_retry` copy only for actor handoff and orchestrator
-context. Later engine waves can still move more ownership into `engine/`,
-especially retry wakeups and transactional lane lifecycle transitions. Workflow
-policy should stay outside the engine.
+Later engine waves can move more ownership into `engine/`, especially retry
+wakeups and transactional lane lifecycle transitions. Retry attempt limits,
+backoff, due-time planning, and retry queue persistence are engine-owned.
+Workflow policy should still stay outside the engine.
 
 ## Reconciliation
 
@@ -806,7 +726,6 @@ Before each dispatch, the runner reconciles three external realities:
 | Reconcile Path | What It Checks | Result |
 | --- | --- | --- |
 | Runtime reconciliation | Running lanes whose runtime session or background heartbeat has not progressed within `recovery.running-stale-seconds`. | Marks the runtime session and actor run `interrupted`, then queues a recovery retry to the same actor/stage or moves the lane to `operator_attention` if recovery is unsafe. |
-| Dispatch journal reconciliation | Non-running lanes with an active actor dispatch journal entry that has not progressed within `recovery.running-stale-seconds`. | Marks the dispatch `interrupted`, preserves dispatch artifacts, then queues a same actor/stage recovery retry or moves to `operator_attention`. |
 | Completion cleanup reconciliation | Lanes waiting on runner-owned `completion-cleanup` retry. | Re-applies idempotent tracker cleanup, completes and releases the lane on success, or keeps retrying until the retry limit moves it to `operator_attention`. |
 | Tracker reconciliation | Active lane issue still exists and remains eligible. | Updates issue payload or releases lane. |
 | Pull request reconciliation | Open PRs matching lane branch. | Updates `lane.pull_request`. |
@@ -824,13 +743,11 @@ flowchart LR
     Orchestrator["retry decision"]
     EngineRetry["engine schedules retry"]
     Pending["lane.pending_retry projection"]
-    Wakeup["engine retry wakeup projection"]
     Sleep["daemon sleep until due"]
     Dispatch["run retry target"]
     Limit["operator_attention"]
 
-    FailedOutput --> Orchestrator --> EngineRetry --> Pending
-    EngineRetry --> Wakeup --> Sleep --> Dispatch
+    FailedOutput --> Orchestrator --> EngineRetry --> Pending --> Sleep --> Dispatch
     EngineRetry -. "attempt >= max" .-> Limit
 ```
 
@@ -842,67 +759,22 @@ flowchart LR
 - due time
 - `engine_retry_queue` row
 
-The same engine retry module also builds the normalized retry record and
-`pending_retry` projection. The lane keeps that workflow-facing projection for
-actor handoff:
+The lane keeps a workflow-facing retry projection for actor handoff:
 
 - target stage
 - target actor/action
 - reason and feedback inputs
 - queued time
 - retry history
-- due time, max attempts, and backoff delay
 
 That projection is not a second scheduler. Scheduler snapshots intentionally do
 not rebuild `engine_retry_queue`; retry rows are only created through
 `EngineStore.schedule_retry()` and cleared through `EngineStore.clear_retry()`.
-Wake timing also comes from the engine. `EngineStore.retry_wakeup()` reads
-`engine_retry_queue` and reports queued count, due count, the next due time,
-and next retry metadata. The daemon uses that projection to decide its next
-sleep, so retry wakeups survive stale lane JSON and stale scheduler snapshots.
 
-Retry visibility is part of the contract. `/sprints status` exposes
-`retry_policy`, `due_retries`, `retry_wakeup`, and `retry_audit`; each lane
-summary exposes the active retry, recent retry history, failure reason, max
-attempts, due time, and backoff delay. Workflow audit JSONL entries also
-include top-level `retry_audit`, while engine events record retry scheduling
-and retry-limit exhaustion as explicit audit events.
-
-The daemon shortens sleep from `retry_wakeup`, not from lane JSON. The runner
-validates that
+The daemon shortens sleep when a retry is due soon. The runner validates that
 retry dispatch uses the queued target and only runs after the due time. When a
 queued retry is dispatched, the runner consumes the retry projection and clears
 the engine queue row before marking the lane running.
-
-## Side Effects
-
-Runner-owned side effects carry stable idempotency keys.
-
-```text
-operation + lane + target + normalized payload -> idempotency key
-```
-
-The key is recorded in the lane `side_effects` ledger and in `engine_events` as:
-
-```text
-started -> succeeded | failed | skipped
-```
-
-This applies to runner-owned mechanics:
-
-| Side Effect | Idempotency Behavior |
-| --- | --- |
-| Intake auto-activation label | Records a key around adding the active label. The tracker label operation is naturally idempotent. |
-| Review notification comments/reviews | Uses one key per target and adds a hidden `sprints:idempotency-key` marker to the GitHub body. |
-| Deterministic actions | Records action side effects by action name, type, stage, and inputs; repeated successful keys are skipped. |
-| Auto-merge | Keys by lane, pull request, merge method, and delete-branch setting; already-merged PRs become skipped/satisfied side effects. |
-| Completion label cleanup | Keys label add/remove operations and still reconciles actual tracker labels before acting. |
-
-Idempotency keys do not replace external reconciliation. For labels and merge,
-the runner checks the external tracker/code-host state first. For comments and
-reviews, GitHub does not provide a native idempotency API through `gh`, so the
-stable marker makes duplicates identifiable and lets completed keys skip replays
-once Sprints recorded success.
 
 ## Failure And Recovery
 
@@ -914,7 +786,6 @@ once Sprints recorded success.
 | Reviewer requests changes without concrete fixes | Lane becomes `operator_attention`. |
 | Runtime command fails | Lane becomes `operator_attention`; runtime result metadata is recorded when available. |
 | Duplicate dispatch guard trips | Lane becomes `operator_attention`; active session/run conflicts are recorded. |
-| Dispatch planned but runtime never starts | Reconciliation marks the dispatch `interrupted` and queues a same actor/stage recovery retry. |
 | Running lane goes stale | Reconciliation marks the actor run `interrupted` and queues a same actor/stage recovery retry; unsafe recovery moves to `operator_attention`. |
 | Retry limit exceeded | Lane becomes `operator_attention`. |
 | Tracker cleanup fails after merge | Runner queues `completion-cleanup` retry; retry-limit exhaustion becomes `operator_attention`. |
@@ -934,12 +805,11 @@ flowchart TD
     Lease["acquire workflow-daemon lease"]
     Tick["run workflow tick"]
     Status["read status"]
-    Wakeup["read engine retry_wakeup"]
     Sleep["sleep active/idle/retry/error interval"]
     Stop["release daemon lease"]
 
     Start --> Load --> Lease
-    Lease -->|acquired| Tick --> Status --> Wakeup --> Sleep --> Lease
+    Lease -->|acquired| Tick --> Status --> Sleep --> Lease
     Lease -->|held elsewhere| Sleep
     Sleep -->|SIGTERM/SIGINT| Stop
 ```
@@ -983,77 +853,71 @@ These rules protect the mental model:
 ## File Map
 
 ```text
-sprints/
-|-- cli/
+packages/
+|-- cli/src/sprints_cli/
 |   |-- commands.py       # Hermes command handlers
 |   |-- render.py         # output rendering helpers
 |   `-- formatters.py     # human-readable formatting
-|-- workflows/
-|   |-- contracts.py      # WORKFLOW.md load/render/policy parsing
-|   |-- loader.py         # contract and policy loading
-|   |-- config.py         # typed front matter config
-|   |-- registry.py       # workflow object registry and CLI dispatch
-|   |-- runner.py         # CLI command router
-|   |-- inspection.py     # validate, show, status, lanes commands
-|   |-- ticks.py          # tick lifecycle and decision application
-|   |-- tick_journal.py   # engine run/events for workflow.tick.*
-|   |-- state_io.py       # WorkflowState, audit, state lock
-|   |-- dispatch.py       # actor runtime dispatch and background worker
-|   |-- operator.py       # operator retry, release, complete commands
-|   |-- variables.py      # prompt variable builders
-|   |-- prompt_context.py # compact state/facts for runtime prompts
-|   |-- lanes.py          # lane facade used by workflow mechanics
-|   |-- lane_state.py     # lane state, config parsing, engine projections
-|   |-- intake.py         # tracker intake, auto-activation, lane claiming
-|   |-- reconcile.py      # runtime, tracker, PR reconciliation
-|   |-- transitions.py    # decision validation, actor outputs, lane transitions
-|   |-- retries.py        # workflow adapter for engine-owned retry mechanics
-|   |-- notifications.py  # review feedback notifications
-|   |-- status.py         # workflow and lane status projections
-|   |-- sessions.py       # actor sessions, heartbeats, scheduler projections
-|   |-- teardown.py       # merge, tracker cleanup, cleanup retry mechanics
-|   |-- daemon.py         # daemon loop and systemd controls
-|   |-- orchestrator.py   # prompt rendering and decision parsing
-|   |-- actors.py         # actor runtime planning and skill injection
-|   |-- actions.py        # deterministic actions
-|   |-- bindings.py       # runtime binding helpers
-|   |-- validation.py     # contract validation and readiness checks
-|   |-- bootstrap.py      # repo bootstrap
-|   |-- worktrees.py      # lane worktree mechanics
-|   |-- paths.py          # workflow/runtime paths
-|   |-- schema.yaml       # config schema
-|   `-- templates/        # bundled WORKFLOW.md templates
-|-- engine/
-|   |-- db.py             # SQLite connection and schema
-|   |-- store.py          # workflow-scoped EngineStore API
-|   |-- state.py          # SQL state operations
-|   |-- leases.py         # SQLite-backed leases
-|   |-- scheduler.py      # scheduler snapshot shape
-|   |-- lifecycle.py      # pure lifecycle helpers
-|   |-- reports.py        # run/event reports
-|   |-- retention.py      # event retention config
-|   `-- work.py           # work/result dataclasses
-|-- observe/
-|   |-- sources.py        # read-only status aggregation
-|   |-- stalls.py         # observe-loop stall detection helpers
-|   `-- watch.py          # terminal watch renderer
-|-- runtimes/
-|   |-- turns.py          # backend-neutral Sprints turn boundary
-|   |-- codex_app_server.py
-|   |-- hermes_agent_cli.py
-|   |-- claude_cli.py
-|   |-- codex_acpx.py
-|   `-- codex_service.py
-|-- trackers/
-|   |-- __init__.py       # TrackerClient and CodeHostClient protocols
-|   |-- github.py         # GitHub tracker and code-host
-|   `-- linear.py         # Linear tracker
-|-- skills/
-|   |-- pull/
-|   |-- debug/
-|   |-- commit/
-|   |-- push/
-|   `-- land/
+|-- core/src/sprints/
+|   |-- app/
+|   |   `-- commands.py   # presentation-neutral product commands
+|   |-- core/
+|   |   |-- contracts.py  # WORKFLOW.md load/render/policy parsing
+|   |   |-- loader.py     # loader facade
+|   |   |-- config.py     # typed front matter config
+|   |   |-- bindings.py   # runtime binding helpers
+|   |   |-- validation.py # contract validation and readiness checks
+|   |   |-- bootstrap.py  # repo bootstrap
+|   |   |-- doctor.py     # diagnostics and conservative repair
+|   |   `-- paths.py      # workflow/runtime paths
+|   |-- workflows/
+|   |   |-- registry.py       # workflow object registry and CLI dispatch
+|   |   |-- runner.py         # tick, status, lane commands, actor/action dispatch
+|   |   |-- lanes.py          # lane ledger, reconciliation, transitions
+|   |   |-- sessions.py       # actor sessions, heartbeats, scheduler projections
+|   |   |-- teardown.py       # merge, tracker cleanup, cleanup retry mechanics
+|   |   |-- orchestrator.py   # prompt rendering and decision parsing
+|   |   |-- actors.py         # actor runtime planning and skill injection
+|   |   |-- actions.py        # deterministic actions
+|   |   |-- worktrees.py      # lane worktree mechanics
+|   |   |-- schema.yaml       # config schema
+|   |   `-- templates/        # bundled WORKFLOW.md templates
+|   |-- services/
+|   |   |-- daemon.py
+|   |   `-- codex_service.py
+|   |-- engine/
+|   |   |-- db.py             # SQLite connection and schema
+|   |   |-- store.py          # workflow-scoped EngineStore API
+|   |   |-- state.py          # SQL state operations
+|   |   |-- leases.py         # SQLite-backed leases
+|   |   |-- scheduler.py      # scheduler snapshot shape
+|   |   |-- lifecycle.py      # pure lifecycle helpers
+|   |   |-- reports.py        # run/event reports
+|   |   |-- retention.py      # event retention config
+|   |   `-- work.py           # work/result dataclasses
+|   |-- runtimes/
+|   |   |-- turns.py          # backend-neutral Sprints turn boundary
+|   |   |-- codex_app_server.py
+|   |   |-- hermes_agent_cli.py
+|   |   |-- claude_cli.py
+|   |   `-- codex_acpx.py
+|   |-- trackers/
+|   |   |-- __init__.py       # TrackerClient and CodeHostClient protocols
+|   |   |-- github.py         # GitHub tracker and code-host
+|   |   `-- linear.py         # Linear tracker
+|   |-- skills/
+|   |   |-- pull/
+|   |   |-- debug/
+|   |   |-- commit/
+|   |   |-- push/
+|   |   `-- land/
+|   `-- observe/
+|       |-- sources.py
+|       `-- watch.py
+`-- plugins/hermes/
+    |-- plugin.yaml
+    |-- after-install.md
+    `-- src/sprints_hermes/
 ```
 
 ## Design Pressure Points

@@ -13,12 +13,19 @@ Keep the codebase small and current.
 
 ## Checks
 
+Install the locked development environment first:
+
+```bash
+uv sync --locked --dev
+```
+
 Run focused checks for touched files:
 
 ```bash
 uv run ruff format <files>
 uv run ruff check <files>
-python -m compileall sprints sprints_cli.py schemas.py __init__.py
+uv run python -m compileall packages __init__.py
+uv run ruff check packages __init__.py
 ```
 
 For docs-only changes, check links and references to deleted files.

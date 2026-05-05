@@ -3,8 +3,22 @@
 Supported path:
 
 ```bash
-sudo apt install python3-yaml python3-jsonschema
 hermes plugins install attmous/sprints --enable
+```
+
+On first load, Sprints checks Hermes plugin API compatibility and verifies the
+Python packages it needs in the same environment that runs Hermes. Missing
+`PyYAML`, `jsonschema`, or `rich` packages are installed with:
+
+```bash
+python -m pip install PyYAML jsonschema rich
+```
+
+If the Python environment rejects package installation, Sprints prints the exact
+manual command and the Debian/Ubuntu package fallback:
+
+```bash
+sudo apt install python3-yaml python3-jsonschema python3-rich
 ```
 
 ## Bootstrap
@@ -13,16 +27,17 @@ Run from the target repo:
 
 ```bash
 cd /path/to/repo
-hermes sprints bootstrap
-$EDITOR WORKFLOW.md
+hermes sprints init
 hermes sprints codex-app-server up
 hermes sprints validate
 hermes sprints doctor
 hermes sprints daemon up
 ```
 
-`bootstrap` creates a workflow root and writes a repo-owned `WORKFLOW.md`
-contract.
+`init` asks for the repo, tracker, runtime, optional model override, labels, and
+concurrency. It creates a workflow root, writes a repo-owned `WORKFLOW.md`
+contract, validates it, and prints exact next steps. Use `bootstrap` or
+`scaffold-workflow` when scripting setup or replacing the guided prompts.
 
 Default workflow root:
 
@@ -66,8 +81,14 @@ hermes sprints configure-runtime --runtime codex-app-server --role orchestrator
 ```bash
 hermes sprints validate
 hermes sprints doctor
+hermes sprints doctor --fix
 hermes sprints runtime-matrix
 ```
+
+`doctor --fix` only applies conservative local repairs: missing workflow
+directories, pointer files, state/audit files, engine projections, clear runtime
+binding drift, and missing systemd user unit files. It reports every change and
+skips ambiguous repairs.
 
 Use `runtime-matrix --execute` only when the configured runtimes are available.
 It dispatches a minimal runtime turn.

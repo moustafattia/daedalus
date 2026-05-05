@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=66", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sprints-openclaw-plugin"
+version = "0.3.0"
+description = "OpenClaw plugin adapter for Sprints."
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Sprints"}]
+dependencies = [
+  "sprints-core",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

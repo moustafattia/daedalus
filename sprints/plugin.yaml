@@ -1,6 +1,0 @@
-name: sprints
-version: 0.3.0
-description: Sprints workflow engine and operator control surface.
-author: Hermes Agent
-provides_hooks: []
-provides_tools: []

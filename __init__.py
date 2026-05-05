@@ -1,25 +1,25 @@
-"""Repo-root Hermes plugin entrypoint.
+"""Hermes directory-plugin entrypoint for Sprints.
 
-Hermes' official Git install path expects ``plugin.yaml`` and ``__init__.py``
-at the repository root. The real implementation lives under ``./sprints/``.
-This wrapper keeps the repo installable via ``hermes plugins install`` without
-moving the engine package again.
+The product code lives in the uv workspace packages. This root module is the
+canonical Git-install surface required by Hermes directory plugins.
 """
 
+from __future__ import annotations
+
+import sys
 from pathlib import Path
 
-_PLUGIN_ROOT = Path(__file__).resolve().parent
-_INNER_SPRINTS_DIR = _PLUGIN_ROOT / "sprints"
-if "__path__" in globals() and _INNER_SPRINTS_DIR.exists():
-    _inner_dir_str = str(_INNER_SPRINTS_DIR)
-    if _inner_dir_str in __path__:
-        __path__.remove(_inner_dir_str)
-    __path__.insert(0, _inner_dir_str)
+_ROOT = Path(__file__).resolve().parent
+for _path in (
+    _ROOT / "packages" / "core" / "src",
+    _ROOT / "packages" / "cli" / "src",
+    _ROOT / "packages" / "plugins" / "hermes" / "src",
+):
+    _text = str(_path)
+    if _text not in sys.path:
+        sys.path.insert(0, _text)
 
-try:
-    from .sprints import register as _register
-except ImportError:
-    from sprints import register as _register
+from sprints_hermes import register as _register  # noqa: E402
 
 
 def register(ctx):

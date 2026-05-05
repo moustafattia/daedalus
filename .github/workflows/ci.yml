@@ -16,8 +16,13 @@ jobs:
         with:
           python-version: "3.11"
 
+      - uses: astral-sh/setup-uv@v6
+
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+        run: uv sync --locked --dev
 
       - name: Compile package
-        run: python -m compileall sprints
+        run: uv run python -m compileall packages __init__.py
+
+      - name: Lint package
+        run: uv run ruff check packages __init__.py

@@ -1,6 +1,0 @@
-include README.md
-include LICENSE
-include sprints/plugin.yaml
-recursive-include sprints/skills *.md
-recursive-include sprints/workflows *.yaml *.md *.json
-prune sprints/projects
