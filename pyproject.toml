@@ -1,44 +1,37 @@
-[build-system]
-requires = ["setuptools>=66", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "hermes-plugin-sprints"
+name = "sprints-workspace"
 version = "0.3.0"
-description = "Sprints workflow engine and operator control surface."
-readme = "README.md"
-requires-python = ">=3.10"
-license = {file = "LICENSE"}
-authors = [
-  {name = "Hermes Agent"},
-]
-dependencies = [
-  "PyYAML",
-  "jsonschema",
-  "rich",
-]
-keywords = ["hermes-agent", "plugin", "workflow", "sdlc"]
-classifiers = [
-  "License :: OSI Approved :: MIT License",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Operating System :: POSIX :: Linux",
+requires-python = ">=3.11"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+  "packages/core",
+  "packages/cli",
+  "packages/tui",
+  "packages/web",
+  "packages/mob",
+  "packages/plugins/hermes",
+  "packages/plugins/openclaw",
 ]
 
-[project.urls]
-Homepage = "https://github.com/attmous/sprints"
-Repository = "https://github.com/attmous/sprints"
-Documentation = "https://github.com/attmous/sprints/tree/main/docs"
+[tool.uv.sources]
+sprints-core = { workspace = true }
+sprints-cli = { workspace = true }
+sprints-tui = { workspace = true }
+sprints-web = { workspace = true }
+sprints-mobile = { workspace = true }
+sprints-hermes-plugin = { workspace = true }
+sprints-openclaw-plugin = { workspace = true }
 
-[project.entry-points."hermes_agent.plugins"]
-sprints = "sprints"
+[dependency-groups]
+dev = [
+  "ruff>=0.14.0",
+  "sprints-cli",
+  "sprints-hermes-plugin",
+]
 
-[tool.setuptools]
-include-package-data = true
-
-[tool.setuptools.exclude-package-data]
-sprints = ["projects/*", "projects/**/*"]
-
-[tool.setuptools.packages.find]
-include = ["sprints*"]
+[tool.ruff]
+target-version = "py311"

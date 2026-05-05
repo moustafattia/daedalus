@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=66", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sprints-web"
+version = "0.3.0"
+description = "Web UI for Sprints."
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Sprints"}]
+dependencies = [
+  "sprints-core",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sprints_web = [
+  "frontend/**/*",
+  "assets/**/*",
+]

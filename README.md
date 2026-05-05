@@ -1,7 +1,7 @@
 # Sprints
 
 <p align="center">
-  <img src="assets/sprints-readme-banner.png" alt="Hermes Sprints banner">
+  <img src="packages/web/src/sprints_web/assets/site-assets/sprints-readme-banner.png" alt="Hermes Sprints banner">
 </p>
 
 Sprints is a Hermes-Agent plugin for durable supervised workflow execution.
@@ -37,15 +37,14 @@ Prerequisites:
 - Linux with `systemd --user` for `hermes sprints daemon up`
 
 ```bash
-sudo apt install python3-yaml python3-jsonschema
 hermes plugins install attmous/sprints --enable
 
 cd /path/to/repo
-hermes sprints bootstrap
-$EDITOR WORKFLOW.md
+hermes sprints init
 hermes sprints codex-app-server up
 hermes sprints validate
 hermes sprints doctor
+hermes sprints doctor --fix
 hermes sprints daemon up
 hermes
 ```
@@ -55,6 +54,7 @@ Inside Hermes:
 ```text
 /sprints status
 /sprints doctor
+/sprints doctor --fix
 /sprints watch
 /sprints daemon status
 /workflow change-delivery status
@@ -165,7 +165,7 @@ Each contract defines:
 - actions
 - storage paths
 
-Bundled policy templates live under `sprints/workflows/templates/`:
+Bundled policy templates live under `packages/core/src/sprints/workflows/templates/`:
 
 - `issue-runner.md`
 - `change-delivery.md`
@@ -175,17 +175,33 @@ Bundled policy templates live under `sprints/workflows/templates/`:
 They use the same Python implementation: loader, typed config, runner, actors,
 actions, gates, and runtime dispatch.
 
+## First-Run Setup
+
+Use `init` for the guided path:
+
+```bash
+cd /path/to/repo
+hermes sprints init
+```
+
+It asks for the target repo, tracker, runtime, optional model override, labels,
+and concurrency. It writes a valid repo-owned `WORKFLOW.md`, creates the
+workflow root, records the repo pointer, validates the contract, and prints the
+next commands. `bootstrap` and `scaffold-workflow` remain available for scripts
+and advanced operators that already know the contract shape.
+
 ## Package Layout
 
 ```text
-sprints/
-|-- cli/          # command surface
-|-- engine/       # SQLite-backed state
-|-- observe/      # read-only operator views
-|-- runtimes/     # runtime adapters and turn dispatch
-|-- skills/       # actor skill instructions
-|-- trackers/     # GitHub and Linear trackers
-`-- workflows/    # WORKFLOW.md loader and workflow runner
+packages/
+|-- core/              # engine, workflows, runtimes, trackers, services, app API
+|-- cli/               # standalone `sprints` command
+|-- tui/               # terminal UI package
+|-- web/               # web UI package and static site assets
+|-- mob/               # mobile adapter package
+`-- plugins/
+    |-- hermes/        # Hermes plugin adapter
+    `-- openclaw/      # OpenClaw plugin adapter
 ```
 
 ## Docs
@@ -199,9 +215,19 @@ sprints/
 | [Codex App Server](docs/operator/codex-app-server.md) | Default runtime listener. |
 | [Runtimes](docs/concepts/runtimes.md) | Actor/runtime execution path. |
 | [Engine](docs/concepts/engine.md) | Durable state model. |
-| [Skills](sprints/skills/README.md) | Actor skill packages. |
+| [Skills](packages/core/src/sprints/skills/README.md) | Actor skill packages. |
 | [Slash Commands](docs/operator/slash-commands.md) | Command reference. |
 | [Security](docs/security.md) | Trust model and execution risk. |
+
+## Development
+
+This repo is managed with `uv`:
+
+```bash
+uv sync --locked --dev
+uv run python -m compileall packages __init__.py
+uv run ruff check packages __init__.py
+```
 
 ## License
 

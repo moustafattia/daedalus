@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=66", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sprints-hermes-plugin"
+version = "0.3.0"
+description = "Hermes plugin adapter for Sprints."
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Sprints"}]
+dependencies = [
+  "sprints-core",
+  "sprints-cli",
+]
+
+[project.entry-points."hermes_agent.plugins"]
+sprints = "sprints_hermes"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

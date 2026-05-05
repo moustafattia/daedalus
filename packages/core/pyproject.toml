@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=66", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sprints-core"
+version = "0.3.0"
+description = "Sprints workflow engine core."
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Sprints"}]
+dependencies = [
+  "PyYAML",
+  "jsonschema",
+  "rich",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sprints = [
+  "skills/**/*.md",
+  "workflows/**/*.yaml",
+  "workflows/templates/*.md",
+]

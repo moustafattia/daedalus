@@ -74,7 +74,7 @@ If the command writes JSON to `{result_path}`, Sprints reads `output`,
 
 | Runtime kind | File |
 | --- | --- |
-| `codex-app-server` | `sprints/runtimes/codex_app_server.py` |
-| `hermes-agent` | `sprints/runtimes/hermes_agent_cli.py` |
-| `claude-cli` | `sprints/runtimes/claude_cli.py` |
-| `acpx-codex` | `sprints/runtimes/codex_acpx.py` |
+| `codex-app-server` | `packages/core/src/sprints/runtimes/codex_app_server.py` |
+| `hermes-agent` | `packages/core/src/sprints/runtimes/hermes_agent_cli.py` |
+| `claude-cli` | `packages/core/src/sprints/runtimes/claude_cli.py` |
+| `acpx-codex` | `packages/core/src/sprints/runtimes/codex_acpx.py` |

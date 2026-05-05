@@ -25,18 +25,18 @@ operator commands.
 ## Source Layout
 
 ```text
-sprints/
-|-- cli/          # command parsing and rendering
-|-- engine/       # durable SQLite mechanics
-|-- observe/      # watch/status read side
-|-- runtimes/     # Codex, Hermes Agent, Claude, ACPX adapters
-|-- trackers/     # GitHub and Linear tracker clients
-`-- workflows/    # WORKFLOW.md loader, runner, actors, actions
+packages/
+|-- core/          # product engine and app API
+|-- cli/           # standalone command parsing and rendering
+|-- tui/           # terminal UI package
+|-- web/           # web UI/static assets package
+|-- mob/           # mobile adapter package
+`-- plugins/       # Hermes and OpenClaw host adapters
 ```
 
 ## Workflow Templates
 
-Bundled policy templates live in `sprints/workflows/templates/`:
+Bundled policy templates live in `packages/core/src/sprints/workflows/templates/`:
 
 - `issue-runner.md`
 - `change-delivery.md`

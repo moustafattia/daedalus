@@ -2,7 +2,7 @@
 
 Sprints defaults to `change-delivery`.
 
-The bundled files under `sprints/workflows/templates/` are policy templates.
+The bundled files under `packages/core/src/sprints/workflows/templates/` are policy templates.
 Bootstrap writes the `change-delivery` template by default, and `--workflow`
 selects a different bundled template.
 
@@ -10,10 +10,10 @@ selects a different bundled template.
 
 | File | Purpose |
 | --- | --- |
-| `sprints/workflows/templates/issue-runner.md` | Issue-focused policy template. |
-| `sprints/workflows/templates/change-delivery.md` | Implementation/review policy template. |
-| `sprints/workflows/templates/release.md` | Release planning and verification template. |
-| `sprints/workflows/templates/triage.md` | Incoming work triage template. |
+| `packages/core/src/sprints/workflows/templates/issue-runner.md` | Issue-focused policy template. |
+| `packages/core/src/sprints/workflows/templates/change-delivery.md` | Implementation/review policy template. |
+| `packages/core/src/sprints/workflows/templates/release.md` | Release planning and verification template. |
+| `packages/core/src/sprints/workflows/templates/triage.md` | Incoming work triage template. |
 
 ## Implementation Specs
 

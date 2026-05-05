@@ -1,6 +1,6 @@
 # Engine
 
-`sprints/engine/` owns durable state. It does not decide workflow policy.
+`packages/core/src/sprints/engine/` owns durable state. It does not decide workflow policy.
 
 The orchestrator and `WORKFLOW.md` decide what should happen. The engine stores
 what happened, what is running, what needs retry, and what an operator can
