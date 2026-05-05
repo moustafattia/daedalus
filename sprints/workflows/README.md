@@ -22,6 +22,7 @@ workflows/
 |-- bootstrap.py             # repo bootstrap and scaffold mechanics
 |-- daemon.py                # workflow tick loop and service controls
 |-- orchestrator.py          # orchestrator prompt + decision schema
+|-- prompt_context.py        # compact state/facts for runtime prompts
 |-- runner.py                # CLI command router
 |-- inspection.py            # validate, show, status, and lanes commands
 |-- ticks.py                 # tick lifecycle and orchestrator invocation
@@ -63,6 +64,17 @@ workflows/
 The orchestrator decides whether to run an actor, run an action, advance,
 retry, complete, or raise operator attention. `ticks.py` validates and applies
 that decision.
+
+The orchestrator does not receive raw workflow state. `prompt_context.py`
+builds a compact prompt payload:
+
+- active and decision-ready lanes keep the fields needed for validation and
+  handoff
+- terminal lanes are reduced to counts and recent summaries
+- runtime sessions, dispatch journals, transition history, and side-effect
+  details stay in lane state, audit logs, and engine history
+- prompt size is measured before runtime dispatch and aggressively compacted
+  before the Codex app-server input limit can be hit
 
 ## Tick Journal
 

@@ -7,6 +7,11 @@ from typing import Any
 from workflows.config import WorkflowConfig
 from workflows.state_io import WorkflowState
 from workflows.lanes import lane_mapping
+from workflows.prompt_context import (
+    compact_lane_for_prompt,
+    compact_workflow_state,
+    orchestrator_prompt_budget,
+)
 
 
 def actor_variables(
@@ -18,11 +23,22 @@ def actor_variables(
 ) -> dict[str, Any]:
     actor_outputs = lane_mapping(lane, "actor_outputs")
     attempt = int(inputs.get("attempt") or lane.get("attempt") or 1)
+    budget = orchestrator_prompt_budget(config)
+    lane_id = str(lane.get("lane_id") or "").strip()
     return {
         **inputs,
         "attempt": attempt,
-        "workflow": state.to_dict(),
-        "lane": lane,
+        "workflow": compact_workflow_state(
+            state=state,
+            ready_lane_ids={lane_id} if lane_id else set(),
+            budget=budget,
+        ),
+        "lane": compact_lane_for_prompt(
+            lane=lane,
+            lane_id=lane_id,
+            budget=budget,
+            detailed=True,
+        ),
         "config": config.raw,
         "issue": lane.get("issue") or {},
         "implementation": actor_outputs.get("implementer") or {},
@@ -41,10 +57,21 @@ def action_variables(
     inputs: dict[str, Any],
 ) -> dict[str, Any]:
     actor_outputs = lane_mapping(lane, "actor_outputs")
+    budget = orchestrator_prompt_budget(config)
+    lane_id = str(lane.get("lane_id") or "").strip()
     return {
         **inputs,
-        "workflow": state.to_dict(),
-        "lane": lane,
+        "workflow": compact_workflow_state(
+            state=state,
+            ready_lane_ids={lane_id} if lane_id else set(),
+            budget=budget,
+        ),
+        "lane": compact_lane_for_prompt(
+            lane=lane,
+            lane_id=lane_id,
+            budget=budget,
+            detailed=True,
+        ),
         "workflow_root": str(config.workflow_root),
         "config": config.raw,
         "issue": lane.get("issue") or {},

@@ -178,6 +178,20 @@ properties:
     properties:
       actor:
         type: string
+      context:
+        type: object
+        properties:
+          max-input-chars:
+            type: integer
+          warn-input-chars:
+            type: integer
+          max-string-chars:
+            type: integer
+          max-list-items:
+            type: integer
+          max-terminal-lanes:
+            type: integer
+        additionalProperties: true
     additionalProperties: true
   runtimes:
     type: object

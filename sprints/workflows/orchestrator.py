@@ -9,6 +9,13 @@ import re
 
 from workflows.config import WorkflowConfig
 from workflows.contracts import ActorPolicy, WorkflowPolicy
+from workflows.prompt_context import (
+    APP_SERVER_INPUT_LIMIT_CHARS,
+    PromptBuild,
+    build_orchestrator_payload,
+    orchestrator_prompt_budget,
+    prompt_size_report,
+)
 
 
 class OrchestratorDecisionError(RuntimeError):
@@ -149,6 +156,56 @@ def render_prompt_template(
     return rendered.strip() + "\n"
 
 
+AVAILABLE_ORCHESTRATOR_DECISIONS = [
+    "advance",
+    "retry",
+    "run_actor",
+    "run_action",
+    "operator_attention",
+    "complete",
+]
+
+
+def prepare_orchestrator_prompt(
+    *,
+    config: WorkflowConfig,
+    policy: WorkflowPolicy,
+    state: Any,
+    facts: dict[str, Any],
+) -> PromptBuild:
+    payload, report = build_orchestrator_payload(
+        config=config,
+        state=state,
+        facts=facts,
+        available_decisions=AVAILABLE_ORCHESTRATOR_DECISIONS,
+    )
+    prompt = _render_orchestrator_prompt(policy=policy, payload=payload)
+    budget = orchestrator_prompt_budget(config)
+    size_report = prompt_size_report(prompt=prompt, report=report, budget=budget)
+    if size_report["status"] == "too_large":
+        payload, report = build_orchestrator_payload(
+            config=config,
+            state=state,
+            facts=facts,
+            available_decisions=AVAILABLE_ORCHESTRATOR_DECISIONS,
+            aggressive=True,
+        )
+        prompt = _render_orchestrator_prompt(policy=policy, payload=payload)
+        size_report = prompt_size_report(
+            prompt=prompt,
+            report={**report, "auto_compacted_due_to_size": True},
+            budget=budget,
+        )
+    if size_report["status"] == "too_large":
+        raise RuntimeError(
+            "orchestrator prompt exceeds compacted input limit: "
+            f"{size_report['prompt_chars']} chars, configured limit "
+            f"{budget.max_chars}, app-server limit {APP_SERVER_INPUT_LIMIT_CHARS}. "
+            "Reduce active lane count or prompt context limits."
+        )
+    return PromptBuild(prompt=prompt, report=size_report)
+
+
 def build_orchestrator_prompt(
     *,
     config: WorkflowConfig,
@@ -156,19 +213,17 @@ def build_orchestrator_prompt(
     state: Any,
     facts: dict[str, Any],
 ) -> str:
-    payload = {
-        "config": config.raw,
-        "state": state.to_dict(),
-        "facts": facts,
-        "available_decisions": [
-            "advance",
-            "retry",
-            "run_actor",
-            "run_action",
-            "operator_attention",
-            "complete",
-        ],
-    }
+    return prepare_orchestrator_prompt(
+        config=config,
+        policy=policy,
+        state=state,
+        facts=facts,
+    ).prompt
+
+
+def _render_orchestrator_prompt(
+    *, policy: WorkflowPolicy, payload: dict[str, Any]
+) -> str:
     return (
         "# Orchestrator Policy\n\n"
         f"{policy.orchestrator}\n\n"

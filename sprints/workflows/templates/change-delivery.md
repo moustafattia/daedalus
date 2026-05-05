@@ -48,6 +48,12 @@ completion:
     delete-branch: true
 orchestrator:
   actor: orchestrator
+  context:
+    max-input-chars: 900000
+    warn-input-chars: 750000
+    max-string-chars: 2000
+    max-list-items: 20
+    max-terminal-lanes: 5
 runtimes:
   codex:
     kind: codex-app-server
@@ -117,11 +123,12 @@ Engine lane states are authoritative for ownership:
 The runner reconciles existing lanes with tracker and pull request state before
 each dispatch. It also records runtime session, thread, turn, token, background
 worker heartbeat, and latest event metadata on the lane so interrupted actors
-can be recovered. It exposes
-`facts.tracker.candidates`, `facts.tracker.terminal`, `facts.engine.lanes`,
-`facts.concurrency`, `facts.intake`, `facts.recovery`, and `facts.retry`. The
-runner claims eligible lanes up to configured capacity before it asks you to
-dispatch work. If capacity is available and no eligible issue exists,
+can be recovered. Your prompt receives compact lane/fact summaries, not raw
+workflow history. It exposes `facts.tracker.candidates`,
+`facts.tracker.terminal`, `facts.engine.lanes`, `facts.concurrency`,
+`facts.intake`, `facts.recovery`, and `facts.retry`. The runner claims eligible
+lanes up to configured capacity before it asks you to dispatch work. If capacity
+is available and no eligible issue exists,
 `intake.auto-activate` may add the configured active label to the next eligible
 open issue before claiming it. Default capacity is one active lane until runtime
 sessions are stronger.

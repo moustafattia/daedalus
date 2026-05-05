@@ -63,21 +63,34 @@ def build_workflow_facts(config: WorkflowConfig, state: Any) -> dict[str, Any]:
     actor_usage = actor_concurrency_usage(config=config, state=state)
     current_active_lanes = active_lanes(state)
     current_decision_ready_lanes = decision_ready_lanes(state)
+    terminal_lanes = [
+        lane
+        for lane in state.lanes.values()
+        if isinstance(lane, dict) and lane_is_terminal(lane)
+    ]
+    terminal_by_status: dict[str, int] = {}
+    for lane in terminal_lanes:
+        status = str(lane.get("status") or "unknown")
+        terminal_by_status[status] = terminal_by_status.get(status, 0) + 1
     lane_limit = concurrency["max_lanes"]
     available_lanes = max(lane_limit - len(current_active_lanes), 0)
+    store = engine_store(config)
     return {
         "tracker": tracker_facts_payload,
         "engine": {
-            "lanes": state.lanes,
+            "lanes": [lane_summary(lane) for lane in current_active_lanes],
+            "lane_count": len(state.lanes),
+            "terminal_lane_count": len(terminal_lanes),
+            "terminal_lanes_by_status": terminal_by_status,
             "decision_ready_lanes": [
                 lane_summary(lane) for lane in current_decision_ready_lanes
             ],
-            "work_items": engine_store(config).work_items(limit=200),
-            "runtime_sessions": engine_store(config).runtime_sessions(limit=200),
+            "work_items": store.work_items(limit=50),
+            "runtime_sessions": store.runtime_sessions(limit=50),
             "active_lane_count": len(current_active_lanes),
             "decision_ready_lane_count": len(current_decision_ready_lanes),
             "idle_reason": state.idle_reason,
-            "due_retries": engine_store(config).due_retries(limit=50),
+            "due_retries": store.due_retries(limit=50),
             "capacity": {
                 "max_lanes": lane_limit,
                 "max_active_lanes": lane_limit,

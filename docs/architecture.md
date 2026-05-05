@@ -22,6 +22,7 @@ trackers and pull requests, and exposing operator commands.
 - [Package Boundaries](#package-boundaries)
 - [Workflow Contract](#workflow-contract)
 - [Tick Lifecycle](#tick-lifecycle)
+- [Prompt Context](#prompt-context)
 - [Lane Ledger](#lane-ledger)
 - [Lane State Machine](#lane-state-machine)
 - [Default Change Delivery Flow](#default-change-delivery-flow)
@@ -356,6 +357,39 @@ capacity is available, and no issue currently satisfies tracker eligibility,
 the runner adds the configured active label to the next open issue that does
 not have excluded labels. That mutation is audited in the engine event stream
 before the issue is claimed as a lane.
+
+## Prompt Context
+
+The runner never sends raw workflow state to the orchestrator runtime. Raw lane
+JSON is recovery state; prompt context is decision state.
+
+`workflows/prompt_context.py` compacts the hot prompt boundary before runtime
+dispatch:
+
+- active and decision-ready lanes keep the fields needed for gate validation,
+  retry decisions, actor handoff, branch and pull request checks
+- terminal lanes are reduced to counts and a small recent summary
+- issue descriptions, actor outputs, blockers, findings, and verification are
+  bounded by configurable string/list limits
+- runtime session maps, dispatch journals, transition history, side-effect
+  payloads, and audit detail stay in workflow state, audit JSONL, and engine
+  tables
+
+The default change-delivery template sets:
+
+```yaml
+orchestrator:
+  context:
+    max-input-chars: 900000
+    warn-input-chars: 750000
+    max-string-chars: 2000
+    max-list-items: 20
+    max-terminal-lanes: 5
+```
+
+If the compact prompt still reaches the configured limit, the runner rebuilds
+it in aggressive mode. If it is still too large, the runner fails before calling
+the app-server instead of letting the runtime reject the turn.
 
 ## Lane Ledger
 
@@ -967,6 +1001,7 @@ sprints/
 |   |-- dispatch.py       # actor runtime dispatch and background worker
 |   |-- operator.py       # operator retry, release, complete commands
 |   |-- variables.py      # prompt variable builders
+|   |-- prompt_context.py # compact state/facts for runtime prompts
 |   |-- lanes.py          # lane facade used by workflow mechanics
 |   |-- lane_state.py     # lane state, config parsing, engine projections
 |   |-- intake.py         # tracker intake, auto-activation, lane claiming

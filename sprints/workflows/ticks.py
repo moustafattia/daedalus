@@ -25,8 +25,8 @@ from workflows.effects import (
 from workflows.loader import load_workflow_policy
 from workflows.orchestrator import (
     OrchestratorDecision,
-    build_orchestrator_prompt,
     parse_orchestrator_decisions,
+    prepare_orchestrator_prompt,
 )
 from workflows.state_io import (
     WorkflowState,
@@ -297,6 +297,13 @@ def tick_locked(config: WorkflowConfig, *, orchestrator_output: str) -> int:
                 config=config,
                 policy=policy,
                 state=state,
+                prompt_report=lambda report: record_tick_journal(
+                    config=config,
+                    journal=journal,
+                    state=state,
+                    event="orchestrator_prompt_prepared",
+                    details=report,
+                ),
             )
             record_tick_journal(
                 config=config,
@@ -446,18 +453,24 @@ def save_tick(
 
 
 def run_orchestrator(
-    *, config: WorkflowConfig, policy: WorkflowPolicy, state: WorkflowState
+    *,
+    config: WorkflowConfig,
+    policy: WorkflowPolicy,
+    state: WorkflowState,
+    prompt_report: Any | None = None,
 ) -> str:
-    prompt = build_orchestrator_prompt(
+    prepared = prepare_orchestrator_prompt(
         config=config,
         policy=policy,
         state=state,
         facts=build_workflow_facts(config, state),
     )
+    if callable(prompt_report):
+        prompt_report(prepared.report)
     actor = config.actors[config.orchestrator_actor]
     return (
         build_actor_runtime(config=config, actor=actor)
-        .run(actor=actor, prompt=prompt, stage_name="orchestrator")
+        .run(actor=actor, prompt=prepared.prompt, stage_name="orchestrator")
         .output
     )
 
